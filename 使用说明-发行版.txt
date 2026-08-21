@@ -1,0 +1,39 @@
+趋势分析实时买卖点工具 - 发行版（无内置Python）
+============================================
+
+【运行环境要求】
+  Microsoft Windows + Python 3.8 或更高版本
+  - 本发行版不含内置 Python 解释器（体积精简）
+  - 目标机器需已安装 Python 3，且勾选 "Add to PATH"
+  - Python 下载: https://www.python.org/downloads/
+
+【依赖说明】
+  数据请求依赖 requests 库及其依赖(urllib3/certifi/charset_normalizer/idna)，
+  均已内置在本包的 libs/ 目录，启动时自动加载。
+  无需手动 pip install，也无需联网安装依赖。
+
+【如何启动】
+  双击「启动.bat」——一键启动，自动打开看板。
+  双击「调试启动.bat」——跳过许可证校验，直接启动服务(调试用)。
+  双击「停止服务.bat」——停止后台服务。
+
+【首次激活】
+  启动后若未激活，会自动打开激活页面：
+  1. 复制页面显示的机器码
+  2. 发给卖家获取许可证密钥
+  3. 粘贴密钥，点击激活
+  4. 关闭窗口重新启动
+
+【目录结构】
+  app.py           API 服务(端口 8795)
+  launcher.py      启动器(许可证校验+服务拉起)
+  license_core.py  许可证验证(机器绑定)
+  analysis/        分析模块
+  dashboard/       可视化看板
+  data/            数据获取 + 许可证(license.dat)
+  libs/            内置第三方依赖(requests等)
+  docs/            文档
+
+【数据源】
+  腾讯/新浪/东方财富 实时行情接口，联网使用。
+  数据实时更新（K线/分时/资金流/行情）。

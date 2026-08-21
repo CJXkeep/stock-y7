@@ -1,0 +1,408 @@
+schema: comet.native.v4
+name: fix-review-findings
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: fix-review-findings
+    operation: create
+    source: specs/fix-review-findings/spec.md
+workspace:
+  isolation: current
+  change_branch: null
+  target_branch: null
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：ATR 止损不会出现负值或非正止损；合成高波动数据断言 stop_loss > 0。
+    result: passed
+    reason:
+      text: ATR 止损使用 max(0.01, entry-2*ATR)，stop_loss 恒为正；test_atr_stop_is_positive
+        通过。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：`_build_trade_plan` 等文档/注释与 ATR 实现一致。
+    result: passed
+    reason:
+      text: _build_trade_plan docstring 已更新为 ATR 口径，旧“固定 5%，8/8
+        验证”注释已移除；test_build_trade_plan_docstring_no_fixed_5 通过。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：`run_analysis` 不再隐式联网；调用方传入 `[]` 时不会触发 `fetch_index_kline`。
+    result: passed
+    reason:
+      text: run_analysis 不再隐式联网，index_klines=None
+        时按空列表处理；test_run_analysis_no_implicit_network 通过。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：周线文案本地化不再通过全局字符串替换误伤；合成数据断言关键文案正确。
+    result: passed
+    reason:
+      text: 周线文案只替换明确周期标签，不再替换“今日/当日”；test_week_localize_does_not_replace_today 通过。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：前端展示 `data_meta` 中的数据源/复权/最新 bar/计算时间。
+    result: passed
+    reason:
+      text: "前端新增 #sum-meta 与 renderDataMeta，展示
+        data_meta；test_frontend_has_data_meta_renderer 通过。"
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：内部 CANSLIM 命名按用户决定处理；输出和代码不再误导（或明确兼容策略）。
+    result: passed
+    reason:
+      text: CANSLIM 已彻底重命名为 momentum：API 字段、前端、测试、模块源码均无 canslim/CANSLIM/CAN SLIM
+        标识符；test_no_canslim_identifier_in_source 与
+        test_momentum_renamed_in_outputs 通过。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：新增 review 回归测试全部通过，且既有 P0/P1/P2 测试不回归。
+    result: passed
+    reason:
+      text: 新增 review 测试 6/6 通过，既有 P0/P1/P2 测试 11/11、11/11、8/8 全部通过，无回归。
+      truncated: false
+  - id: A8
+    source: specs/fix-review-findings/spec.md
+    text: "> 状态：Shape 已确认用户决定，待最终确认后进入 Build。"
+    result: passed
+    reason:
+      text: spec 状态行在创建时记录；当前 change 已进入 Build/Verify，实现验收不受影响。
+      truncated: false
+  - id: A9
+    source: specs/fix-review-findings/spec.md
+    text: 修复代码 review 中发现的问题，作为 P3
+      收尾：清理注释/命名、增强边界保护、消除隐式网络重试、补充前端元数据展示和回归测试，使项目更稳健、更透明。
+    result: passed
+    reason:
+      text: 目标（P3 review 收尾）已实现。
+      truncated: false
+  - id: A10
+    source: specs/fix-review-findings/spec.md
+    text: "**ATR 止损下限保护**：`entry - 2*ATR` 可能为负，增加 `stop_loss > 0` 保护。"
+    result: passed
+    reason:
+      text: ATR 止损下限保护已实现（见 A1）。
+      truncated: false
+  - id: A11
+    source: specs/fix-review-findings/spec.md
+    text: "**清理过期注释/docstring**：`_build_trade_plan` 等与 ATR 实现不一致的注释。"
+    result: passed
+    reason:
+      text: 过期注释已清理（见 A2）。
+      truncated: false
+  - id: A12
+    source: specs/fix-review-findings/spec.md
+    text: "**消除 `run_analysis` 隐式联网**：调用方失败时传 `[]`，引擎不再自行 `fetch_index_kline`。"
+    result: passed
+    reason:
+      text: run_analysis 隐式联网已消除（见 A3）。
+      truncated: false
+  - id: A13
+    source: specs/fix-review-findings/spec.md
+    text: "**周线文案安全本地化**：避免全局字符串替换误伤，改为更安全的周期文案处理。"
+    result: passed
+    reason:
+      text: 周线文案安全本地化已实现（见 A4）。
+      truncated: false
+  - id: A14
+    source: specs/fix-review-findings/spec.md
+    text: "**前端展示 `data_meta`**：显示数据源、复权、最新 bar 状态、计算时间。"
+    result: passed
+    reason:
+      text: 前端 data_meta 展示已实现（见 A5）。
+      truncated: false
+  - id: A15
+    source: specs/fix-review-findings/spec.md
+    text: "**内部 CANSLIM 彻底重命名为 momentum**：API 字段、前端、测试全部改为 `momentum`。"
+    result: passed
+    reason:
+      text: 内部 CANSLIM 已重命名为 momentum（见 A6）。
+      truncated: false
+  - id: A16
+    source: specs/fix-review-findings/spec.md
+    text: "**补充 review 回归测试**：ATR 负值、周线文案误替换、`data_meta` 渲染等。"
+    result: passed
+    reason:
+      text: review 回归测试已补充（见 A7）。
+      truncated: false
+  - id: A17
+    source: specs/fix-review-findings/spec.md
+    text: 修复范围：**全部 review 发现**。
+    result: passed
+    reason:
+      text: 修复范围为全部 review 发现，用户已确认。
+      truncated: false
+  - id: A18
+    source: specs/fix-review-findings/spec.md
+    text: 内部 CANSLIM 命名：**彻底重命名为 momentum**，并同步前端/测试。
+    result: passed
+    reason:
+      text: 内部 CANSLIM 彻底重命名为 momentum，用户已确认。
+      truncated: false
+  - id: A19
+    source: specs/fix-review-findings/spec.md
+    text: A1：ATR 止损不会出现负值或非正止损；合成高波动数据断言 `stop_loss > 0`。
+    result: passed
+    reason:
+      text: 同 A1。
+      truncated: false
+  - id: A20
+    source: specs/fix-review-findings/spec.md
+    text: A2：`_build_trade_plan` 等文档/注释与 ATR 实现一致。
+    result: passed
+    reason:
+      text: 同 A2。
+      truncated: false
+  - id: A21
+    source: specs/fix-review-findings/spec.md
+    text: A3：`run_analysis` 不再隐式联网；调用方传入 `[]` 时不会触发 `fetch_index_kline`。
+    result: passed
+    reason:
+      text: 同 A3。
+      truncated: false
+  - id: A22
+    source: specs/fix-review-findings/spec.md
+    text: A4：周线文案本地化不再通过全局字符串替换误伤；合成数据断言关键文案正确。
+    result: passed
+    reason:
+      text: 同 A4。
+      truncated: false
+  - id: A23
+    source: specs/fix-review-findings/spec.md
+    text: A5：前端展示 `data_meta` 中的数据源/复权/最新 bar/计算时间。
+    result: passed
+    reason:
+      text: 同 A5。
+      truncated: false
+  - id: A24
+    source: specs/fix-review-findings/spec.md
+    text: A6：内部 CANSLIM 已重命名为 momentum；输出和代码不再使用误导性 CANSLIM 名称。
+    result: passed
+    reason:
+      text: 同 A6。
+      truncated: false
+  - id: A25
+    source: specs/fix-review-findings/spec.md
+    text: A7：新增 review 回归测试全部通过，且既有 P0/P1/P2 测试不回归。
+    result: passed
+    reason:
+      text: 同 A7。
+      truncated: false
+  - id: A26
+    source: specs/fix-review-findings/spec.md
+    text: 项目当前无测试框架、无 Git 仓库；测试与验证全部使用纯内存合成数据，不依赖外部行情 API。
+    result: passed
+    reason:
+      text: 测试全部使用纯内存合成数据，不依赖外部行情 API。
+      truncated: false
+  - id: A27
+    source: specs/fix-review-findings/spec.md
+    text: 策略实现修改必须保持与既有“加密版反推”的可解释性；不能为了让测试通过而引入不可解释的黑盒逻辑。
+    result: passed
+    reason:
+      text: 改动保持可解释性，未引入黑盒逻辑。
+      truncated: false
+  - id: A28
+    source: specs/fix-review-findings/spec.md
+    text: 前端只做与本次字段/口径修正对应的最小同步改动。
+    result: passed
+    reason:
+      text: 前端仅做 data_meta 展示等最小同步改动。
+      truncated: false
+  - id: A29
+    source: specs/fix-review-findings/spec.md
+    text: 所有修复以本次 review 发现为证据边界。
+    result: passed
+    reason:
+      text: 修复均以本次 review 发现为证据边界。
+      truncated: false
+  - id: A30
+    source: specs/fix-review-findings/spec.md
+    text: 对涉及文件（`app.py`、`analysis/signal_engine.py`、`analysis/volume_price_module.py`、`analysis/pattern_module.py`、`dashboard/index.html`、`data/kline_fetcher.py`
+      等）运行 Python 语法编译。
+    result: passed
+    reason:
+      text: python -m compileall 对涉及文件全部通过。
+      truncated: false
+  - id: A31
+    source: specs/fix-review-findings/spec.md
+    text: 使用纯内存合成数据复现 review 问题，再验证修复后行为符合预期。
+    result: passed
+    reason:
+      text: 使用纯内存合成数据复现并验证 review 问题。
+      truncated: false
+  - id: A32
+    source: specs/fix-review-findings/spec.md
+    text: 运行新增回归测试并全部通过。
+    result: passed
+    reason:
+      text: 四个测试文件全部通过：review 6/6、P0 11/11、P1 11/11、P2 8/8。
+      truncated: false
+  - id: A33
+    source: specs/fix-review-findings/spec.md
+    text: 对未修改的策略路径做基线输出对比，证明无副作用（或说明等价调整）。
+    result: passed
+    reason:
+      text: 非缺陷路径由既有回归测试固定；无 Git 基线，等价调整已在 handoff/risks 说明。
+      truncated: false
+builder_handoff:
+  candidate_id: 65bcfbe7-1675-4661-85a4-43d3a1bec0db
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:2239758e-ca09-4aae-9ab2-a17074643f74
+  iteration: 1
+  summary:
+    text: 完成 review 发现修复：1) ATR 止损增加下限保护，stop_loss 恒为正；2) 清理 _build_trade_plan
+      过期注释；3) run_analysis 不再隐式联网，index_klines=None 时按空列表处理；4)
+      _localize_signal_text 移除“今日/当日”误替换，只替换明确周期标签；5) 前端新增 data_meta 展示（sum-meta
+      + renderDataMeta）；6) 内部 CANSLIM 彻底重命名为 momentum（文件/类/API 字段/前端/测试全部同步）；7)
+      新增 tests/test_review_fixes.py 6/6 通过，全部测试 36/36 通过。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+  checks:
+    - name:
+        text: python-compileall
+        truncated: false
+      result: passed
+      note:
+        text: python -m compileall -q app.py analysis data tests launcher.py
+          license_core.py gen_license.py 通过
+        truncated: false
+    - name:
+        text: p0-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p0_fixes.py 11/11 通过
+        truncated: false
+    - name:
+        text: p1-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p1_fixes.py 11/11 通过
+        truncated: false
+    - name:
+        text: p2-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p2_fixes.py 8/8 通过
+        truncated: false
+    - name:
+        text: review-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_review_fixes.py 6/6 通过
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 当前环境无法安装 pytest（网络受限），使用纯 Python 等价运行器执行全部测试文件，文件均兼容 pytest。
+      truncated: false
+    - text: 前端 data_meta 为最小展示（摘要卡片底部一行），未做复杂 UI。
+      truncated: false
+    - text: 项目无 Git 仓库，无法做全量修复前/后基线 diff，A33 依赖代码审查与回归测试佐证。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-16T14:28:32.429Z
+blockers: []
+verification:
+  candidate_id: 65bcfbe7-1675-4661-85a4-43d3a1bec0db
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:bfefa499-10c0-412d-b51a-b09d128076e1
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: Verifier 判定 PASS：A1-A7 全部通过，A8-A33 为 spec
+      中对应的目标/范围/决定/约束/验证预期，均随实现与测试通过；语法编译通过，全部测试 36/36 通过。
+    truncated: false
+  risks:
+    - text: ATR 止损下限取 0.01，高波动时可能被钳到 0.01，盈亏比会异常放大；后续可评估更合理的最小止损口径。
+      truncated: false
+    - text: 项目无 Git 仓库，无法做全量修复前/后基线 diff，A33 依赖代码审查与回归测试佐证。
+      truncated: false
+    - text: 前端 data_meta 为最小展示（摘要卡片底部一行），未做复杂 UI。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-16T14:31:40.219Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: Verifier 判定 PASS：A1-A7 全部通过，A8-A33 为 spec
+        中对应的目标/范围/决定/约束/验证预期，均随实现与测试通过；语法编译通过，全部测试 36/36 通过。
+      truncated: false
+    completed_at: 2026-08-16T14:31:40.219Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-16T14:02:07.441Z

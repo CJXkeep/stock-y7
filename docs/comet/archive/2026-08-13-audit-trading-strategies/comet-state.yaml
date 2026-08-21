@@ -1,0 +1,415 @@
+schema: comet.native.v4
+name: audit-trading-strategies
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: strategy-audit
+    operation: create
+    source: specs/strategy-audit/spec.md
+workspace:
+  isolation: current
+  change_branch: null
+  target_branch: null
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：报告逐一说明纳入范围内每个策略的输入、核心规则、输出、相互依赖与已发现风险。
+    result: passed
+    reason:
+      text: 报告5.1-5.5/6.1-6.2逐模块说明输入/核心规则/输出/优点/风险，相互依赖在4.2/5.2/5.5说明。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：报告审核综合评分、动作分级、否决、仓位、止损、目标价和盈亏比链路，并指出冲突规则或不可达/误判分支。
+    result: passed
+    reason:
+      text: 4.2审核评分权重/动作分级/置信度公式；4.3审核硬软否决/仓位/止损/盈亏比，指出动作计划不同步、不可达分支、文本关键词误判。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：报告明确检查前视偏差、幸存者偏差、复权、交易成本、涨跌停、停牌、信号成交时点及样本外验证等关键有效性风险，区分“已证实”“高概率”“待验证”。
+    result: passed
+    reason:
+      text: 第七节按已证实/高概率/待验证分层覆盖前视、幸存者、复权切换、交易成本、涨跌停、停牌、成交时点、样本外。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：报告给出分维度评价、总体结论和按严重度/投入排序的改进清单，每项关联具体代码或可复现证据。
+    result: passed
+    reason:
+      text: 第三节六维评分+第一节结论(4.0/10)+第九节P0/P1/P2清单附证据+第十节三阶段路线。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：所有执行过的检查、未执行的验证及其限制均可追溯；没有证据时不声称策略具有盈利能力。
+    result: passed
+    reason:
+      text: 第十一节已执行8项/未执行5项及原因，盈利结论保持未知。
+      truncated: false
+  - id: A6
+    source: specs/strategy-audit/spec.md
+    text: 系统应提供一份中文策略审核报告，以当前项目源码、文档和可复现的只读检查为证据，评价交易策略的逻辑完整性、数据与时序正确性、风险控制、可验证性及实际使用风险。审核结论不得超出证据边界。
+    result: passed
+    reason:
+      text: 中文报告以源码行号+合成复现为证据，结论未超证据边界。
+      truncated: false
+  - id: A7
+    source: specs/strategy-audit/spec.md
+    text: 审核必须覆盖：
+    result: passed
+    reason:
+      text: 报告头部第4行范围声明存在。
+      truncated: false
+  - id: A8
+    source: specs/strategy-audit/spec.md
+    text: 趋势、CANSLIM、突破、量价、形态五个评分模块；
+    result: passed
+    reason:
+      text: 5.1-5.5覆盖趋势/CANSLIM/突破/量价/形态。
+      truncated: false
+  - id: A9
+    source: specs/strategy-audit/spec.md
+    text: "`signal_engine.py` 的模块聚合、动作、置信度、风险等级与交易计划；"
+    result: passed
+    reason:
+      text: 4.1/4.2/4.3覆盖聚合/动作/置信度/风险等级/交易计划。
+      truncated: false
+  - id: A10
+    source: specs/strategy-audit/spec.md
+    text: "`app.py` 的市场宽度修正、硬否决、软否决、信号分级、仓位和盈亏比规则；"
+    result: passed
+    reason:
+      text: 4.1/4.3/5.4覆盖市场宽度修正、硬软否决、分级、仓位、盈亏比。
+      truncated: false
+  - id: A11
+    source: specs/strategy-audit/spec.md
+    text: 缠论日线的包含处理、分型、笔、中枢、背驰及一二三类买卖点；
+    result: passed
+    reason:
+      text: 6.1覆盖包含/分型/笔/中枢/背驰/一二三类买卖点及前视、排序、短序列MACD风险。
+      truncated: false
+  - id: A12
+    source: specs/strategy-audit/spec.md
+    text: 缠论分钟级 K 线构造、分型、笔、背驰及买卖点；
+    result: passed
+    reason:
+      text: 6.2覆盖分钟K线构造/分型笔/MACD背驰/一类买卖点及初值失真、未完成K线风险。
+      truncated: false
+  - id: A13
+    source: specs/strategy-audit/spec.md
+    text: K 线、行情、资金流、指数和市场宽度数据在策略链路中的口径与时序。
+    result: passed
+    reason:
+      text: 7.1覆盖复权口径、周期语义、跨频率混用、数据校验、宽度缺页容忍。
+      truncated: false
+  - id: A14
+    source: specs/strategy-audit/spec.md
+    text: 审核必须：
+    result: passed
+    reason:
+      text: 报告头部第5-6行方法声明存在。
+      truncated: false
+  - id: A15
+    source: specs/strategy-audit/spec.md
+    text: 以源码为主要证据，既有实现分析报告仅作为调查线索；
+    result: passed
+    reason:
+      text: 全文锚点为当前源码行号，实现分析报告仅作线索未引为证据。
+      truncated: false
+  - id: A16
+    source: specs/strategy-audit/spec.md
+    text: 对关键权重、阈值、分支、时间窗口和数据依赖进行静态追踪；
+    result: passed
+    reason:
+      text: 权重/阈值/窗口均有静态追踪。
+      truncated: false
+  - id: A17
+    source: specs/strategy-audit/spec.md
+    text: 使用不改变策略状态的语法检查、边界检查或合成数据检查验证重要判断；
+    result: passed
+    reason:
+      text: 第十一节8项检查含编译与合成数据，Verifier全部独立复现通过。
+      truncated: false
+  - id: A18
+    source: specs/strategy-audit/spec.md
+    text: 检查前视偏差、幸存者偏差、复权、停牌、涨跌停、交易成本、成交时点、样本外验证和数据缺失处理；
+    result: passed
+    reason:
+      text: 第七节及6.1/第八节覆盖全部有效性风险。
+      truncated: false
+  - id: A19
+    source: specs/strategy-audit/spec.md
+    text: 将结论标记为“已证实”“高概率”或“待验证”，并说明证据来源和限制；
+    result: passed
+    reason:
+      text: 第二节定义证据分级，全文已证实/高概率/待验证均附来源与限制。
+      truncated: false
+  - id: A20
+    source: specs/strategy-audit/spec.md
+    text: 区分代码是否按设计执行、设计是否合理，以及策略是否具有历史盈利能力。
+    result: passed
+    reason:
+      text: 区分代码行为(已证实)/设计合理性(高概率)/历史盈利(待验证)。
+      truncated: false
+  - id: A21
+    source: specs/strategy-audit/spec.md
+    text: 报告必须：
+    result: passed
+    reason:
+      text: 报告结构完整满足报告要求。
+      truncated: false
+  - id: A22
+    source: specs/strategy-audit/spec.md
+    text: 逐项说明每个纳入策略的输入、核心规则、输出、相互依赖、优点和风险；
+    result: passed
+    reason:
+      text: 5.1-5.5、6.1-6.2逐项说明输入/规则/输出/优点/风险。
+      truncated: false
+  - id: A23
+    source: specs/strategy-audit/spec.md
+    text: 说明从原始数据到最终操作建议的完整决策链，并指出冲突规则、重复计分、不可达分支或误判风险；
+    result: passed
+    reason:
+      text: 4.1完整决策链7步，指出冲突规则/重复计分/不可达/误判。
+      truncated: false
+  - id: A24
+    source: specs/strategy-audit/spec.md
+    text: 给出数据质量、策略逻辑、风险控制、工程可靠性、可解释性和证据成熟度的分维度评价；
+    result: passed
+    reason:
+      text: 第三节恰为六维评价表。
+      truncated: false
+  - id: A25
+    source: specs/strategy-audit/spec.md
+    text: 给出总体结论，并明确适用边界及是否适合直接用于真实交易；
+    result: passed
+    reason:
+      text: 第一节+第十二节明确适用边界，不适合直接驱动真实交易。
+      truncated: false
+  - id: A26
+    source: specs/strategy-audit/spec.md
+    text: 提供按严重度和投入排序的改进清单，每项关联具体代码位置或可复现证据；
+    result: passed
+    reason:
+      text: 第九节每项关联代码位置或合成复现证据，第十节按投入分阶段。
+      truncated: false
+  - id: A27
+    source: specs/strategy-audit/spec.md
+    text: 列出实际运行的检查、没有运行的验证及原因。
+    result: passed
+    reason:
+      text: 第十一节列出已执行/未执行检查及原因。
+      truncated: false
+  - id: A28
+    source: specs/strategy-audit/spec.md
+    text: A1：报告逐一说明纳入范围内每个策略的输入、核心规则、输出、相互依赖与已发现风险。
+    result: passed
+    reason:
+      text: 同A1，spec重申项已覆盖。
+      truncated: false
+  - id: A29
+    source: specs/strategy-audit/spec.md
+    text: A2：报告审核综合评分、动作分级、否决、仓位、止损、目标价和盈亏比链路，并指出冲突规则或不可达/误判分支。
+    result: passed
+    reason:
+      text: 同A2，spec重申项已覆盖。
+      truncated: false
+  - id: A30
+    source: specs/strategy-audit/spec.md
+    text: A3：报告明确检查前视偏差、幸存者偏差、复权、交易成本、涨跌停、停牌、信号成交时点及样本外验证等关键有效性风险，区分“已证实”“高概率”“待验证”。
+    result: passed
+    reason:
+      text: 同A3，spec重申项已覆盖。
+      truncated: false
+  - id: A31
+    source: specs/strategy-audit/spec.md
+    text: A4：报告给出分维度评价、总体结论和按严重度/投入排序的改进清单，每项关联具体代码或可复现证据。
+    result: passed
+    reason:
+      text: 同A4，spec重申项已覆盖。
+      truncated: false
+  - id: A32
+    source: specs/strategy-audit/spec.md
+    text: A5：所有执行过的检查、未执行的验证及其限制均可追溯；没有证据时不声称策略具有盈利能力。
+    result: passed
+    reason:
+      text: 同A5，spec重申项已覆盖。
+      truncated: false
+  - id: A33
+    source: specs/strategy-audit/spec.md
+    text: 不修改策略实现、权重、阈值、数据接口或用户界面；
+    result: passed
+    reason:
+      text: 策略源码mtime均早于报告生成时间，无.py/.html被改动，权重/阈值/接口/UI未修改。
+      truncated: false
+  - id: A34
+    source: specs/strategy-audit/spec.md
+    text: 不建立历史回测框架，不计算或宣称收益率、最大回撤、胜率或实盘盈利能力；
+    result: passed
+    reason:
+      text: 未建立回测框架、未宣称收益率/回撤/胜率；前端准确率仅批判性审核。
+      truncated: false
+  - id: A35
+    source: specs/strategy-audit/spec.md
+    text: 不提供个股买卖建议或收益承诺；
+    result: passed
+    reason:
+      text: 报告无个股买卖建议或收益承诺。
+      truncated: false
+  - id: A36
+    source: specs/strategy-audit/spec.md
+    text: 除 Comet 正式审核产物外，项目实现保持只读。
+    result: passed
+    reason:
+      text: 除docs/策略审核报告.md外项目实现未被改动(mtime佐证，项目非Git仓库)。
+      truncated: false
+builder_handoff:
+  candidate_id: 85a55339-d2d7-4c2a-8794-57d47d083b2a
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:cb256242-b246-4138-b799-34b2bb6d565a
+  iteration: 1
+  summary:
+    text: 完成中文策略审核报告
+      docs/策略审核报告.md。报告覆盖趋势、CANSLIM、突破、量价、形态、统一信号/后处理风控、缠论日线和分钟、数据链路；以源码和纯内存合成检查为证据，分离代码行为、设计合理性与历史盈利能力，给出分维度评分、总体结论、P0/P1/P2
+      整改清单、检查记录与限制。未修改任何策略实现。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+  checks:
+    - name:
+        text: Python 语法编译
+        truncated: false
+      result: passed
+      note:
+        text: python -m compileall -q app.py analysis data launcher.py license_core.py
+          gen_license.py
+        truncated: false
+    - name:
+        text: 纯内存合成数据定向验证
+        truncated: false
+      result: passed
+      note:
+        text: 复现三角形不可达、优化后动作字段冲突、日线/分钟短序列指标初值失真、突破止损接口错配、海龟单位无上限；脚本不写入项目数据。
+        truncated: false
+    - name:
+        text: 审核报告覆盖与源码锚点检查
+        truncated: false
+      result: passed
+      note:
+        text: 报告范围、决策链、有效性风险、证据分级、整改优先级和检查记录全部命中；六个关键源码锚点存在。
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 按确认范围未建立或运行历史回测、样本外检验、实盘撮合或收益统计，因此历史盈利能力保持未知。
+      truncated: false
+    - text: 未对外部行情 API 做实时网络验证；报告审核当前源码行为，不为原加密版本的 1:1 复刻精度背书。
+      truncated: false
+    - text: 项目不是 Git 仓库，无法用 git diff 证明只读边界；实施期间仅编辑 Comet 正式需求产物和
+        docs/策略审核报告.md，并已清理检查生成的 Python 缓存。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-12T14:47:44.065Z
+blockers: []
+verification:
+  candidate_id: 85a55339-d2d7-4c2a-8794-57d47d083b2a
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:05219f15-3769-42af-b334-4ec791793b1f
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: "Verifier独立复现全部关键合成断言(MACD 4.4872/7.9772、EMA
+      41.6667、三角形不可达、突破止损接口错配、单位无上限1994、动作/计划/摘要状态冲突)并核对全部源码锚点，与当前源码一致；报告逐项满足36\
+      项验收，结论未超证据边界，项目实现保持只读。总体verdict: pass。"
+    truncated: false
+  risks:
+    - text: 报告称合成得到797单位未附脚本，不同合成样本复现同一机制(单位无上限，得到1994)，精确数值无法第三方复现；建议后续附合成脚本或数据构造。
+      truncated: false
+    - text: libs/__pycache__(2026-08-12 22:39)仍存在于项目中(第三方vendored库字节码缓存，非策略实现，不影响验收)。
+      truncated: false
+    - text: 缠论一二三类买卖点生成逻辑审核深度偏浅(chanlun_daily.py:352固定idx2=i+2、置信度固定70/75未深入审查)，可作为后续深化方向。
+      truncated: false
+    - text: 报告自身评分4.0/10为主观判断，报告已限定为研究原型级并作澄清，边界处理得当。
+      truncated: false
+    - text: 项目非Git仓库，A33/A36只读边界只能靠mtime佐证，无法diff；Archive阶段需留意该限制。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-13T13:20:03.197Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Verifier独立复现全部关键合成断言(MACD 4.4872/7.9772、EMA
+        41.6667、三角形不可达、突破止损接口错配、单位无上限1994、动作/计划/摘要状态冲突)并核对全部源码锚点，与当前源码一致；报告逐项满足\
+        36项验收，结论未超证据边界，项目实现保持只读。总体verdict: pass。"
+      truncated: false
+    completed_at: 2026-08-13T13:20:03.197Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-12T14:31:23.658Z

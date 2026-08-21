@@ -1,0 +1,24 @@
+# >>> Comet managed project state >>>
+!/.comet/
+/.comet/*
+!/.comet/config.yaml
+# <<< Comet managed project state <<<
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Comet runtime state
+.comet/runtime/
+
+# 运行数据不入 Git（快照 manifest 例外，用于复现校验）
+data/snapshots/**
+!data/snapshots/**/
+!data/snapshots/**/manifest.json
+data/journal/
+data/pool.json
+data/results/
+
+# 工作区与日志
+.worktrees/
+logs/

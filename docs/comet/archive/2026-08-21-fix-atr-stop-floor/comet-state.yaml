@@ -1,0 +1,469 @@
+schema: comet.native.v4
+name: fix-atr-stop-floor
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: fix-atr-stop-floor
+    operation: create
+    source: specs/fix-atr-stop-floor/spec.md
+workspace:
+  isolation: current
+  change_branch: null
+  target_branch: null
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：合成高波动数据（2×ATR ≥ entry）下，止损价等于 `round(entry × 0.95, 2)`，不为 0.01
+      或非正值；`max_loss_pct` 约为 5。
+    result: passed
+    reason:
+      text: test_extreme_volatility_uses_95pct_floor 通过：stop=round(entry*0.95,2)>0 非
+        0.01，max_loss_pct=5.0
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：触发下限时 `stop_mode` 标注下限来源（含「下限」字样），与纯 ATR 止损可区分。
+    result: passed
+    reason:
+      text: test_floor_stop_mode_labeled 通过：stop_mode 含「下限」且不等于 ATR(2×14日)
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：正常波动数据（`entry - 2×ATR > 0`）下止损仍为 `round(entry - 2×ATR, 2)`，`stop_mode`
+      仍为「ATR(2×14日)」，行为不回归。
+    result: passed
+    reason:
+      text: test_normal_volatility_unchanged
+        通过：stop=round(entry-2*atr,2)、stop_mode=ATR(2×14日) 不回归
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：「ATR 不可用 → 固定5%」回退路径行为不变（`stop_mode`「固定5%(ATR不可用)」）。
+    result: passed
+    reason:
+      text: test_atr_unavailable_fallback_unchanged
+        通过：stop=entry×95%、stop_mode=固定5%(ATR不可用)
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：盈亏比按实际止损计算：高波动用例中 `risk_reward_ratio` 与 `max_loss_pct` 数值自洽（由
+      entry/stop/target 推算一致）。
+    result: passed
+    reason:
+      text: test_risk_metrics_consistent_on_floor 通过：risk_reward_ratio/max_loss_pct 由
+        entry/stop/target 自洽推算无放大
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：新增回归测试全部通过，既有 P0/P1/P2/review 测试不回归。
+    result: passed
+    reason:
+      text: 新增 5/5 通过，P0 11/11、P1 11/11、P2 8/8、review 6/6 全部通过
+      truncated: false
+  - id: A7
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 消除 ATR 止损在极端高波动下的 0.01 钳制：当 `entry - 2×ATR(14) ≤ 0` 时，止损兜底改为入场价 ×
+      95%，使止损价、盈亏比、最大亏损百分比恢复可解释、自洽的展示。
+    result: passed
+    reason:
+      text: 实现中 entry-2×ATR≤0 时兜底 round(entry*0.95,2)，消除 0.01 钳制
+      truncated: false
+  - id: A8
+    source: specs/fix-atr-stop-floor/spec.md
+    text: "`analysis/signal_engine.py` `_build_trade_plan` 当前实现："
+    result: passed
+    reason:
+      text: signal_engine 中 _build_trade_plan 当前实现与规格背景描述一致
+      truncated: false
+  - id: A9
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 当 `2×ATR ≥ entry` 时止损被钳到 0.01：止损价失去意义，`risk_amt ≈ entry`
+      导致盈亏比异常放大，`max_loss_pct ≈ 100`。真实 A 股数据极少触发（属防御性边界缺陷），但合成/极端数据下必然失真。
+    result: passed
+    reason:
+      text: 缺陷（钳到 0.01、盈亏比放大、max_loss≈100）已由兜底逻辑修复并通过断言
+      truncated: false
+  - id: A10
+    source: specs/fix-atr-stop-floor/spec.md
+    text: '**ATR 可用且 `entry - 2×ATR > 0`**：止损 = `round(entry - 2×ATR, 2)`，`stop_mode
+      = "ATR(2×14日)"`。行为与现状完全一致，即使该值低于入场价 95% 也如实展示，不做钳制。'
+    result: passed
+    reason:
+      text: entry-2×ATR>0 路径仍为 round(entry-2*atr,2)/ATR(2×14日)，低于95%也如实展示不钳制
+      truncated: false
+  - id: A11
+    source: specs/fix-atr-stop-floor/spec.md
+    text: '**ATR 可用且 `entry - 2×ATR ≤ 0`**：止损 = `round(entry × 0.95, 2)`，`stop_mode
+      = "下限5%(ATR过宽)"`（含「下限」字样即可，与纯 ATR 止损可区分）。不再出现 0.01。'
+    result: passed
+    reason:
+      text: entry-2×ATR≤0 路径 round(entry*0.95,2)/下限5%(ATR过宽)，不再出现 0.01
+      truncated: false
+  - id: A12
+    source: specs/fix-atr-stop-floor/spec.md
+    text: '**ATR 不可用**（数据不足或 entry ≤ 0）：止损 = `round(entry × 0.95, 2)`，`stop_mode =
+      "固定5%(ATR不可用)"`。回退路径不变。'
+    result: passed
+    reason:
+      text: ATR 不可用回退 round(entry*0.95,2)/固定5%(ATR不可用) 保持不变
+      truncated: false
+  - id: A13
+    source: specs/fix-atr-stop-floor/spec.md
+    text: "`risk_reward_ratio`、`max_loss_pct` 始终按实际生效的 stop 计算，保证由 entry/stop/target
+      推算自洽。"
+    result: passed
+    reason:
+      text: risk_amt/reward_amt/risk_reward/max_loss_pct 均按实际生效 stop 计算
+      truncated: false
+  - id: A14
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 输出字段名不变（`stop_loss`、`stop_mode`、`atr`、`risk_reward_ratio`、`max_loss_pct`
+      等），前端无需结构性改动。
+    result: passed
+    reason:
+      text: 输出字段 stop_loss/stop_mode/atr/risk_reward_ratio/max_loss_pct 名称未变，前端无需结构改动
+      truncated: false
+  - id: A15
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 止损下限口径：**仅当 `entry - 2×ATR ≤ 0` 时取入场价 × 95%
+      封底**（与既有固定5%回退口径一致）；正常路径与其他回退路径不变。
+    result: passed
+    reason:
+      text: 下限口径仅当 entry-2×ATR≤0 时封底，正常与回退路径不变
+      truncated: false
+  - id: A16
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A1：合成高波动数据（2×ATR ≥ entry）下，`stop_loss == round(entry × 0.95, 2)`，不为 0.01
+      或非正值；`max_loss_pct` 约为 5。
+    result: passed
+    reason:
+      text: 对应 A1，合成高波动用例 stop_loss=round(entry×0.95,2) 且 max_loss_pct≈5
+      truncated: false
+  - id: A17
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A2：触发下限时 `stop_mode` 含「下限」标注，与「ATR(2×14日)」可区分。
+    result: passed
+    reason:
+      text: 对应 A2，触发下限时 stop_mode 含「下限」与 ATR(2×14日) 可区分
+      truncated: false
+  - id: A18
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A3：正常波动数据（`entry - 2×ATR > 0`）下 `stop_loss == round(entry - 2×ATR, 2)` 且
+      `stop_mode == "ATR(2×14日)"`，行为不回归。
+    result: passed
+    reason:
+      text: 对应 A3，正常路径 stop_loss=round(entry-2×ATR,2)、stop_mode=ATR(2×14日) 不回归
+      truncated: false
+  - id: A19
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A4：「ATR 不可用」回退路径 `stop_mode == "固定5%(ATR不可用)"`、止损为 entry×95%，行为不变。
+    result: passed
+    reason:
+      text: 对应 A4，ATR 不可用回退 stop_mode=固定5%(ATR不可用)、止损=entry×95% 不变
+      truncated: false
+  - id: A20
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A5：高波动用例中 `risk_reward_ratio` 与 `max_loss_pct` 由 entry/stop/target
+      推算自洽，无异常放大。
+    result: passed
+    reason:
+      text: 对应 A5，高波动用例 R/R 与 max_loss 自洽无异常放大
+      truncated: false
+  - id: A21
+    source: specs/fix-atr-stop-floor/spec.md
+    text: A6：新增回归测试全部通过；既有 P0 11/11、P1 11/11、P2 8/8、review 6/6 不回归。
+    result: passed
+    reason:
+      text: 对应 A6，新增测试 5/5 与既有 P0 11/11、P1 11/11、P2 8/8、review 6/6 全部通过
+      truncated: false
+  - id: A22
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 项目无 Git 仓库、无 pytest；测试使用纯内存合成数据，兼容纯 Python 运行器（`python tests/test_xxx.py`）。
+    result: passed
+    reason:
+      text: 项目无 git、无 pytest，测试用纯内存合成数据，python tests/test_xxx.py 可直接运行
+      truncated: false
+  - id: A23
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 保持与既有「加密版反推」的可解释性；不引入黑盒逻辑。
+    result: passed
+    reason:
+      text: 兜底逻辑透明可解释（entry×95%），未引入黑盒逻辑
+      truncated: false
+  - id: A24
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 前端只做与字段口径对应的最小同步（预期无需改动）。
+    result: passed
+    reason:
+      text: 字段名未变，前端无需改动（未变动 dashboard/index.html）
+      truncated: false
+  - id: A25
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 对涉及文件运行 `python -m compileall` 语法编译。
+    result: passed
+    reason:
+      text: python -m compileall 对
+        signal_engine.py/test_atr_floor_fixes.py/test_review_fixes.py/app.py 全通过
+      truncated: false
+  - id: A26
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 用纯内存合成高波动数据复现 0.01 钳制问题，验证修复后止损与展示字段符合 A1/A2/A5。
+    result: passed
+    reason:
+      text: 纯内存合成高波动数据经新测试复现验证止损与展示符合 A1/A2/A5
+      truncated: false
+  - id: A27
+    source: specs/fix-atr-stop-floor/spec.md
+    text: 运行新增回归测试与既有全部回归测试（P0/P1/P2/review）并通过。
+    result: passed
+    reason:
+      text: 新增回归 5/5 与既有 P0/P1/P2/review 全部运行通过
+      truncated: false
+builder_handoff:
+  candidate_id: 92cc01cd-ce31-4f1c-8341-f44b91359492
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:5a2b3032-c98c-4956-9946-f392f9f91a5a
+  iteration: 1
+  summary:
+    text: 完成 ATR 止损下限口径修复：analysis/signal_engine.py _build_trade_plan 中，当
+      entry-2*ATR(14)<=0 时止损兜底为 round(entry*0.95,2) 并标注
+      stop_mode="下限5%(ATR过宽)"，不再钳到 0.01；正常路径（entry-2*ATR>0）仍为
+      round(entry-2*ATR,2)、stop_mode="ATR(2×14日)"；「固定5%(ATR不可用)」回退不变；risk_reward_ratio/max_loss_pct
+      按实际生效止损计算。docstring 同步更新。测试：新增 tests/test_atr_floor_fixes.py
+      覆盖极端波动兜底、下限标注、正常路径不回归、回退不变、指标自洽（5/5 通过）；同步更新
+      tests/test_review_fixes.py::test_atr_stop_is_positive——其旧断言固定的正是本次修复的缺陷行为（极端波动下
+      stop_mode 仍标 ATR），已按新口径改为断言 95% 兜底与「下限」标注。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+  checks:
+    - name:
+        text: python-compileall
+        truncated: false
+      result: passed
+      note:
+        text: python -m compileall -q analysis/signal_engine.py
+          tests/test_atr_floor_fixes.py tests/test_review_fixes.py app.py 通过
+        truncated: false
+    - name:
+        text: atr-floor-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_atr_floor_fixes.py 5/5 通过
+        truncated: false
+    - name:
+        text: p0-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p0_fixes.py 11/11 通过
+        truncated: false
+    - name:
+        text: p1-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p1_fixes.py 11/11 通过
+        truncated: false
+    - name:
+        text: p2-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_p2_fixes.py 8/8 通过
+        truncated: false
+    - name:
+        text: review-regression-tests
+        truncated: false
+      result: passed
+      note:
+        text: python tests/test_review_fixes.py 6/6 通过（test_atr_stop_is_positive
+          已按新口径更新）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 项目无 Git 仓库，无法做修复前/后全量基线 diff；正常路径行为由既有回归测试固定佐证。
+      truncated: false
+    - text: 前端字段名未变，未改动 dashboard/index.html。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-21T13:50:10.460Z
+blockers: []
+verification:
+  candidate_id: 92cc01cd-ce31-4f1c-8341-f44b91359492
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:11518ab5-c8d7-49bd-b433-eb80ddca75db
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: check-compileall
+      name:
+        text: python-compileall
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: analysis/signal_engine.py
+          truncated: false
+        - text: tests/test_atr_floor_fixes.py
+          truncated: false
+        - text: tests/test_review_fixes.py
+          truncated: false
+        - text: app.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 166
+    - id: check-atr-floor-tests
+      name:
+        text: atr-floor-regression-tests
+        truncated: false
+      argv_display:
+        - text: tests/test_atr_floor_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 241
+    - id: check-p0-tests
+      name:
+        text: p0-regression-tests
+        truncated: false
+      argv_display:
+        - text: tests/test_p0_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 264
+    - id: check-p1-tests
+      name:
+        text: p1-regression-tests
+        truncated: false
+      argv_display:
+        - text: tests/test_p1_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 320
+    - id: check-p2-tests
+      name:
+        text: p2-regression-tests
+        truncated: false
+      argv_display:
+        - text: tests/test_p2_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 271
+    - id: check-review-tests
+      name:
+        text: review-regression-tests
+        truncated: false
+      argv_display:
+        - text: tests/test_review_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 275
+  summary:
+    text: 独立验收通过。signal_engine._build_trade_plan 三分支逻辑与 spec 完全一致（正常路径
+      ATR、entry-2×ATR≤0 时 95% 兜底并标注下限、ATR 不可用固定5%回退），无 max(0.01,...)
+      钳制；risk_reward_ratio/max_loss_pct 按实际止损自洽计算，字段名不变。新增测试 5/5、既有 P0 11/11、P1
+      11/11、P2 8/8、review 6/6 全部通过，compileall 通过。test_review_fixes
+      断言的更新与修复目标一致，非掩盖回归。A1-A27 全部判定 passed，verdict=pass。
+    truncated: false
+  risks:
+    - text: 项目无 Git 仓库，无法做修复前/后全量基线 diff，正常路径行为由既有回归测试固定佐证，风险低
+      truncated: false
+    - text: Builder 对 test_review_fixes::test_atr_stop_is_positive
+        的断言更新属合理纠错（旧断言固定的正是本修复的缺陷行为），与新 spec 一致，非掩盖回归
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-21T13:57:12.039Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立验收通过。signal_engine._build_trade_plan 三分支逻辑与 spec 完全一致（正常路径
+        ATR、entry-2×ATR≤0 时 95% 兜底并标注下限、ATR 不可用固定5%回退），无 max(0.01,...)
+        钳制；risk_reward_ratio/max_loss_pct 按实际止损自洽计算，字段名不变。新增测试 5/5、既有 P0
+        11/11、P1 11/11、P2 8/8、review 6/6 全部通过，compileall 通过。test_review_fixes
+        断言的更新与修复目标一致，非掩盖回归。A1-A27 全部判定 passed，verdict=pass。
+      truncated: false
+    completed_at: 2026-08-21T13:57:12.039Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-21T13:33:26.955Z

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>趋势分析实时买卖点工具 · 软件激活</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0d1228 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    width: 640px;
+    max-width: 95vw;
+    background: rgba(20, 25, 50, 0.85);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    border-radius: 16px;
+    padding: 40px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 80px rgba(212,175,55,0.05);
+  }
+  .logo {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+  .logo h1 {
+    font-size: 24px;
+    color: #d4af37;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  .logo p {
+    font-size: 13px;
+    color: #8899aa;
+  }
+  .step {
+    margin-bottom: 24px;
+  }
+  .step-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .step-num {
+    width: 24px; height: 24px;
+    background: linear-gradient(135deg, #d4af37, #b8941f);
+    color: #1a1f3a;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .step-label {
+    font-size: 15px;
+    color: #d4af37;
+    font-weight: 600;
+  }
+  .machine-id-box {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .machine-id-input {
+    flex: 1;
+    background: rgba(10, 14, 39, 0.8);
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #d4af37;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 15px;
+    letter-spacing: 1px;
+    outline: none;
+    transition: border 0.2s;
+  }
+  .machine-id-input:focus {
+    border-color: rgba(212, 175, 55, 0.6);
+  }
+  .copy-btn {
+    background: rgba(212, 175, 55, 0.15);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    color: #d4af37;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .copy-btn:hover {
+    background: rgba(212, 175, 55, 0.25);
+  }
+  .license-textarea {
+    width: 100%;
+    height: 120px;
+    background: rgba(10, 14, 39, 0.8);
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: #e0e0e0;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    transition: border 0.2s;
+  }
+  .license-textarea:focus {
+    border-color: rgba(212, 175, 55, 0.6);
+  }
+  .license-textarea::placeholder {
+    color: #556677;
+  }
+  .activate-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #d4af37, #b8941f);
+    color: #1a1f3a;
+    border: none;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+  .activate-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(212, 175, 55, 0.3);
+  }
+  .activate-btn:active {
+    transform: translateY(0);
+  }
+  .activate-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+  .status.success {
+    background: rgba(46, 204, 113, 0.1);
+    border: 1px solid rgba(46, 204, 113, 0.3);
+    color: #2ecc71;
+    display: block;
+  }
+  .status.error {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    color: #e74c3c;
+    display: block;
+  }
+  .status.loading {
+    background: rgba(212, 175, 55, 0.1);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    color: #d4af37;
+    display: block;
+  }
+  .tip {
+    margin-top: 20px;
+    padding: 12px 16px;
+    background: rgba(10, 14, 39, 0.5);
+    border-left: 3px solid rgba(212, 175, 55, 0.4);
+    border-radius: 4px;
+    font-size: 12px;
+    color: #8899aa;
+    line-height: 1.8;
+  }
+  .footer {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 12px;
+    color: #556677;
+  }
+  .copy-feedback {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(46, 204, 113, 0.15);
+    border: 1px solid rgba(46, 204, 113, 0.4);
+    color: #2ecc71;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .copy-feedback.show {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <h1>趋势分析实时买卖点工具</h1>
+      <p>软件激活 · Software Activation</p>
+    </div>
+
+    <div class="step">
+      <div class="step-title">
+        <span class="step-num">1</span>
+        <span class="step-label">复制您的机器码</span>
+      </div>
+      <div class="machine-id-box">
+        <input type="text" class="machine-id-input" id="machineId" readonly placeholder="正在获取机器码...">
+        <button class="copy-btn" onclick="copyMachineId()">复制</button>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-title">
+        <span class="step-num">2</span>
+        <span class="step-label">输入许可证密钥</span>
+      </div>
+      <textarea class="license-textarea" id="licenseKey" placeholder="将卖家发给您的许可证密钥粘贴到此处..."></textarea>
+    </div>
+
+    <div class="step">
+      <div class="step-title">
+        <span class="step-num">3</span>
+        <span class="step-label">点击激活</span>
+      </div>
+      <button class="activate-btn" id="activateBtn" onclick="activate()">激 活</button>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="tip">
+      <strong style="color:#d4af37;">激活说明：</strong><br>
+      1. 复制上方机器码，发送给卖家<br>
+      2. 卖家根据机器码生成许可证密钥并发给您<br>
+      3. 将密钥粘贴到输入框，点击「激活」<br>
+      4. 激活成功后，请重新启动软件<br>
+      <br>
+      <strong style="color:#d4af37;">注意：</strong>每个许可证绑定一台电脑，更换电脑需重新激活。
+    </div>
+
+    <div class="footer">
+      趋势分析实时买卖点工具 v1.0 &copy; 2026
+    </div>
+  </div>
+
+  <div class="copy-feedback" id="copyFeedback">已复制到剪贴板</div>
+
+<script>
+  // 获取机器码
+  async function loadMachineId() {
+    try {
+      const resp = await fetch('/api/license/status');
+      const data = await resp.json();
+      if (data.machine_id_short) {
+        document.getElementById('machineId').value = data.machine_id_short;
+      } else if (data.machine_id) {
+        document.getElementById('machineId').value = data.machine_id;
+      }
+    } catch (e) {
+      document.getElementById('machineId').value = '获取失败，请刷新页面';
+    }
+  }
+
+  // 复制机器码
+  function copyMachineId() {
+    const input = document.getElementById('machineId');
+    input.select();
+    document.execCommand('copy');
+    const feedback = document.getElementById('copyFeedback');
+    feedback.classList.add('show');
+    setTimeout(() => feedback.classList.remove('show'), 2000);
+  }
+
+  // 激活
+  async function activate() {
+    const licenseKey = document.getElementById('licenseKey').value.trim();
+    const statusEl = document.getElementById('status');
+    const btn = document.getElementById('activateBtn');
+
+    if (!licenseKey) {
+      statusEl.className = 'status error';
+      statusEl.textContent = '请输入许可证密钥';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = 'status loading';
+    statusEl.textContent = '正在验证许可证...';
+
+    try {
+      const resp = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ license_key: licenseKey }),
+      });
+      const data = await resp.json();
+
+      if (data.valid) {
+        statusEl.className = 'status success';
+        statusEl.innerHTML = `
+          <strong>激活成功！</strong><br>
+          客户：${data.customer}<br>
+          到期：${data.expiry_date}<br>
+          剩余：${data.days_remaining} 天<br><br>
+          <strong>请关闭此窗口，重新双击「启动.bat」启动软件。</strong>
+        `;
+      } else {
+        statusEl.className = 'status error';
+        statusEl.textContent = '激活失败：' + (data.reason || '未知错误');
+        btn.disabled = false;
+      }
+    } catch (e) {
+      statusEl.className = 'status error';
+      statusEl.textContent = '网络错误：' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  // 页面加载
+  loadMachineId();
+</script>
+</body>
+</html>
