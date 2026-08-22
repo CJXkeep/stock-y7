@@ -128,7 +128,7 @@ def test_true_double_touch_simulation():
     bars[14] = [dates[14], 100.0, 112.0, 94.0, 105.0, 1000.0]  # 入场次日的真双触日
     sim = simulate_signal("600519", "", bars,
                           {"t": 12, "stop": 95.0, "target": 110.0}, capital=20000.0)
-    assert sim["outcome"] == "stop" and sim["exit_price"] == 95.0
+    assert sim["outcome"] == "stop" and sim["exit_price"] == 94.9  # 95×(1−0.1%) 滑点
 
 
 def test_readme_v5_section():

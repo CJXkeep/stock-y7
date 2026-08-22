@@ -307,19 +307,21 @@ def _sim_bars(entry_open=100.0):
 
 
 def test_simulation_stop_first_conservative():
+    """A2 滑点手算：入场 100→100.10，止损 95 卖出 94.90（含滑点与费用）。"""
     from backtest.stats import simulate_signal
     bars, dates = _sim_bars()
     # 入场次日**真双触**：low=94≤stop95 且 high=112≥target110 同日 → 保守记止损
     bars[14] = [dates[14], 100.0, 112.0, 94.0, 105.0, 1000.0]
     signal = {"t": 12, "stop": 95.0, "target": 110.0}
     sim = simulate_signal("600519", "", bars, signal, capital=20000.0)
-    # lots=floor(19000/10000)=1 → 100股；入场 100；止损 95 先于目标
-    assert sim["outcome"] == "stop" and sim["entry_price"] == 100.0
-    assert sim["exit_price"] == 95.0
-    buy_amount, sell_amount = 10000.0, 9500.0
-    fees = 5.0 + 5.0 + 0.0005 * sell_amount  # 14.75
-    expected_pnl = round(sell_amount - buy_amount - fees, 2)
-    assert abs(sim["pnl"] - expected_pnl) < 0.01
+    # 滑点后：entry=100.10 → lots=floor(19000/10010)=1 → 100 股
+    assert sim["outcome"] == "stop" and sim["entry_price"] == 100.1
+    assert sim["exit_price"] == 94.9 and sim["forced"] is False
+    buy_amount, sell_amount = 10010.0, 9490.0
+    fees = 5.0 + 5.0 + 0.0005 * sell_amount  # 14.745
+    expected_pnl = sell_amount - buy_amount - fees
+    assert abs(sim["pnl"] - expected_pnl) < 0.02
+    assert sim["hold_days"] == 1
 
 
 def test_simulation_target_first():
@@ -328,9 +330,10 @@ def test_simulation_target_first():
     bars[14] = [dates[14], 100.0, 112.0, 99.5, 111.0, 1000.0]  # 只触目标
     sim = simulate_signal("600519", "", bars,
                           {"t": 12, "stop": 95.0, "target": 110.0}, capital=20000.0)
-    assert sim["outcome"] == "target" and sim["exit_price"] == 110.0
-    expected = round(110.0 * 100 - 10000.0 - (5.0 + 5.0 + 0.0005 * 11000.0), 2)
-    assert abs(sim["pnl"] - expected) < 0.01
+    assert sim["outcome"] == "target" and sim["exit_price"] == 109.89  # 110×(1−0.1%)
+    buy_amount = 100.1 * 100
+    expected = 109.89 * 100 - buy_amount - (5.0 + 5.0 + 0.0005 * 10989.0)
+    assert abs(sim["pnl"] - expected) < 0.02
 
 
 def test_simulation_timeout_at_close():
@@ -359,7 +362,240 @@ def test_simulation_limit_up_postponed_entry():
     bars[14] = [dates[14], 101.0, 102.0, 100.5, 101.5, 1000.0]
     sim = simulate_signal("600519", "", bars,
                           {"t": 12, "stop": 95.0, "target": 110.0}, capital=20000.0)
-    assert sim["entry_price"] == 101.0 and sim["entry_date"] == dates[14]
+    assert sim["entry_price"] == 101.1 and sim["entry_date"] == dates[14]  # 101×1.001
+
+
+def test_simulation_sell_limit_down_postpone_and_forced():
+    """A3：触发日收盘跌停顺延；连续 6 个跌停日 → 第 5 顺延日收盘强平 forced。"""
+    from backtest.stats import simulate_signal
+    bars, dates = _sim_bars()
+    # 触发日 day14：low=91≤stop92 触发，但 close=90 ≤ 跌停线 90.05 → 不可卖
+    bars[14] = [dates[14], 95.0, 96.0, 91.0, 90.0, 1000.0]
+    # 连续跌停链：每日收盘 ≤ 昨收×0.9005
+    chain = [80.0, 71.0, 63.0, 56.0, 50.0]
+    for j, c in enumerate(chain):
+        idx = 15 + j
+        bars[idx] = [dates[idx], c * 1.02, c * 1.02, c * 0.98, c, 1000.0]
+    sim = simulate_signal("600519", "", bars,
+                          {"t": 12, "stop": 92.0, "target": 130.0}, capital=20000.0)
+    assert sim["outcome"] == "stop" and sim["forced"] is True
+    assert sim["exit_date"] == dates[19]  # 触发日 +5 顺延日收盘强平
+    assert sim["exit_price"] == 50.0 * (1 - 0.001)
+
+
+def test_simulation_buy_limit_up_unfilled_cap():
+    """A4：连续 6 日开盘涨停 → unfilled（旧实现永不放弃）。"""
+    from backtest.stats import simulate_signal
+    bars, dates = _sim_bars()
+    prev = 100.0
+    for j in range(6):
+        idx = 13 + j
+        o = round(prev * 1.0995 + 0.05, 2)   # ≥ 涨停线
+        bars[idx] = [dates[idx], o, o, o, o, 1000.0]
+        prev = o
+    sim = simulate_signal("600519", "", bars,
+                          {"t": 12, "stop": 90.0, "target": 500.0}, capital=20000.0)
+    assert sim["outcome"] == "unfilled" and sim["entry_price"] is None
+
+
+def test_simulation_truncated_vs_timeout():
+    """A5：数据尾不足完整 60 根视界且未触发 → truncated 而非 timeout。"""
+    from backtest.stats import simulate_signal
+    bars, dates = _sim_bars()
+    sim = simulate_signal("600519", "", bars,
+                          {"t": 25, "stop": 50.0, "target": 500.0}, capital=20000.0)
+    # entry_idx=26，26+61=87 > 30 → 数据不足完整视界
+    assert sim["outcome"] == "truncated"
+
+
+# ---------------------------------------------------------------- A1 交易日去重窗口
+
+def test_trading_day_dedupe_window_cross_weekend():
+    """A1：跨周末自然日差 10（旧实现漏标）而交易日差 <10 → 新实现标 deduped。"""
+    from backtest.dedupe import mark_window
+    dates = _dates(30, start="2024-01-02")   # 仅工作日
+    a, b = dates[3], dates[9]                # 2024-01-05(五) → 2024-01-15(一)，自然日差 10
+    recs = [{"symbol": "X", "signal_type": "buy", "trigger_date": a},
+            {"symbol": "X", "signal_type": "buy", "trigger_date": b}]
+    out_natural = mark_window([dict(r) for r in recs], window_days=10)
+    assert out_natural[1]["deduped"] is False   # 自然日口径：gap=10 → 漏标
+    out_trading = mark_window([dict(r) for r in recs], window_days=10,
+                              trading_dates=dates)
+    assert out_trading[0]["deduped"] is False
+    assert out_trading[1]["deduped"] is True    # 交易日 gap=8 <10 → 入窗
+    # 对照：相邻工作日两信号仍去重
+    out_ctrl = mark_window([
+        {"symbol": "Y", "signal_type": "buy", "trigger_date": b},
+        {"symbol": "Y", "signal_type": "buy", "trigger_date": dates[10]},
+    ], window_days=10, trading_dates=dates)
+    assert out_ctrl[1]["deduped"] is True
+
+
+def test_calendar_trading_helpers():
+    from backtest import calendar as cal
+    dates = _dates(10, start="2024-01-02")
+    assert cal.is_trading_date(dates[0], dates) is True
+    assert cal.is_trading_date("2024-01-06", dates) is False   # 周六不在序列
+    assert cal.trading_days_between(dates[0], dates[-1], dates) == 9
+    assert cal.next_trading_date("2024-01-06", dates) == "2024-01-08"
+    assert cal.next_trading_date("2099-01-01", dates) is None
+    assert cal.trading_days_between("x", "y", []) == 0
+
+
+# ---------------------------------------------------------------- A6 离散度与小样本
+
+def test_std_stderr_and_sample_flag_in_report():
+    from backtest.stats import aggregate
+    from backtest.report import render_report
+    rows = [
+        {"symbol": "A", "date": "2024-01-05", "action": "买入",
+         "r5": None, "r10": None, "r20": 20.0, "r60": None},
+        {"symbol": "B", "date": "2024-02-05", "action": "买入",
+         "r5": None, "r10": None, "r20": -10.0, "r60": None},
+    ]
+    agg = aggregate(rows)
+    r20 = agg["overall"]["r20"]
+    import math
+    expected_std = round(math.sqrt((15.0 ** 2 + 15.0 ** 2) / 1), 4)  # 样本标准差
+    assert r20["std"] == expected_std
+    assert r20["stderr"] == round(expected_std / math.sqrt(2), 4)
+    assert r20["insufficient_sample"] is True
+    meta = {"raw_count": 2, "visible_count": 2, "deduped_count": 0,
+            "excluded_warmup": 0, "included_warmup": 0, "stats_count": 2,
+            "dedupe_window_days": 10, "dedupe_unit": "trading_day",
+            "include_warmup": True, "simulate": False, "capital": 100000.0,
+            "usable_symbols": 1, "total_symbols": 1, "pool_version": 1,
+            "snapshot_id": "S9", "stale_used": False}
+    summary = {"meta": meta, "overall": agg["overall"],
+               "by_action": {}, "by_year": {}, "by_symbol": {},
+               "aggregate_raw": aggregate(rows)}
+    md = render_report(summary, {"snapshot_id": "S9", "pool_version": 1})
+    assert "⚠样本不足" in md                      # n=2 < SAMPLE_MIN
+    assert "去重前" in md                          # 双汇总表
+    assert "交易日" in md                          # 去重窗口单位披露
+
+
+# ---------------------------------------------------------------- A7 快照完整性与 stale
+
+def test_snapshot_integrity_and_stale_guard():
+    from backtest.snapshot import (SnapshotIntegrityError, StaleSnapshotError,
+                                   build_snapshot, load_snapshot, verify_snapshot)
+    d = tempfile.mkdtemp(prefix="stats_integrity_")
+    try:
+        pool = {"schema": "v5.pool.v1", "version": 4, "items": [
+            {"symbol": "600519", "name": "贵州茅台", "note": "", "added_at": ""}]}
+        dates = _dates(280)
+
+        def ff(symbol, count, period, adjust):
+            return _klines([10.0 + i * 0.01 for i in range(len(dates))], dates)
+
+        def fi(code, count):
+            return _klines([3000.0] * len(dates), dates)
+
+        sid, manifest = build_snapshot(pool_data=pool, fetch_fn=ff,
+                                       index_fetch_fn=fi, root=d)
+        assert manifest["config_hash"] and manifest["files"]["bars_jsonl_sha256"]
+        # 完整性：篡改 bars.jsonl 一个字段 → 校验拒绝
+        path = os.path.join(d, sid, "bars.jsonl")
+        original = open(path, encoding="utf-8").read()
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(original.replace('"600519"', '"600520"', 1))
+        raised = False
+        try:
+            load_snapshot(sid, root=d, verify=True)
+        except SnapshotIntegrityError:
+            raised = True
+        assert raised, "篡改后必须触发完整性错误"
+        with open(path, "w", encoding="utf-8") as fh:   # 还原
+            fh.write(original)
+        # stale：expected 与 manifest 不一致 → 拒绝；allow_stale 放行并标注
+        stale_raised = False
+        try:
+            verify_snapshot(sid, root=d, expected_pool_version=999)
+        except StaleSnapshotError:
+            stale_raised = True
+        assert stale_raised
+        m = verify_snapshot(sid, root=d, expected_pool_version=999, allow_stale=True)
+        assert m["stale_used"] is True and m["current_pool_version"] == 999
+        m_ok = verify_snapshot(sid, root=d, expected_pool_version=4)
+        assert "stale_used" not in m_ok
+
+        # OHLC 违例排除：注入一根 high<close 的坏 bar
+        def bad_ff(symbol, count, period, adjust):
+            kls = ff(symbol, count, period, adjust)
+            kls[100].high = kls[100].close - 1.0     # 违例
+            return kls
+
+        _, manifest_bad = build_snapshot(pool_data=dict(pool), fetch_fn=bad_ff,
+                                         index_fetch_fn=fi, root=d)
+        assert manifest_bad["symbols"]["600519"]["ohlc_invalid"] is True
+        assert manifest_bad["usable_symbols"] == 0
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- A8 分时 trigger_date 顺延
+
+def test_chanlun_trigger_date_deferred_to_trading_day():
+    from backtest.journal import build_chanlun_records
+    today = datetime.date.today().isoformat()
+    trading_dates = sorted({d for d in _dates(60, start="2026-07-01")
+                            if d != today} | {"2099-01-02"})
+    recs = build_chanlun_records(
+        [{"type": "buy1", "price": 10.0}], symbol="600519",
+        level="minute", source="chanlun_minute", trading_dates=trading_dates)
+    assert len(recs) == 1
+    rec = recs[0]
+    if today in set(trading_dates):
+        assert rec["trigger_date"] == today
+    else:
+        assert rec["trigger_date"] != today
+        assert "顺延" in rec["notes"]
+
+
+def test_cli_stale_refusal_and_allow_flag():
+    """A7 CLI 层：池版本不一致默认拒绝；--allow-stale 放行且报告头披露。"""
+    from backtest.cli import main as cli_main
+    from backtest.snapshot import StaleSnapshotError
+    d = tempfile.mkdtemp(prefix="stats_cli_stale_")
+    try:
+        with open(os.path.join(d, "pool.json"), "w", encoding="utf-8") as fh:
+            json.dump({"schema": "v5.pool.v1", "version": 5,
+                       "updated_at": "", "items": []}, fh)
+        sid = "STALESNAP"
+        snap_dir = os.path.join(d, sid)
+        os.makedirs(snap_dir)
+        dates = _dates(40, start="2024-04-01")
+        bars = [[dt, 100.0, 101.0, 99.0, 100.0, 1000.0] for dt in dates]
+        with open(os.path.join(snap_dir, "bars.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"symbol": "600519", "bars": bars}) + "\n")
+        manifest = {"schema": "v5.snapshot.v1", "snapshot_id": sid,
+                    "created_at": "", "pool_version": 2, "config": {},
+                    "indexes": {},
+                    "symbols": {"600519": {"name": "", "bars": len(bars),
+                                           "insufficient": False, "gaps": 0}},
+                    "usable_symbols": 1, "total_symbols": 1}
+        with open(os.path.join(snap_dir, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh)
+        with open(os.path.join(snap_dir, "signals.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"symbol": "600519", "t": 10, "date": dates[10],
+                                 "action": "买入", "score": 70.0, "level": "day",
+                                 "signal_type": "buy", "warmup": False}) + "\n")
+
+        refused = False
+        try:
+            cli_main(["--root", d, "stats", sid])
+        except StaleSnapshotError:
+            refused = True
+        assert refused, "池版本不一致必须拒绝"
+
+        rc = cli_main(["--root", d, "stats", sid, "--allow-stale"])
+        assert rc == 0
+        report = open(os.path.join(d, "results", sid, "report.md"),
+                      encoding="utf-8").read()
+        assert "过期快照（stale）" in report and "pool.version=2" in report
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- A7 报告头

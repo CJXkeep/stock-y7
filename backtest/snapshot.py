@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""核心池日线快照（I7.4）。
+"""核心池日线快照（I7.4；完整性校验 I8.1）。
 
 抓取核心池 + 沪深指数日线（qfq）存入 data/snapshots/<id>/：
 - bars.jsonl：每股/每指数一行 {"symbol":..., "bars":[[date,open,high,low,close,volume],...]}
   （指数键为 _idx_000001 / _idx_000300）
-- manifest.json：schema/pool.version/config/逐股条数起止与数据源（.gitignore 中
-  manifest.json 例外入库，保证可复现校验）
+- manifest.json：schema/pool.version/config/逐股条数起止与数据源 + I8.1 完整性字段
+  （bars_jsonl_sha256/config_hash/OHLC 违例排除）
 
 fetch_fn/index_fetch_fn 可注入以便离线测试；生产默认走 data.kline_fetcher。
 """
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -21,6 +22,50 @@ from backtest import config
 _log = logging.getLogger("backtest.snapshot")
 
 SNAPSHOT_SCHEMA = "v5.snapshot.v1"
+
+
+class SnapshotIntegrityError(ValueError):
+    """快照文件内容与 manifest 哈希不符。"""
+
+
+class StaleSnapshotError(ValueError):
+    """manifest.pool_version 与当前池版本不一致。"""
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def config_hash(extra: dict = None) -> str:
+    payload = {
+        "history_bars": config.HISTORY_BARS,
+        "replay_window": config.REPLAY_WINDOW,
+        "index_window": config.INDEX_WINDOW,
+        "horizons": list(config.HORIZONS),
+        "dedupe_window_days": config.DEDUPE_WINDOW_DAYS,
+    }
+    if extra:
+        payload.update(extra)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def _ohlc_violations(bars: list) -> int:
+    """OHLC 一致性违例数：high<max(o,c) / low>min(o,c) / high<low。"""
+    bad = 0
+    for b in bars or []:
+        if len(b) < 5:
+            continue
+        _, o, h, l, c = b[:5]
+        if not all(isinstance(v, (int, float)) for v in (o, h, l, c)):
+            continue
+        if h < max(o, c) - 1e-9 or l > min(o, c) + 1e-9 or h < l:
+            bad += 1
+    return bad
 
 
 def new_snapshot_id() -> str:
@@ -88,6 +133,7 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
             klines = []
         bars = _bars_of(klines)
         first = klines[0] if klines else None
+        violations = _ohlc_violations(bars)
         symbols_meta[symbol] = {
             "name": str(item.get("name", "")),
             "bars": len(bars),
@@ -97,6 +143,8 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
             "adjust": getattr(first, "adjust", "") if first else "",
             "insufficient": len(bars) < config.INSUFFICIENT_BARS,
             "gaps": detect_gap_count([b[0] for b in bars]),
+            "ohlc_violations": violations,
+            "ohlc_invalid": violations > 0,
         }
         lines.append({"symbol": symbol, "bars": bars})
 
@@ -120,6 +168,9 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
         for line in lines:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
 
+    bars_path = os.path.join(out_dir, "bars.jsonl")
+    usable = sum(1 for m in symbols_meta.values()
+                 if not m["insufficient"] and not m.get("ohlc_invalid"))
     manifest = {
         "schema": SNAPSHOT_SCHEMA,
         "snapshot_id": sid,
@@ -133,8 +184,10 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
         },
         "symbols": symbols_meta,
         "indexes": indexes_meta,
-        "usable_symbols": sum(1 for m in symbols_meta.values() if not m["insufficient"]),
+        "usable_symbols": usable,
         "total_symbols": len(symbols_meta),
+        "files": {"bars_jsonl_sha256": _sha256_file(bars_path)},
+        "config_hash": config_hash(),
     }
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
@@ -142,11 +195,16 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
     return sid, manifest
 
 
-def load_snapshot(snapshot_id: str, root: str = None):
-    """读取快照，返回 (bars_by_symbol dict, manifest)。"""
+def load_snapshot(snapshot_id: str, root: str = None, verify: bool = False):
+    """读取快照，返回 (bars_by_symbol dict, manifest)。
+
+    verify=True（I8.1）时：manifest 含 bars_jsonl_sha256 则重算比对，
+    不符抛 SnapshotIntegrityError；旧快照无该字段跳过校验（向后兼容）。
+    """
     out_dir = snapshot_dir(snapshot_id, root)
+    bars_path = os.path.join(out_dir, "bars.jsonl")
     bars_by_symbol = {}
-    with open(os.path.join(out_dir, "bars.jsonl"), "r", encoding="utf-8") as fh:
+    with open(bars_path, "r", encoding="utf-8") as fh:
         for line in fh:
             text = line.strip()
             if not text:
@@ -155,4 +213,30 @@ def load_snapshot(snapshot_id: str, root: str = None):
             bars_by_symbol[obj["symbol"]] = obj.get("bars", [])
     with open(os.path.join(out_dir, "manifest.json"), "r", encoding="utf-8") as fh:
         manifest = json.load(fh)
+    if verify:
+        expected = (manifest.get("files") or {}).get("bars_jsonl_sha256")
+        if expected and _sha256_file(bars_path) != expected:
+            raise SnapshotIntegrityError(
+                f"快照 {snapshot_id} bars.jsonl 与 manifest sha256 不符")
     return bars_by_symbol, manifest
+
+
+def verify_snapshot(snapshot_id: str, root: str = None,
+                    expected_pool_version=None, allow_stale: bool = False):
+    """I8.1 统一入口：完整性校验 + 可选 stale 比对，返回 manifest。
+
+    - sha256 不符 → SnapshotIntegrityError；
+    - expected_pool_version 非 None 且 ≠ manifest.pool_version →
+      StaleSnapshotError（allow_stale=True 时放行并在 manifest 标注 stale_used）。
+    """
+    _bars, manifest = load_snapshot(snapshot_id, root, verify=True)
+    if expected_pool_version is not None \
+            and manifest.get("pool_version") != expected_pool_version:
+        if not allow_stale:
+            raise StaleSnapshotError(
+                "快照基于 pool.version={}，当前池 version={}——请重建快照"
+                "（python -m backtest snapshot）或使用 --allow-stale".format(
+                    manifest.get("pool_version"), expected_pool_version))
+        manifest["stale_used"] = True
+        manifest["current_pool_version"] = expected_pool_version
+    return manifest

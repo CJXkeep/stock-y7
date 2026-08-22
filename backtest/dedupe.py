@@ -51,26 +51,37 @@ def days_between(later: str, earlier: str):
     return (da - db).days
 
 
-def mark_window(records: list, window_days: int = DEDUPE_WINDOW_DAYS) -> list:
+def mark_window(records: list, window_days: int = DEDUPE_WINDOW_DAYS,
+                trading_dates=None) -> list:
     """按 (symbol, signal_type) 分组按时间先后标记 deduped。
 
     - 组内按 trigger_date 升序遍历；
     - 窗口内首个 deduped=False 并成为锚点；与锚点间隔 < window_days 的后续
       记录 deduped=True；超出窗口的记录 deduped=False 并成为新锚点；
-    - trigger_date 非法的记录视为独立信号（deduped=False）。
+    - trigger_date 非法的记录视为独立信号（deduped=False）；
+    - 提供 trading_dates（升序交易日序列，I8.1）时按**交易日**计数窗口间隔；
+      缺省回退自然日近似（向后兼容）。
     就地修改并返回 records。
     """
+    from backtest import calendar as cal
     anchors = {}
     for record in sorted(records, key=lambda r: (str(r.get("trigger_date", "")),)):
         group = (str(record.get("symbol", "")), str(record.get("signal_type", "")))
         date_text = str(record.get("trigger_date", ""))
         anchor_date = anchors.get(group)
-        gap = days_between(date_text, anchor_date) if anchor_date else None
+        if anchor_date is not None:
+            if trading_dates:
+                gap = cal.trading_days_between(anchor_date, date_text, trading_dates)
+                gap = gap if date_text >= anchor_date else None
+            else:
+                gap = days_between(date_text, anchor_date)
+        else:
+            gap = None
         if anchor_date is not None and gap is not None and 0 <= gap < window_days:
             record["deduped"] = True
         else:
             record["deduped"] = False
-            if _parse_date(date_text) is not None:
+            if trading_dates or _parse_date(date_text) is not None:
                 anchors[group] = date_text
     return records
 

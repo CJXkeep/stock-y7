@@ -61,21 +61,25 @@ def _journal_main_chain(signal_data: dict, symbol: str, period: str,
         records = build_main_records(signal_data, symbol, period, klines,
                                      quote=quote, flows=flows, breadth=breadth)
         if records:
-            appended = append_records(records)
+            # I8.1：传当次日线日期作交易日历，窗口去重按交易日计数
+            trading_dates = [getattr(k, "date", "") for k in (klines or [])]
+            appended = append_records(records, trading_dates=trading_dates)
             log.info("信号日志已记录 %d 条 (%s %s)", len(records), symbol, period)
             _ = appended
     except Exception as exc:
         log.warning("信号日志写入失败（不影响主流程）: %s", exc)
 
 
-def _journal_chanlun(signals: list, symbol: str, level: str, source: str) -> None:
-    """缠论日/分时买卖点落档。"""
+def _journal_chanlun(signals: list, symbol: str, level: str, source: str,
+                     trading_dates=None) -> None:
+    """缠论日/分时买卖点落档。trading_dates 用于非交易日顺延与窗口计数。"""
     if not signals:
         return
     try:
-        records = build_chanlun_records(signals, symbol=symbol, level=level, source=source)
+        records = build_chanlun_records(signals, symbol=symbol, level=level,
+                                        source=source, trading_dates=trading_dates)
         if records:
-            append_records(records)
+            append_records(records, trading_dates=trading_dates)
             log.info("信号日志已记录 %d 条缠论信号 (%s %s)", len(records), symbol, level)
     except Exception as exc:
         log.warning("缠论信号日志写入失败（不影响主流程）: %s", exc)
@@ -816,9 +820,10 @@ def handle_chanlun_daily(params: dict) -> dict:
     volumes = [k.volume for k in klines]
     result = analyze_chanlun_daily(dates, opens, closes, highs, lows, volumes)
     payload = daily_result_to_dict(result)
+    # I8.1：传日线日期作交易日历（窗口去重按交易日；分时回退顺延也用它）
     _journal_chanlun(payload.get("signals") or [], symbol,
                      level="week" if period == "week" else "day",
-                     source="chanlun_daily")
+                     source="chanlun_daily", trading_dates=dates)
     return payload
 
 

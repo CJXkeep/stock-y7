@@ -51,3 +51,6 @@ COMMISSION_RATE = 0.00025   # 佣金双边
 MIN_COMMISSION = 5.0        # 最低佣金（元）
 STAMP_TAX_SELL = 0.0005     # 印花税（卖出单边）
 SIM_HORIZON = 60            # 模拟最长持有交易日
+SLIPPAGE_RATE = 0.001       # 滑点（双边对称、不利方向，I8.1）
+EXIT_POSTPONE_LIMIT = 5     # 涨停买入/跌停卖出顺延上限（日），超出 unfilled/forced（I8.1）
+SAMPLE_MIN = 10             # 分组样本量低于该值标注「样本不足」（设计稿 §7.5，I8.1）

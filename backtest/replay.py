@@ -16,7 +16,7 @@ import os
 
 from analysis.signal_engine import run_analysis as default_engine
 from backtest import config
-from backtest.snapshot import snapshot_dir
+from backtest.snapshot import snapshot_dir, verify_snapshot
 from data.kline_fetcher import Kline
 
 _log = logging.getLogger("backtest.replay")
@@ -83,11 +83,20 @@ def _replay_one(payload: dict) -> dict:
     return {"symbol": payload["symbol"], "signals": signals}
 
 
-def run_replay(snapshot_id: str, workers: int = 1, root: str = None) -> dict:
-    """对快照执行重放，写 signals.jsonl 与 cache.json。返回统计 dict。"""
+def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
+               expected_pool_version=None, allow_stale: bool = False) -> dict:
+    """对快照执行重放，写 signals.jsonl 与 cache.json。返回统计 dict。
+
+    I8.1：经 verify_snapshot 做完整性 + 可选 stale 校验。
+    """
     from backtest.snapshot import load_snapshot
     out_dir = snapshot_dir(snapshot_id, root)
+    _manifest_v = verify_snapshot(snapshot_id, root,
+                                  expected_pool_version=expected_pool_version,
+                                  allow_stale=allow_stale)
     bars_by_symbol, manifest = load_snapshot(snapshot_id, root)
+    if _manifest_v.get("stale_used"):
+        manifest["stale_used"] = True
     idx_bars = bars_by_symbol.get("_idx_" + config.INDEX_SYMBOLS[0], [])
     cache_path = os.path.join(out_dir, "cache.json")
     cache = {}

@@ -98,11 +98,13 @@ def load_records(journal_dir: str = None):
     return records, skipped
 
 
-def append_records(records: list, journal_dir: str = None) -> int:
+def append_records(records: list, journal_dir: str = None,
+                   trading_dates=None) -> int:
     """追加写入若干新记录。
 
     - 精确去重：与既有记录或本批内完全同键的记录丢弃，只保留首条；
     - 窗口标记：结合既有记录对新记录标 deduped（既有行不改写）；
+      提供 trading_dates（升序交易日序列，I8.1）时按交易日计数窗口；
     - 返回实际追加条数。
     """
     if not records:
@@ -124,7 +126,7 @@ def append_records(records: list, journal_dir: str = None) -> int:
         if not fresh:
             return 0
         # 结合既有上下文做窗口标记：只需对 fresh 求值，不改写既有行
-        combined = mark_window(existing + fresh)
+        combined = mark_window(existing + fresh, trading_dates=trading_dates)
         marked = combined[len(existing):]
         with open(path, "a", encoding="utf-8") as fh:
             for record in marked:
@@ -208,12 +210,14 @@ def build_main_records(signal_data: dict, symbol: str, period: str,
 
 
 def build_chanlun_records(signals: list, symbol: str, level: str, source: str,
-                          trigger_dates: dict = None) -> list:
+                          trigger_dates: dict = None,
+                          trading_dates=None) -> list:
     """由缠论信号列表构造日志记录。
 
     signals 元素需含 type/price；日线另含 date 与 observation/confirmed/executable_date，
     分时含 time 与对应 *_time 字段。trigger_date 取可成交时点，缺失时依次回退
     confirmed -> 信号端点日期 -> 当日（分时场景由调用方经 trigger_dates 提供当日）。
+    提供 trading_dates（I8.1）时：回退"当日"若非交易日 → 顺延至下一交易日并在 notes 标注。
     """
     records = []
     today = datetime.date.today().isoformat()
@@ -229,8 +233,16 @@ def build_chanlun_records(signals: list, symbol: str, level: str, source: str,
                 break
         if trigger is None and trigger_dates:
             trigger = trigger_dates.get(str(sig.get("type", "")))
+        deferred_note = None
         if not trigger:
-            trigger = today
+            from backtest import calendar as cal
+            if trading_dates and not cal.is_trading_date(today, trading_dates):
+                nxt = cal.next_trading_date(today, trading_dates)
+                if nxt:
+                    trigger = nxt
+                    deferred_note = f"顺延至交易日{nxt}"
+            if not trigger:
+                trigger = today
         notes_parts = []
         if sig.get("confirmed_date") is None and sig.get("confirmed_time") is None:
             notes_parts.append("尚未确认")
@@ -247,7 +259,7 @@ def build_chanlun_records(signals: list, symbol: str, level: str, source: str,
             snapshot_close=price if isinstance(price, (int, float)) else None,
             source=source,
             has_live_input=False,
-            notes=";".join(notes_parts),
+            notes=";".join(notes_parts + ([deferred_note] if deferred_note else [])),
         ))
     return records
 

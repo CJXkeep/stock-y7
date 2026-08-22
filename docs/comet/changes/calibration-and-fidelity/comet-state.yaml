@@ -1,0 +1,158 @@
+schema: comet.native.v4
+name: calibration-and-fidelity
+language: zh-CN
+phase: verify
+status: active
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: verify-ready
+  goal_cycle: 2
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: run-required-checks-and-dispatch-verifier
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 交易日窗口：跨周末场景——两信号自然日差 10（旧自然日实现判为出窗、漏去重）而交易日差仅 6 → 新实现正确标记
+      deduped；常规工作日间隔 <10 的对照组仍去重。（方向事实：交易日差恒 ≤ 自然日差，切口径后窗口在日历意义上变宽。）
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2 滑点手算：开盘 100 → 成交 100.10；stop 96 → 卖出 95.90；pnl 含 min 佣金 5 元与印花税，误差
+      ±0.02 内与手算一致。
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: A3 卖出跌停顺延：触发出场当日收盘跌停 → 顺延；连续 5 个跌停日 → 第 5 日收盘强平 `forced=true`。
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4 涨停顺延上限：连续 6 日开盘涨停 → `unfilled`（旧实现永不放弃）。
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: A5 截断区分：信号距数据尾不足 60 根且未触 stop/target → `truncated` 而非 `timeout`。
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: A6 离散度与小样本：两样本 std（样本标准差）与 stderr 手算一致；n=5 分组报告渲染「样本不足」；report.md
+      存在去重前/后两套汇总表。
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: A7 快照完整性与 stale：篡改 bars.jsonl 一个字节 → 校验拒绝；`manifest.pool_version ≠ 当前池
+      version` → stats 拒绝，`--allow-stale` 放行且报告头含 stale 披露。
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: A8 分时 trigger_date：回退当日为非交易日 → 顺延至下一交易日且 notes 含「顺延」；`run_all_tests.py`
+      全量回归通过。
+    result: pending
+    reason: null
+builder_handoff:
+  candidate_id: e2e038f4-8dea-4ee2-b2ce-45e570c1babb
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:c97cf499-4bb1-4035-8666-4329c68dde70
+  iteration: 1
+  summary:
+    text: I8.1 实现完成：calendar.py
+      升级交易日工具（trading_days_between/next_trading_date/is_trading_date，bisect）；dedupe.mark_window
+      增可选 trading_dates 按交易日计数（缺省回退自然日向后兼容）；接线：stats 传快照全市场日历、app
+      主链钩子传当次日线日期、chanlun_daily 钩子传日线日期、journal.append_records 透传；模拟保真：滑点
+      _slip(0.1% 双边不利方向 0.01 步进)、卖出跌停顺延（连续 EXIT_POSTPONE_LIMIT 日收盘强平
+      forced=true）、买入涨停顺延上限→unfilled、timeout/truncated 区分、hold_days
+      字段、summarize_simulation 汇总表入报告头；统计补齐：分组
+      std/stderr/insufficient_sample(n<SAMPLE_MIN=10)、报告输出去重前 aggregate_raw
+      双汇总表；snapshot：manifest 增 bars_jsonl_sha256+config_hash、OHLC 违例股票
+      ohlc_invalid 排除出 usable、verify_snapshot(完整性+stale) 接入 replay/stats，CLI
+      --allow-stale 两命令、--root 模式池版本取 root/pool.json；分时 chanlun trigger_date
+      回退当日遇非交易日顺延下一交易日 notes 标注；报告头新增去重窗口单位(交易日)/出场口径/stale
+      披露。tests/test_stats.py 扩至 23 项（A1-A8 全覆盖）。开发期修复自身引入的 report 多余括号与 A1
+      用例索引错误。全量回归 9 文件全绿。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: python -m compileall -q backtest app.py
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python tests/test_stats.py
+        truncated: false
+      result: passed
+      note:
+        text: 23/23 通过
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 9/9 文件全绿
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 旧快照（manifest 无 sha256/config_hash）跳过完整性校验（向后兼容）
+      truncated: false
+    - text: 缠论分时钩子无日线可传时窗口计数回退自然日（如实披露于 spec）
+      truncated: false
+    - text: 出场口径维持盘中触价即时成交（保守），未实现设计稿草拟的收盘确认模式（已决策采纳并回写 §7.6）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-22T04:57:38.855Z
+blockers: []
+verification: null
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-22T04:56:59.411Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-08-22T04:34:43.268Z

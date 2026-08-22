@@ -28,6 +28,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_replay = sub.add_parser("replay", help="滚动截窗无前视重放生成 signals.jsonl")
     p_replay.add_argument("snapshot_id")
     p_replay.add_argument("--workers", type=int, default=1)
+    p_replay.add_argument("--allow-stale", action="store_true",
+                          help="池版本不一致时放行（报告将披露 stale）")
 
     p_stats = sub.add_parser("stats", help="forward return 统计与报告")
     p_stats.add_argument("snapshot_id")
@@ -35,7 +37,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--include-warmup", action="store_true")
     p_stats.add_argument("--simulate", action="store_true")
     p_stats.add_argument("--capital", type=float, default=None)
+    p_stats.add_argument("--allow-stale", action="store_true",
+                         help="池版本不一致时放行（报告将披露 stale）")
     return parser
+
+
+def _expected_pool_version(root):
+    """当前池版本；--root 模式下从 root/pool.json 读（不存在则 None=跳过校验）。"""
+    import os
+    from backtest import pool as stock_pool
+    if root:
+        path = os.path.join(root, "pool.json")
+        if not os.path.exists(path):
+            return None
+        return stock_pool.load(path).get("version")
+    return stock_pool.load().get("version")
 
 
 def main(argv=None) -> int:
@@ -53,18 +69,23 @@ def main(argv=None) -> int:
 
     if args.command == "replay":
         from backtest.replay import run_replay
-        result = run_replay(args.snapshot_id, workers=args.workers, root=root)
+        expected = _expected_pool_version(root)
+        result = run_replay(args.snapshot_id, workers=args.workers, root=root,
+                            expected_pool_version=expected,
+                            allow_stale=args.allow_stale)
         print(json.dumps({k: v for k, v in result.items() if not str(k).endswith("_file")},
                          ensure_ascii=False))
         return 0
 
     if args.command == "stats":
         from backtest.stats import run_stats
+        expected = _expected_pool_version(root)
         summary = run_stats(
             args.snapshot_id, root=root,
             results_root=(args.root + "/results") if args.root else None,
             dedupe_window=args.dedupe_window, include_warmup=args.include_warmup,
-            simulate=args.simulate, capital=args.capital)
+            simulate=args.simulate, capital=args.capital,
+            expected_pool_version=expected, allow_stale=args.allow_stale)
         meta = summary.get("meta", {})
         overall = summary.get("overall", {}).get("r20") or {}
         print("signals=%d deduped=%d warmup_excluded=%d | r20: n=%s win_rate=%s avg=%s%%" % (
