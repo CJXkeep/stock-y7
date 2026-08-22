@@ -35,6 +35,7 @@ from analysis.signal_engine import run_analysis, SignalEngineResult
 from analysis.chanlun_minute import analyze_chanlun_minute, signals_to_dict
 from analysis.chanlun_daily import analyze_chanlun_daily, daily_result_to_dict
 from backtest import config as journal_config
+from backtest import pool as stock_pool
 from backtest.journal import (
     build_chanlun_records, build_main_records, append_records, query_records,
     backfill as journal_backfill,
@@ -162,6 +163,39 @@ def _kick_journal_backfill(min_interval_sec: float = 600.0) -> None:
             return
         _journal_backfill_last_run[0] = now_ts
     threading.Thread(target=_run_journal_backfill, daemon=True).start()
+
+
+# ---- 核心池（I7.3：可视化维护 + 版本递增，为 I7.4 快照失效埋关联） ----
+def handle_pool_get(params: dict) -> dict:
+    """全量读取核心池。"""
+    return stock_pool.load()
+
+
+def handle_pool_post(body: dict) -> dict:
+    """核心池变更入口。action ∈ add|remove|reorder|note|move。"""
+    action = str(body.get("action", "")).strip()
+    pool_data = stock_pool.load()
+    if action == "add":
+        pool_data, ok, message = stock_pool.add(
+            pool_data, body.get("symbol"), str(body.get("name", "")),
+            str(body.get("note", "")))
+    elif action == "remove":
+        pool_data, ok, message = stock_pool.remove(pool_data, body.get("symbol"))
+    elif action == "reorder":
+        pool_data, ok, message = stock_pool.reorder(pool_data, body.get("symbols"))
+    elif action == "note":
+        pool_data, ok, message = stock_pool.set_note(
+            pool_data, body.get("symbol"), str(body.get("note", "")))
+    elif action == "move":
+        pool_data, ok, message = stock_pool.move(
+            pool_data, body.get("symbol"), int(body.get("offset", 0)))
+    else:
+        return {"ok": False, "error": f"未知 action: {action}"}
+    resp = dict(pool_data)
+    resp["ok"] = ok
+    if not ok:
+        resp["error"] = message
+    return resp
 
 
 def _parse_count(params: dict, default: int = 250, max_count: int = MAX_KLINE_COUNT) -> int:
@@ -1099,6 +1133,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(handle_realtime_flow(params))
                 elif path == "/api/journal":
                     self._json(handle_journal(params))
+                elif path == "/api/pool":
+                    self._json(handle_pool_get(params))
                 elif path == "/api/scan":
                     self._json(handle_scan(params))
                 else:
@@ -1137,6 +1173,28 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def do_POST(self):
+        """核心池变更入口（I7.3）。仅开放 /api/pool。"""
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/pool":
+            self._json({"ok": False, "error": "未知POST路径"}, 404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length <= 0 or length > 65536:
+                raise ValueError(f"请求体长度非法: {length}")
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError("请求体必须是 JSON 对象")
+        except ValueError as exc:
+            self._json({"ok": False, "error": f"请求体无效: {exc}"})
+            return
+        try:
+            self._json(handle_pool_post(body))
+        except Exception as e:
+            log.error(f"API POST错误: {e}", exc_info=True)
+            self._json({"ok": False, "error": str(e)}, 500)
 
 
 def main():

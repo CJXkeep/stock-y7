@@ -1,0 +1,231 @@
+schema: comet.native.v4
+name: core-pool-manager
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：文件缺失时 load 返回空池（version=1、items=[]），首次变更后写出含
+      schema/version/items/updated_at 的合法 JSON。
+    result: passed
+    reason:
+      text: load 缺失回退空池(schema/version/items)，首次 add 原子写盘含全部字段
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：add/remove/reorder/note 四类操作均持久化成功，且每次变更后 version 严格 +1。
+    result: passed
+    reason:
+      text: 四类操作均 version+1 经 _commit→save(tmp+os.replace) 持久化，磁盘读回一致
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：重复 add 同一 symbol 幂等拒绝（返回已存在标记，version 不变）。
+    result: passed
+    reason:
+      text: 重复 add ok=False 含「已存在」且写盘前后 JSON 相等
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：文件内容损坏时 load 回退空池并输出告警，后续保存可恢复为合法文件。
+    result: passed
+    reason:
+      text: 损坏回退空池+warning，随后 add 恢复合法结构 version=2
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：GET /api/pool 返回全量结构；POST 各 action 后 GET 反映新 items 与递增后的 version。
+    result: passed
+    reason:
+      text: GET 全量结构；do_POST 仅放行 /api/pool、64KB 上限；handler 端到端版本单调递增
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：看板「核心池」页签具备列表渲染与增删/上下移/备注编辑交互（静态结构 + 请求路径核验）。
+    result: passed
+    reason:
+      text: 看板页签/容器/loadPool 等齐全；app GET(:1136)/POST(:1177) 路由存在
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：reorder 以任意给定序列重排成功且长度与成员不变。
+    result: passed
+    reason:
+      text: reorder 集合校验拒绝缺员/多员/重复，任意重排正确，move 复用 reorder
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：`python run_all_tests.py` 全量回归通过（含新增 test_pool.py）。
+    result: passed
+    reason:
+      text: 独立复证 test_pool 8/8、run_all_tests 7/7 文件全过
+      truncated: false
+builder_handoff:
+  candidate_id: 17ec8903-da8d-4535-92bd-f02939d347bc
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:61051a1d-e737-4ce7-8a27-dd96772b5a60
+  iteration: 1
+  summary:
+    text: "I7.3 实现完成：新增 backtest/pool.py（load 缺失/损坏回退空池+告警、save
+      原子写、add/remove/reorder/note/move 全部成功变更 version+1、幂等拒绝与超容拒绝不写盘、容量上限
+      60）；app.py 新增 handle_pool_get/handle_pool_post（action:
+      add|remove|reorder|note|move）与 do_POST（仅开放 /api/pool，Content-Length 上限
+      64KB，body JSON），GET /api/pool 路由注册；看板工作台新增第 5
+      个页签「核心池」：列表（序号/代码/名称/备注内联编辑/↑↓/删）、手动添加、「+ 当前股票」、池版本与条数展示。新增
+      tests/test_pool.py 8 项（含 handler 级端到端与看板/路由静态断言）。全量回归 7
+      文件全绿。注：开发中发现首轮测试一处漏传 path 误写真实 data/pool.json，已修正测试并删除该污染文件。"
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: python -m compileall -q backtest app.py
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python tests/test_pool.py
+        truncated: false
+      result: passed
+      note:
+        text: 8/8 通过（缺失回退/四类操作版本递增/幂等拒绝不写盘/损坏恢复/reorder 校验与 move/容量上限/app 接线静态断言/handler
+          端到端）
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 7/7 文件全绿（41 既有 + 15 journal + 8 pool）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 快照失效提示闭环随 I7.4 落地（本迭代只埋 pool.version 关联，路线图修订口径）
+      truncated: false
+    - text: 看板排序为 ↑/↓ 按钮而非拖拽；备注失焦保存
+      truncated: false
+    - text: 「添加当前股票」取页面 currentSymbol 与 stock-name 元素文本，未做名称强校验
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-22T02:57:36.300Z
+blockers: []
+verification:
+  candidate_id: 17ec8903-da8d-4535-92bd-f02939d347bc
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:336dbacc-40c1-4f8b-a566-7e28364b70d3
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: compile-all
+      name:
+        text: 语法编译 backtest 与 app
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: backtest
+          truncated: false
+        - text: app.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 80
+    - id: pool-tests
+      name:
+        text: test_pool.py 8 项全过
+        truncated: false
+      argv_display:
+        - text: tests/test_pool.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 396
+    - id: full-regression
+      name:
+        text: run_all_tests.py 全量回归（A8）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1728
+  summary:
+    text: 八项验收全部通过：核心池持久化/版本递增/幂等拒绝/损坏容错/API 与看板接线/reorder 校验/全量回归均经独立复证。
+    truncated: false
+  risks:
+    - text: poolMove/poolNote POST 成功后未即时重拉渲染（下次刷新可见），与 spec §4 轻微偏差
+      truncated: false
+    - text: POOL_MAX_ITEMS 定义在 pool.py 而非 spec 所述 config.py，功能等价
+      truncated: false
+    - text: move/note 分支非数值 offset 由 do_POST 兜底 500+ok:false，健壮性可后续收紧
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-22T03:01:54.251Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 八项验收全部通过：核心池持久化/版本递增/幂等拒绝/损坏容错/API 与看板接线/reorder 校验/全量回归均经独立复证。
+      truncated: false
+    completed_at: 2026-08-22T03:01:54.251Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-22T02:50:03.301Z

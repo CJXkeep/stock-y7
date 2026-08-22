@@ -639,11 +639,13 @@ body {
         <button class="wp-tab" data-tab="history" onclick="switchTab('history')">历史记录<span class="wp-tab-count" id="ht-count"></span></button>
         <button class="wp-tab" data-tab="overview" onclick="switchTab('overview')">多股一览<span class="wp-tab-count" id="ov-count"></span></button>
         <button class="wp-tab" data-tab="journal" onclick="switchTab('journal')">信号档案</button>
+        <button class="wp-tab" data-tab="pool" onclick="switchTab('pool')">核心池</button>
       </div>
       <div class="wp-list" id="wp-content-watch"></div>
       <div class="wp-list" id="wp-content-history" style="display:none"></div>
       <div class="wp-list" id="wp-content-overview" style="display:none"></div>
       <div class="wp-list" id="wp-content-journal" style="display:none"></div>
+      <div class="wp-list" id="wp-content-pool" style="display:none"></div>
       <div class="wp-footer" id="wp-footer" style="display:none">
         <span class="wp-footer-info" id="wp-footer-info"></span>
         <button class="wp-clear" id="wp-clear-btn" onclick="clearCurrentTab()">清空</button>
@@ -2716,6 +2718,7 @@ function switchTab(tab) {
   document.getElementById('wp-content-history').style.display = tab === 'history' ? 'block' : 'none';
   document.getElementById('wp-content-overview').style.display = tab === 'overview' ? 'block' : 'none';
   document.getElementById('wp-content-journal').style.display = tab === 'journal' ? 'block' : 'none';
+  document.getElementById('wp-content-pool').style.display = tab === 'pool' ? 'block' : 'none';
   // 按钮高亮
   document.getElementById('watch-btn').classList.toggle('active', tab === 'watch');
   document.getElementById('history-btn').classList.toggle('active', tab === 'history');
@@ -2724,6 +2727,7 @@ function switchTab(tab) {
   else if (tab === 'history') renderHistory();
   else if (tab === 'overview') loadOverview();
   else if (tab === 'journal') loadJournal();
+  else if (tab === 'pool') loadPool();
   // 底部操作栏
   const footer = document.getElementById('wp-footer');
   const list = tab === 'watch' ? getWatchlist() : tab === 'history' ? getHistory() : [];
@@ -3223,6 +3227,86 @@ async function loadJournal() {
       </tr></thead>
       <tbody>${rows || '<tr><td colspan="8" style="padding:16px;color:#666">暂无记录——产生买卖信号后自动落档</td></tr>'}</tbody>
     </table>`;
+}
+
+// ===== 核心池管理（可视化维护，变更自动递增池版本） =====
+async function poolPost(body) {
+  const r = await fetch(`${API}/api/pool`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+async function loadPool() {
+  const el = document.getElementById('wp-content-pool');
+  el.innerHTML = '<div class="wp-ov-loading">正在读取核心池...</div>';
+  let data;
+  try {
+    const r = await fetch(`${API}/api/pool`);
+    data = await r.json();
+  } catch (e) {
+    el.innerHTML = '<div class="wp-empty">核心池读取失败</div>';
+    return;
+  }
+  const items = data.items || [];
+  const cur = (typeof currentSymbol !== 'undefined' && currentSymbol) ? currentSymbol : '';
+  const rows = items.map((it, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #1c1c1c;font-size:12px">
+      <span style="color:#666;width:18px">${i + 1}</span>
+      <a href="#" onclick="analyze('${it.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none;min-width:52px">${it.symbol}</a>
+      <span style="min-width:80px;color:#ddd">${escHtml(it.name || '--')}</span>
+      <input value="${escHtml(it.note || '')}" placeholder="备注" style="flex:1;background:#111;border:1px solid #2a2a2a;color:#bbb;font-size:11px;padding:2px 6px"
+        onchange="poolNote('${it.symbol}', this.value)">
+      <button onclick="poolMove('${it.symbol}', -1)" ${i === 0 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↑</button>
+      <button onclick="poolMove('${it.symbol}', 1)" ${i === items.length - 1 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↓</button>
+      <button onclick="poolRemove('${it.symbol}')" style="background:none;border:1px solid #5a2a2a;color:#e57373;cursor:pointer;padding:0 6px">删</button>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;align-items:center;flex-wrap:wrap">
+      <span>池版本 <b style="color:#ff9800">v${data.version}</b></span>
+      <span>${items.length} 只</span>
+      <input id="pool-add-symbol" placeholder="代码 如 600519" size="9" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
+      <input id="pool-add-name" placeholder="名称(可选)" size="8" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
+      <button onclick="poolAdd()" style="background:#ff9800;border:none;color:#000;padding:2px 10px;cursor:pointer;font-size:11px">添加</button>
+      <button onclick="poolAddCurrent('${cur}')" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur || '无'})</button>
+    </div>
+    ${rows || '<div style="padding:20px;color:#666;font-size:12px">核心池为空——手动输入代码添加，或分析个股后点「+ 当前」加入。<br>核心池将用于信号档案筛选与 I7.4 历史统计。</div>'}`;
+}
+
+async function poolAdd() {
+  const symbolEl = document.getElementById('pool-add-symbol');
+  const nameEl = document.getElementById('pool-add-name');
+  const symbol = (symbolEl.value || '').trim();
+  if (!symbol) return;
+  const data = await poolPost({ action: 'add', symbol, name: (nameEl.value || '').trim() });
+  if (!data.ok) alert(data.error || '添加失败');
+  loadPool();
+}
+
+async function poolAddCurrent(symbol) {
+  if (!symbol) return;
+  const name = (typeof document.getElementById('stock-name') !== 'undefined'
+    && document.getElementById('stock-name')) ? document.getElementById('stock-name').textContent.trim() : '';
+  const data = await poolPost({ action: 'add', symbol, name });
+  if (!data.ok) alert(data.error || '添加失败');
+  loadPool();
+}
+
+async function poolRemove(symbol) {
+  if (!confirm(`从核心池移除 ${symbol}？`)) return;
+  await poolPost({ action: 'remove', symbol });
+  loadPool();
+}
+
+async function poolNote(symbol, note) {
+  await poolPost({ action: 'note', symbol, note });
+}
+
+async function poolMove(symbol, offset) {
+  await poolPost({ action: 'move', symbol, offset });
 }
 
 // ===== 相邻查看方向一致率统计 =====
