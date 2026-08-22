@@ -1,0 +1,271 @@
+schema: comet.native.v4
+name: signal-journal
+language: zh-CN
+phase: archive
+status: done
+state_version: 10
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：对合成数据调用主链分析产生买入信号后，`journal.jsonl`
+      追加一条字段齐全的记录（schema=v5.journal.v1，created_at 为 UTC ISO8601）。
+    result: passed
+    reason:
+      text: 钩子位于 optimize(:621)→localize(:624)→journal(:627) 之后取最终
+        action；schema=v5.journal.v1、UTC created_at、deduped=false 完整记录经
+        append→load 往返校验
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：同一 `(symbol, level, signal_type, trigger_date)` 重复触发只落一条（精确去重）。
+    result: passed
+    reason:
+      text: exact_key=(symbol,level,signal_type,trigger_date) 对既有行与本批 seen
+        集合双重精确去重只留首条
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "A3：去重窗口（10 交易日）内同类信号照写并标 `deduped: true`；读取层过滤后窗口内仅首个可见；面板默认过滤行为一致。"
+    result: passed
+    reason:
+      text: mark_window 分组锚点标记窗口内 deduped=true 不丢弃；filter_visible
+        默认过滤；看板可切换显示重复并提示近期已记录
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：落盘失败（如目录只读）不阻塞信号主流程，仅记录日志告警。
+    result: passed
+    reason:
+      text: 两处钩子 try/except 仅 warning；append_records_safe 永不抛出，不可写目录返回 None 不阻塞
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：已知小样本手算核验：补记 5/10/20/60 收益正确、`trigger_close` 回填正确、超 60 日标
+      `closed_at`、停牌顺延按自身 bar 计数。
+    result: passed
+    reason:
+      text: 接线真实成立：_run_journal_backfill(app.py:134-154) 内
+        journal_load_records(:137)→journal_backfill(:149)→journal_save_records(:151
+        原子改写)；_kick_journal_backfill 节流后台线程在 main()(:1145,min_interval_sec=0.0)
+        与 handle_journal(:86) 两处生产调用点确认；_closed_daily_bars 盘中剔除当日 bar
+        且可注入测试；新增两条测试通过
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：缠论日线与分时端点的买卖点分别以 level=day/week、minute 落档；`/api/scan` 不产生任何日志记录。
+    result: passed
+    reason:
+      text: chanlun_minute(:731)/chanlun_daily(:754) 挂点 level 与 type 映射正确；扫描路径全函数体零
+        journal 引用并有静态断言测试
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：看板出现"信号档案"只读面板：可列表、按类型/股票筛选、显示汇总数字（数据来自日志 API）。
+    result: passed
+    reason:
+      text: 信号档案页签/容器/loadJournal 渲染列表（5·10·20·60
+        收益列）与汇总卡片齐全，type/symbol/include_dupes 过滤可用
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：并发触发钩子时写入有锁保护（代码审查 + 并发写测试不损坏行）；损坏行跳过并告警。
+    result: passed
+    reason:
+      text: threading.Lock 保护追加与改写；20 线程并发 0 损坏；损坏行跳过计数并 warning 实际观察到输出
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: A9：`python run_all_tests.py` 全量回归通过（含新增 test_journal.py）。
+    result: passed
+    reason:
+      text: 独立复跑 compileall 通过、test_journal 15/15、run_all_tests 全量 6 文件全过无回归
+      truncated: false
+builder_handoff:
+  candidate_id: e0344bf1-c882-4aeb-a386-79a568cb10e0
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:ff9f76c4-bb8f-4866-bf69-dd74d07141d1
+  iteration: 2
+  summary:
+    text: 修复 Verifier 指出的 A5 缺口（补记管线零生产调用）：app.py 新增 _closed_daily_bars（只取已收盘日线，当日
+      bar 在本地 15:30 前剔除，klines/now 可注入测试）、_run_journal_backfill（对未完成记录 backfill
+      后 save_records 原子改写，全程 try/except 仅告警）与
+      _kick_journal_backfill（节流后台线程）；接线两处生产路径——main() 启动（min_interval_sec=0）与
+      handle_journal 刷新（默认 600 秒节流）；journal.load_records 对损坏行增加日志告警。新增 2
+      条测试：test_app_wires_backfill_into_production_paths（源码断言两处接线 +
+      函数可调用）、test_closed_bars_excludes_intraday_today_bar（14:00 剔除当日 bar、16:00
+      计入、非法 close 过滤）。test_journal.py 15/15、全量回归 6 文件全绿。
+    truncated: false
+  addressed_acceptance_ids:
+    - A5
+    - A8
+    - A9
+  checks:
+    - name:
+        text: python -m compileall -q backtest app.py
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python tests/test_journal.py
+        truncated: false
+      result: passed
+      note:
+        text: 15/15 通过（新增接线断言与盘中 bar 过滤两条）
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 6/6 文件全过，退出码 0
+        truncated: false
+    - name:
+        text: _kick_journal_backfill(0) 冒烟
+        truncated: false
+      result: passed
+      note:
+        text: 空库路径正常返回，后台线程无异常
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 补记为后台异步：/api/journal 首次刷新时立即返回现有数据，补记完成后下次刷新可见（节流 600 秒）
+      truncated: false
+    - text: 分时缠论 trigger_date 回退本地 today，周末/节假日触发会落非交易日日期（已披露，I7.4 前接受）
+      truncated: false
+    - text: 去重窗口自然日近似交易日（宽松方向），I7.4 引入交易日历后替换
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-22T02:30:20.903Z
+blockers: []
+verification:
+  candidate_id: e0344bf1-c882-4aeb-a386-79a568cb10e0
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:b9354e3e-6479-47a4-8b14-89bd90a25b7d
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: compile-all
+      name:
+        text: 语法编译 backtest 与 app
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: backtest
+          truncated: false
+        - text: app.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 86
+    - id: journal-tests
+      name:
+        text: test_journal.py 15 项全过（含接线断言）
+        truncated: false
+      argv_display:
+        - text: tests/test_journal.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 275
+    - id: full-regression
+      name:
+        text: run_all_tests.py 全量回归（A9）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1363
+    - id: backfill-wiring-smoke
+      name:
+        text: 补记管线生产路径冒烟：kick 触发无异常
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: import time; import app; app._kick_journal_backfill(0); time.sleep(0.5);
+            print('ok')
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 726
+  summary:
+    text: 第二轮复核 pass：A5 补记管线已真实接线到 main 启动与 /api/journal 刷新两个生产路径，其余项无回归。
+    truncated: false
+  risks:
+    - text: 补记为异步且 600 秒节流：刷新后的首次响应可能尚未包含最新补记结果，需下次刷新可见（符合不阻塞设计的数据新鲜度取舍）
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-22T02:38:51.153Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A5
+    summary:
+      text: 八项通过且回归全绿，但补记管线未接入生产路径导致『事后自动补记』端到端不成立，判 fail 待接线后重验。
+      truncated: false
+    completed_at: 2026-08-22T02:25:24.138Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 第二轮复核 pass：A5 补记管线已真实接线到 main 启动与 /api/journal 刷新两个生产路径，其余项无回归。
+      truncated: false
+    completed_at: 2026-08-22T02:38:51.153Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-22T01:38:28.834Z

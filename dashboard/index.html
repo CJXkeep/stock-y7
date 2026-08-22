@@ -638,10 +638,12 @@ body {
         <button class="wp-tab active" data-tab="watch" onclick="switchTab('watch')">自选股<span class="wp-tab-count" id="wt-count"></span></button>
         <button class="wp-tab" data-tab="history" onclick="switchTab('history')">历史记录<span class="wp-tab-count" id="ht-count"></span></button>
         <button class="wp-tab" data-tab="overview" onclick="switchTab('overview')">多股一览<span class="wp-tab-count" id="ov-count"></span></button>
+        <button class="wp-tab" data-tab="journal" onclick="switchTab('journal')">信号档案</button>
       </div>
       <div class="wp-list" id="wp-content-watch"></div>
       <div class="wp-list" id="wp-content-history" style="display:none"></div>
       <div class="wp-list" id="wp-content-overview" style="display:none"></div>
+      <div class="wp-list" id="wp-content-journal" style="display:none"></div>
       <div class="wp-footer" id="wp-footer" style="display:none">
         <span class="wp-footer-info" id="wp-footer-info"></span>
         <button class="wp-clear" id="wp-clear-btn" onclick="clearCurrentTab()">清空</button>
@@ -2713,6 +2715,7 @@ function switchTab(tab) {
   document.getElementById('wp-content-watch').style.display = tab === 'watch' ? 'block' : 'none';
   document.getElementById('wp-content-history').style.display = tab === 'history' ? 'block' : 'none';
   document.getElementById('wp-content-overview').style.display = tab === 'overview' ? 'block' : 'none';
+  document.getElementById('wp-content-journal').style.display = tab === 'journal' ? 'block' : 'none';
   // 按钮高亮
   document.getElementById('watch-btn').classList.toggle('active', tab === 'watch');
   document.getElementById('history-btn').classList.toggle('active', tab === 'history');
@@ -2720,6 +2723,7 @@ function switchTab(tab) {
   if (tab === 'watch') renderWatchlist();
   else if (tab === 'history') renderHistory();
   else if (tab === 'overview') loadOverview();
+  else if (tab === 'journal') loadJournal();
   // 底部操作栏
   const footer = document.getElementById('wp-footer');
   const list = tab === 'watch' ? getWatchlist() : tab === 'history' ? getHistory() : [];
@@ -3127,6 +3131,98 @@ async function loadOverview() {
       <span class="wp-ov-sig">${sigTag}</span>
     </div>`;
   }).join('');
+}
+
+// ===== 信号档案（真实信号日志，只读） =====
+const _journalTypeNames = {
+  buy: '买入', strong_buy: '强烈买入', cautious_buy: '谨慎买入',
+  breakout_exit: '突破卖出', short_cover: '空头平仓',
+  chanlun_buy1: '缠论一买', chanlun_buy2: '缠论二买',
+  chanlun_sell1: '缠论一卖', chanlun_sell2: '缠论二卖',
+};
+let _journalShowDupes = false;
+let _journalTypeFilter = '';
+let _journalSymbolFilter = '';
+
+function _followupMap(rec) {
+  const m = {};
+  (rec.followups || []).forEach(f => { m[f.horizon] = f; });
+  return m;
+}
+
+async function loadJournal() {
+  const el = document.getElementById('wp-content-journal');
+  el.innerHTML = '<div class="wp-ov-loading">正在读取信号日志...</div>';
+  const qs = new URLSearchParams({
+    include_dupes: _journalShowDupes ? '1' : '0',
+    limit: '500',
+  });
+  if (_journalTypeFilter) qs.set('type', _journalTypeFilter);
+  if (_journalSymbolFilter) qs.set('symbol', _journalSymbolFilter);
+  let data;
+  try {
+    const r = await fetch(`${API}/api/journal?${qs}`);
+    data = await r.json();
+  } catch (e) {
+    el.innerHTML = '<div class="wp-empty">信号日志读取失败</div>';
+    return;
+  }
+  if (data.error) {
+    el.innerHTML = `<div class="wp-empty">${escHtml(data.error)}</div>`;
+    return;
+  }
+  const records = data.records || [];
+  const s = data.summary || {};
+  const typeOpts = ['<option value="">全部类型</option>'].concat(
+    Object.keys(_journalTypeNames).map(k =>
+      `<option value="${k}" ${_journalTypeFilter === k ? 'selected' : ''}>${_journalTypeNames[k]}</option>`)
+  ).join('');
+
+  const winStr = s.buy_20d_win_rate_pct == null ? '--' : s.buy_20d_win_rate_pct.toFixed(1) + '%';
+  const avgStr = s.buy_20d_avg_return_pct == null ? '--' : (s.buy_20d_avg_return_pct > 0 ? '+' : '') + s.buy_20d_avg_return_pct.toFixed(2) + '%';
+
+  const rows = records.map(rec => {
+    const f = _followupMap(rec);
+    const cell = h => h == null ? '<span style="color:#555">--</span>'
+      : `<span style="color:${h > 0 ? C.up : h < 0 ? C.down : '#999'}">${h > 0 ? '+' : ''}${h.toFixed(2)}%</span>`;
+    const dupTag = rec.deduped ? '<span title="近期已记录（去重窗口内重复信号）">🔁</span>' : '';
+    return `<tr>
+      <td>${rec.trigger_date || ''}</td>
+      <td><a href="#" onclick="analyze('${rec.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a></td>
+      <td>${_journalTypeNames[rec.signal_type] || rec.signal_type}${dupTag}</td>
+      <td>${rec.snapshot_close != null ? rec.snapshot_close : '--'}</td>
+      <td>${cell(f[5] && f[5].return_pct)}</td>
+      <td>${cell(f[10] && f[10].return_pct)}</td>
+      <td>${cell(f[20] && f[20].return_pct)}</td>
+      <td>${cell(f[60] && f[60].return_pct)}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;gap:14px;padding:8px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;flex-wrap:wrap;align-items:center">
+      <span>总信号 <b style="color:#eee">${s.total || 0}</b></span>
+      <span>买侧20日样本 <b style="color:#eee">${s.buy_20d_count || 0}</b></span>
+      <span>20日上涨比例 <b style="color:${(s.buy_20d_win_rate_pct||0) >= 50 ? C.up : C.down}">${winStr}</b></span>
+      <span>20日平均收益 <b style="color:${(s.buy_20d_avg_return_pct||0) >= 0 ? C.up : C.down}">${avgStr}</b></span>
+      <label>类型
+        <select onchange="_journalTypeFilter=this.value;loadJournal()" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${typeOpts}</select>
+      </label>
+      <label>代码
+        <input value="${escHtml(_journalSymbolFilter)}" placeholder="如 600519" size="7"
+          onchange="_journalSymbolFilter=this.value.trim();loadJournal()"
+          style="background:#111;color:#ccc;border:1px solid #333;font-size:11px;width:70px">
+      </label>
+      <label style="margin-left:auto;cursor:pointer"><input type="checkbox" ${_journalShowDupes ? 'checked' : ''} onchange="_journalShowDupes=this.checked;loadJournal()"> 显示重复(近期已记录)</label>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc">
+      <thead><tr style="color:#777;text-align:left;border-bottom:1px solid #222">
+        <th style="padding:4px 8px">信号日</th><th style="padding:4px 6px">代码</th>
+        <th style="padding:4px 6px">类型</th><th style="padding:4px 6px">信号价</th>
+        <th style="padding:4px 6px">5日</th><th style="padding:4px 6px">10日</th>
+        <th style="padding:4px 6px">20日</th><th style="padding:4px 6px">60日</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" style="padding:16px;color:#666">暂无记录——产生买卖信号后自动落档</td></tr>'}</tbody>
+    </table>`;
 }
 
 // ===== 相邻查看方向一致率统计 =====
