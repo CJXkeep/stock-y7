@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: calibration-and-fidelity
 language: zh-CN
-phase: verify
-status: active
-state_version: 7
+phase: archive
+status: done
+state_version: 11
 brief: brief.md
 spec_changes: []
 workspace:
@@ -12,62 +12,79 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: verify-ready
+  stage: done
   goal_cycle: 2
   iteration: 1
-  attempt: 1
+  attempt: 2
   retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: run-required-checks-and-dispatch-verifier
+  next_action: null
 acceptance:
   - id: A1
     source: brief.md
     text: A1 交易日窗口：跨周末场景——两信号自然日差 10（旧自然日实现判为出窗、漏去重）而交易日差仅 6 → 新实现正确标记
       deduped；常规工作日间隔 <10 的对照组仍去重。（方向事实：交易日差恒 ≤ 自然日差，切口径后窗口在日历意义上变宽。）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 跨周末案例独立复算：自然日差10旧实现漏标、交易日gap=6新实现标 deduped；对照组仍去重；stats/app 钩子已接线
+      truncated: false
   - id: A2
     source: brief.md
     text: A2 滑点手算：开盘 100 → 成交 100.10；stop 96 → 卖出 95.90；pnl 含 min 佣金 5 元与印花税，误差
       ±0.02 内与手算一致。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 手算链复现 entry=100.10/buy=10010、sell=94.90/9490、fees≈14.75、pnl=−534.75±0.02
+      truncated: false
   - id: A3
     source: brief.md
     text: A3 卖出跌停顺延：触发出场当日收盘跌停 → 顺延；连续 5 个跌停日 → 第 5 日收盘强平 `forced=true`。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 顺延双路径独立验证：非跌停日开盘卖出 forced=false；连续跌停至第 5 顺延日收盘强平 forced=true
+      truncated: false
   - id: A4
     source: brief.md
     text: A4 涨停顺延上限：连续 6 日开盘涨停 → `unfilled`（旧实现永不放弃）。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 连续 5 日涨停仍入场、第 6 日 postpone_count=6>5 返回 unfilled
+      truncated: false
   - id: A5
     source: brief.md
     text: A5 截断区分：信号距数据尾不足 60 根且未触 stop/target → `truncated` 而非 `timeout`。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 视界边界判定正确：恰好覆盖 timeout、差一根 truncated
+      truncated: false
   - id: A6
     source: brief.md
     text: A6 离散度与小样本：两样本 std（样本标准差）与 stderr 手算一致；n=5 分组报告渲染「样本不足」；report.md
       存在去重前/后两套汇总表。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: std=√450、stderr=std/√2 手算一致；n<10 渲染「⚠样本不足」；双汇总表存在
+      truncated: false
   - id: A7
     source: brief.md
     text: A7 快照完整性与 stale：篡改 bars.jsonl 一个字节 → 校验拒绝；`manifest.pool_version ≠ 当前池
       version` → stats 拒绝，`--allow-stale` 放行且报告头含 stale 披露。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 篡改触发 SnapshotIntegrityError；stale 拒绝与 --allow-stale 放行披露均验证；ohlc_invalid
+        排除；旧快照向后兼容
+      truncated: false
   - id: A8
     source: brief.md
     text: A8 分时 trigger_date：回退当日为非交易日 → 顺延至下一交易日且 notes 含「顺延」；`run_all_tests.py`
       全量回归通过。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 非交易日顺延+notes 标注验证；run_all_tests 9/9 文件复跑全过
+      truncated: false
 builder_handoff:
   candidate_id: e2e038f4-8dea-4ee2-b2ce-45e570c1babb
   identity_provider: skill-coordinated
@@ -131,7 +148,75 @@ builder_handoff:
   known_limits_truncated: false
   submitted_at: 2026-08-22T04:57:38.855Z
 blockers: []
-verification: null
+verification:
+  candidate_id: e2e038f4-8dea-4ee2-b2ce-45e570c1babb
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:0355c643-0153-4848-afaf-31a3010c34db
+  iteration: 1
+  attempt: 2
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: compile-all
+      name:
+        text: 语法编译 backtest 与 app
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: backtest
+          truncated: false
+        - text: app.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 94
+    - id: stats-tests
+      name:
+        text: test_stats.py 23 项全过（A1-A8）
+        truncated: false
+      argv_display:
+        - text: tests/test_stats.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 536
+    - id: full-regression
+      name:
+        text: run_all_tests.py 全量回归
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2818
+  summary:
+    text: 八项验收全部通过：独立手算与代码审读吻合，23/23 单测与 9/9 回归复现，判定 pass。
+    truncated: false
+  risks:
+    - text: A3 强平口径按『触发日+5 个顺延日』实现（与验收句一致），spec 字面『连续 5 个跌停日』含触发日读法相差一日——以测试锚定的实现为准
+      truncated: false
+    - text: replay 目标未排除 ohlc_invalid 股票（规格仅要求排除出 usable，stats 侧已排除）
+      truncated: false
+    - text: results.csv 未持久化 sim_hold_days/sim_forced 列（仅报告头计数披露）
+      truncated: false
+    - text: mark_window 交易日分支对非法 trigger_date 缺少 None 保护（超出验收范围）
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-22T05:13:11.822Z
 history:
   - goal_cycle: 1
     iteration: 1
@@ -142,6 +227,15 @@ history:
       text: Native confirmed acceptance criteria changed
       truncated: false
     completed_at: 2026-08-22T04:56:59.411Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 2
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 八项验收全部通过：独立手算与代码审读吻合，23/23 单测与 9/9 回归复现，判定 pass。
+      truncated: false
+    completed_at: 2026-08-22T05:13:11.822Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -152,7 +246,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: pending
-verification_report: null
-archived: false
+verification_result: pass
+verification_report: verification.md
+archived: true
 created_at: 2026-08-22T04:34:43.268Z
