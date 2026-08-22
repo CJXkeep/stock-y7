@@ -1,0 +1,249 @@
+schema: comet.native.v4
+name: historical-signal-stats
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：snapshot 对注入的合成池数据生成 manifest.json 与 bars.jsonl，manifest 含
+      pool.version/config/每股条数与起止；<260 根的股票标 insufficient。
+    result: passed
+    reason:
+      text: manifest/bars.jsonl 落盘字段齐全，300 根通过/200 根 insufficient 双例复证
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：replay 每日喂给引擎的窗口严格 ≤250 根（个股）/≤60 根（指数），且只含 ≤t 的 bar（哨兵测试：未来 bar
+      放入崩盘模式不改变 t 日信号）。
+    result: passed
+    reason:
+      text: 切片结构性无前视+哨兵测试；独立探针实证个股窗口封顶 250/指数封顶 60、逐调用 max_date==last_date
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：t 距快照起始 <250 时信号带 warmup=true；默认被 stats 排除并单独计数披露。
+    result: passed
+    reason:
+      text: warmup=(t+1)<250 标记；默认排除计数披露，include-warmup 保留且 included_warmup 单独统计
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：去重窗口内重复同类信号标 deduped，报告同时给出去重前后笔数与两套汇总。
+    result: passed
+    reason:
+      text: 复用 mark_window；报告头与 meta 披露去重窗口及前后笔数（设计稿 §7.4 原始要求满足）
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：已知小样本手算：r5/r10/r20/r60 与手算一致；尾部不足视界的信号记 insufficient_h horizon 清单。
+    result: passed
+    reason:
+      text: 自身 bar 计数 close-to-close 手算精确一致；尾部不足记 missing_horizons
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：模拟三种结局各一例手算核验：先触止损（同日双触保守）、先触目标、60 日超时收盘退出；费率按 config 扣除；capital=8000
+      时记 insufficient_capital。
+    result: passed
+    reason:
+      text: 三结局手算全过；真双触探针实证保守止损；涨停顺延阈值公式与费率手算一致；insufficient_capital 披露
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：report.md 报告头包含：日线子集口径、滚动窗口 250/60、原始输出无后处理声明、去重窗口、warmup 排除数、可用股票数
+      N/M、capital、pool.version、快照 id、笔数、非投资建议声明。
+    result: passed
+    reason:
+      text: 报告头全项声明齐备含口径差异与非投资建议
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：cli 全链路（stats 对合成 snapshot 目录）退出码 0 且产出 results.csv 与
+      report.md；run_all_tests.py 全量回归通过。
+    result: passed
+    reason:
+      text: cli 全链路退出码 0 产出双文件；14/14 单测 + 8/8 回归文件独立复证
+      truncated: false
+builder_handoff:
+  candidate_id: c7190bfd-2066-486d-a472-d95bef4a49d1
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:6eefc7fe-3bcc-4196-af1a-88a0f782fde3
+  iteration: 1
+  summary:
+    text: I7.4 实现完成：backtest/snapshot.py（注入式抓取、bars.jsonl/manifest.json
+      落盘、pool.version 与 config 记录、<260 根 insufficient
+      标记、自然日缺口检测、同秒重建防覆盖）；backtest/calendar.py（自身 bar
+      序列视界工具）；backtest/replay.py（滚动截窗 250/60 结构性无前视——切片只含 ≤t 的 bar 并有哨兵测试；原始
+      run_analysis 输出；warmup 标记；(symbol,tail_hash) 增量缓存；--workers ProcessPool
+      spawn 安全；信号携带 trade_plan stop/target）；backtest/stats.py（复用
+      dedupe.mark_window 双口径、forward returns 5/10/20/60
+      close-to-close、总体/按动作/按年份/按股票汇总、单信号独立模拟：T+1 开盘入场+涨停顺延复用
+      _limit_up_threshold+同日双触保守记止损+费率集中 config+capital 可配+insufficient_capital
+      披露）；backtest/report.py（results.csv + report.md 口径全项声明头）；backtest/cli.py +
+      __main__.py（snapshot/replay/stats 三命令，--root 可覆盖目录）。新增 tests/test_stats.py
+      14 项（A1-A8 全覆盖，引擎可注入离线运行）。开发期额外完成真实 run_analysis 引擎集成冒烟（合成数据 52
+      信号、stop/target 正常）。修复过程：load_signals 缺 import、同秒快照 id 冲突（已修为随机后缀）。全量回归 8
+      文件全绿。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: python -m compileall -q backtest
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python tests/test_stats.py
+        truncated: false
+      result: passed
+      note:
+        text: 14/14 通过
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 8/8 文件全绿
+        truncated: false
+    - name:
+        text: 真实引擎重放冒烟（合成 bars）
+        truncated: false
+      result: passed
+      note:
+        text: replay_symbol 默认 run_analysis 产出 52 信号，warmup/trade_plan 字段正确
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 在线抓取路径（snapshot CLI 网络段）按规格不做自动化网络测试，仅代码评审
+      truncated: false
+    - text: --workers>1 走 ProcessPoolExecutor，Windows 下由 python -m backtest 入口保证 spawn
+        安全；测试默认单进程路径
+      truncated: false
+    - text: 模拟未建模跌停无法卖出、盘中开平仓与滑点（设计稿非目标）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-22T03:24:44.873Z
+blockers: []
+verification:
+  candidate_id: c7190bfd-2066-486d-a472-d95bef4a49d1
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:8f7c3ab9-f160-4826-870c-983cebe72307
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: compile-all
+      name:
+        text: 语法编译 backtest
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: backtest
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 80
+    - id: stats-tests
+      name:
+        text: test_stats.py 14 项全过（A1-A8 合成数据）
+        truncated: false
+      argv_display:
+        - text: tests/test_stats.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 414
+    - id: full-regression
+      name:
+        text: run_all_tests.py 全量回归（A8）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2210
+  summary:
+    text: 独立复核通过：无前视切片/250-60 窗口/warmup/双笔数去重/forward return 手算/三结局模拟均实证成立，余留为一行级改进项。
+    truncated: false
+  risks:
+    - text: capital 仅在 simulate 模式写入报告头，建议无条件披露或注明仅模拟相关（并入 I7.5）
+      truncated: false
+    - text: 去重『两套汇总』最强读法未渲染第二套汇总表（全局双笔数已达标，设计稿原始要求满足）
+      truncated: false
+    - text: test_simulation_stop_first_conservative 构造为止损单触而非真双触，建议修正构造（并入 I7.5）
+      truncated: false
+    - text: 模拟出场扫描自入场次日 bar 起；数据不足时超时与截断未区分标记
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-22T03:41:25.756Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立复核通过：无前视切片/250-60 窗口/warmup/双笔数去重/forward return
+        手算/三结局模拟均实证成立，余留为一行级改进项。
+      truncated: false
+    completed_at: 2026-08-22T03:41:25.756Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-22T03:04:04.068Z
