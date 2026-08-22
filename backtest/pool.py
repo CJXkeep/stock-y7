@@ -63,6 +63,7 @@ def load(path: str = None) -> dict:
             "name": str(item.get("name", "")),
             "note": str(item.get("note", "")),
             "added_at": str(item.get("added_at", "")),
+            "industry": str(item.get("industry", "")),
         })
     pool["items"] = items
     return pool
@@ -85,8 +86,24 @@ def _commit(pool: dict, path: str = None) -> dict:
     return pool
 
 
-def add(pool: dict, symbol: str, name: str = "", note: str = "", path: str = None):
-    """加入一只股票；已存在/超容为幂等拒绝（不写盘）。返回 (pool, ok, message)。"""
+def _fetch_industry_safe(industry_fetch, symbol: str) -> str:
+    """调用注入的行业抓取函数；任何异常降级为空串，绝不阻塞入池。"""
+    if industry_fetch is None:
+        return ""
+    try:
+        return str(industry_fetch(symbol) or "")
+    except Exception as exc:
+        _log.warning("行业抓取失败 %s: %s", symbol, exc)
+        return ""
+
+
+def add(pool: dict, symbol: str, name: str = "", note: str = "", path: str = None,
+        industry_fetch=None):
+    """加入一只股票；已存在/超容为幂等拒绝（不写盘）。返回 (pool, ok, message)。
+
+    industry_fetch 可选：传入「symbol → 行业名」函数时，成功入池即尝试回填
+    industry（失败留空，不影响加入结果）。
+    """
     symbol = str(symbol or "").strip()
     if not symbol:
         return pool, False, "symbol 不能为空"
@@ -99,6 +116,7 @@ def add(pool: dict, symbol: str, name: str = "", note: str = "", path: str = Non
         "name": str(name or ""),
         "note": str(note or ""),
         "added_at": _utc_now(),
+        "industry": _fetch_industry_safe(industry_fetch, symbol),
     })
     pool["version"] += 1
     return _commit(pool, path), True, "ok"
@@ -153,3 +171,77 @@ def move(pool: dict, symbol: str, offset: int, path: str = None):
     new_order = list(symbols)
     new_order[idx], new_order[new_idx] = new_order[new_idx], new_order[idx]
     return reorder(pool, new_order, path)
+
+
+def import_items(pool: dict, items, path: str = None, industry_fetch=None):
+    """批量导入（frontend-iteration）：逐条校验、幂等跳过、上限收满即止。
+
+    返回 (pool, ok, message, added, skipped)：
+    - items 必须为非空数组，元素为 {"symbol": "6位数字", "name": 可选}；
+    - 非法/已存在/超容逐条计入 skipped；合法新条目按输入顺序追加；
+    - 有新增才落盘一次且 version 恰好 +1；全部被拒不写盘；
+    - added==0 且存在因容量被拒的条目 → ok:false 并给出上限文案。
+    """
+    if not isinstance(items, list) or not items:
+        return pool, False, "items 必须为非空数组", 0, 0
+    existing = {item["symbol"] for item in pool["items"]}
+    added = skipped = capacity_blocked = 0
+    new_items = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        symbol = str(raw.get("symbol") or "").strip()
+        name = str(raw.get("name") or "")
+        if len(symbol) != 6 or not symbol.isdigit():
+            skipped += 1
+            continue
+        if symbol in existing:
+            skipped += 1
+            continue
+        if len(existing) >= POOL_MAX_ITEMS:
+            capacity_blocked += 1
+            skipped += 1
+            continue
+        new_items.append({
+            "symbol": symbol,
+            "name": name,
+            "note": "",
+            "added_at": _utc_now(),
+            "industry": "",
+        })
+        existing.add(symbol)
+        added += 1
+    if added == 0:
+        if capacity_blocked:
+            return (pool, False,
+                    f"池已达上限 {POOL_MAX_ITEMS} 只，{capacity_blocked} 只未加入",
+                    0, skipped)
+        return pool, False, "没有可导入的新条目（非法、已存在或超出上限）", 0, skipped
+    for item in new_items:
+        item["industry"] = _fetch_industry_safe(industry_fetch, item["symbol"])
+    pool["items"].extend(new_items)
+    pool["version"] += 1
+    return _commit(pool, path), True, "ok", added, skipped
+
+
+def fill_industry(pool: dict, industry_fetch, path: str = None):
+    """补全池内 industry 为空的条目（frontend-iteration）。
+
+    返回 (pool, ok, message, filled)：无缺失 → ok 且不写盘；至少一只填充成功
+    → 落盘且 version+1；全部失败 → ok:false 不写盘。单只失败保持空串并告警。
+    """
+    targets = [item for item in pool["items"]
+               if not str(item.get("industry") or "").strip()]
+    if not targets:
+        return pool, True, "无需补全", 0
+    filled = 0
+    for item in targets:
+        industry = _fetch_industry_safe(industry_fetch, item["symbol"])
+        if industry:
+            item["industry"] = industry
+            filled += 1
+    if filled == 0:
+        return pool, False, "行业抓取全部失败", 0
+    pool["version"] += 1
+    return _commit(pool, path), True, "ok", filled

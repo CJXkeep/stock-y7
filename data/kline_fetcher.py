@@ -720,6 +720,49 @@ def search_stock(keyword: str, count: int = 10) -> List[Dict]:
     return results[:count]
 
 
+# ---- 行业名称（frontend-iteration：核心池按行业筛选用） ----
+_INDUSTRY_CACHE_TTL = 300
+
+
+def fetch_industry(symbol: str) -> str:
+    """按 symbol 抓取行业名称（东财 push2 stock/get 的 f100 字段）。
+
+    辅助展示字段：任何异常、超时、字段缺失一律返回空串，绝不抛出到调用方；
+    成功与失败结果均缓存（_INDUSTRY_CACHE_TTL 秒），避免批量补全时反复请求。
+    """
+    symbol = str(symbol or "").strip()
+    if len(symbol) != 6 or not symbol.isdigit():
+        return ""
+    cache_key = f"industry_{symbol}"
+    cached = _cache_get(cache_key, _INDUSTRY_CACHE_TTL)
+    if cached is not None:
+        return cached
+    industry = ""
+    try:
+        import urllib.request
+        import urllib.parse
+        params = urllib.parse.urlencode({
+            "secid": symbol_to_secid(symbol),
+            "fields": "f57,f58,f100",
+            "fltt": "2",
+            "invt": "2",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+        })
+        url = f"{QUOTE_HOSTS[0]}/api/qt/stock/get?{params}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": UA_POOL[0],
+            "Referer": "https://quote.eastmoney.com/",
+        })
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        industry = str((body.get("data") or {}).get("f100") or "")
+    except Exception as e:
+        log.debug(f"行业抓取失败 {symbol}: {e}")
+        industry = ""
+    _cache_set(cache_key, industry)
+    return industry
+
+
 # ---- 分时数据 ----
 @dataclass
 class MinuteData:

@@ -29,6 +29,7 @@ sys.path.insert(0, ROOT)
 from data.kline_fetcher import (
     fetch_kline, fetch_quote, fetch_fund_flow, search_stock, fetch_minute,
     fetch_realtime_flow, fetch_all_a_shares, fetch_index_kline, fetch_market_breadth,
+    fetch_industry,
     Kline, Quote, FundFlow, MinuteData, MinuteFlow
 )
 from analysis.signal_engine import run_analysis, SignalEngineResult
@@ -170,19 +171,29 @@ def _kick_journal_backfill(min_interval_sec: float = 600.0) -> None:
 
 
 # ---- 核心池（I7.3：可视化维护 + 版本递增，为 I7.4 快照失效埋关联） ----
+def _fetch_industry_safe(symbol: str) -> str:
+    """行业名抓取（frontend-iteration）。fetch_industry 自身不抛错，此处再兜底。"""
+    try:
+        return fetch_industry(symbol)
+    except Exception as exc:
+        log.warning("行业抓取异常 %s: %s", symbol, exc)
+        return ""
+
+
 def handle_pool_get(params: dict) -> dict:
     """全量读取核心池。"""
     return stock_pool.load()
 
 
 def handle_pool_post(body: dict) -> dict:
-    """核心池变更入口。action ∈ add|remove|reorder|note|move。"""
+    """核心池变更入口。action ∈ add|remove|reorder|note|move|import|fill-industry。"""
     action = str(body.get("action", "")).strip()
     pool_data = stock_pool.load()
+    resp_added = resp_skipped = resp_filled = None
     if action == "add":
         pool_data, ok, message = stock_pool.add(
             pool_data, body.get("symbol"), str(body.get("name", "")),
-            str(body.get("note", "")))
+            str(body.get("note", "")), industry_fetch=_fetch_industry_safe)
     elif action == "remove":
         pool_data, ok, message = stock_pool.remove(pool_data, body.get("symbol"))
     elif action == "reorder":
@@ -197,10 +208,22 @@ def handle_pool_post(body: dict) -> dict:
             return {"ok": False, "error": "offset 必须为整数"}
         pool_data, ok, message = stock_pool.move(
             pool_data, body.get("symbol"), offset)
+    elif action == "import":
+        pool_data, ok, message, resp_added, resp_skipped = stock_pool.import_items(
+            pool_data, body.get("items"), industry_fetch=_fetch_industry_safe)
+    elif action == "fill-industry":
+        pool_data, ok, message, resp_filled = stock_pool.fill_industry(
+            pool_data, _fetch_industry_safe)
     else:
         return {"ok": False, "error": f"未知 action: {action}"}
     resp = dict(pool_data)
     resp["ok"] = ok
+    if resp_added is not None:
+        resp["added"] = resp_added
+    if resp_skipped is not None:
+        resp["skipped"] = resp_skipped
+    if resp_filled is not None:
+        resp["filled"] = resp_filled
     if not ok:
         resp["error"] = message
     return resp

@@ -3147,6 +3147,9 @@ const _journalTypeNames = {
 let _journalShowDupes = false;
 let _journalTypeFilter = '';
 let _journalSymbolFilter = '';
+// 导出用：最近一次 /api/journal 结果与其过滤条件（frontend-iteration）
+window._journalLastRecords = [];
+window._journalLastQuery = null;
 
 function _followupMap(rec) {
   const m = {};
@@ -3176,6 +3179,12 @@ async function loadJournal() {
     return;
   }
   const records = data.records || [];
+  window._journalLastRecords = records;
+  window._journalLastQuery = {
+    type: _journalTypeFilter,
+    symbol: _journalSymbolFilter,
+    include_dupes: _journalShowDupes,
+  };
   const s = data.summary || {};
   const typeOpts = ['<option value="">全部类型</option>'].concat(
     Object.keys(_journalTypeNames).map(k =>
@@ -3217,6 +3226,8 @@ async function loadJournal() {
           style="background:#111;color:#ccc;border:1px solid #333;font-size:11px;width:70px">
       </label>
       <label style="margin-left:auto;cursor:pointer"><input type="checkbox" ${_journalShowDupes ? 'checked' : ''} onchange="_journalShowDupes=this.checked;loadJournal()"> 显示重复(近期已记录)</label>
+      <button onclick="exportJournalCsv()" style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">导出CSV</button>
+      <button onclick="exportJournalJson()" style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">导出JSON</button>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc">
       <thead><tr style="color:#777;text-align:left;border-bottom:1px solid #222">
@@ -3229,6 +3240,61 @@ async function loadJournal() {
     </table>`;
 }
 
+// ===== 信号档案导出（frontend-iteration：纯前端生成，不新增后端接口） =====
+function _downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
+}
+
+function _csvCell(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function _journalExportStem() {
+  const q = window._journalLastQuery || {};
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const dateStr = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const parts = [];
+  if (q.type) parts.push('type-' + q.type);
+  if (q.symbol) parts.push('symbol-' + q.symbol);
+  if (q.include_dupes) parts.push('dupes');
+  return '信号档案_' + dateStr + (parts.length ? '_' + parts.join('_') : '');
+}
+
+function exportJournalCsv() {
+  const records = window._journalLastRecords || [];
+  if (!records.length) { alert('当前过滤条件下暂无记录可导出'); return; }
+  const header = ['信号日', '代码', '类型', '动作', '信号价', '去重标记', '5日%', '10日%', '20日%', '60日%'];
+  const lines = [header.join(',')];
+  records.forEach(rec => {
+    const f = _followupMap(rec);
+    const pct = h => (f[h] && f[h].return_pct != null) ? f[h].return_pct : '';
+    lines.push([
+      rec.trigger_date || '', rec.symbol || '',
+      _journalTypeNames[rec.signal_type] || rec.signal_type || '',
+      rec.action || '', rec.snapshot_close != null ? rec.snapshot_close : '',
+      rec.deduped ? '是' : '否',
+      pct(5), pct(10), pct(20), pct(60),
+    ].map(_csvCell).join(','));
+  });
+  // UTF-8 BOM：保证 Excel 直接打开中文不乱码
+  _downloadText(_journalExportStem() + '.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+function exportJournalJson() {
+  const records = window._journalLastRecords || [];
+  if (!records.length) { alert('当前过滤条件下暂无记录可导出'); return; }
+  _downloadText(_journalExportStem() + '.json', JSON.stringify(records, null, 2), 'application/json;charset=utf-8');
+}
+
 // ===== 核心池管理（可视化维护，变更自动递增池版本） =====
 async function poolPost(body) {
   const r = await fetch(`${API}/api/pool`, {
@@ -3238,6 +3304,12 @@ async function poolPost(body) {
   });
   return r.json();
 }
+
+// 核心池面板状态（frontend-iteration）：行业筛选为纯前端过滤，不重新请求
+let _poolLastData = null;
+let _poolSnapBanner = '';
+let _poolIndustryFilter = '';
+let _poolImportOpen = false;
 
 async function loadPool() {
   const el = document.getElementById('wp-content-pool');
@@ -3250,44 +3322,80 @@ async function loadPool() {
     el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">核心池读取失败：' + escHtml(String(e)) + '</div>';
     return;
   }
-  const items = data.items || [];
-  const cur = (typeof currentSymbol !== 'undefined' && currentSymbol) ? currentSymbol : '';
+  _poolLastData = data;
   // 快照同步状态（I7.5 失效提示闭环）
-  let snapBanner = '<div style="padding:6px 12px;font-size:11px;color:#888;border-bottom:1px solid #222">未找到历史统计快照——可运行 python -m backtest snapshot 生成</div>';
+  _poolSnapBanner = '<div style="padding:6px 12px;font-size:11px;color:#888;border-bottom:1px solid #222">未找到历史统计快照——可运行 python -m backtest snapshot 生成</div>';
   try {
     const sr = await fetch(`${API}/api/snapshot-info`);
     const snap = await sr.json();
     if (snap.snapshot_id) {
       if (snap.pool_version === data.version) {
-        snapBanner = `<div style="padding:6px 12px;font-size:11px;color:#81c784;border-bottom:1px solid #222">✓ 快照与核心池同步（${escHtml(snap.snapshot_id)}，基于 v${snap.pool_version}）</div>`;
+        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#81c784;border-bottom:1px solid #222">✓ 快照与核心池同步（${escHtml(snap.snapshot_id)}，基于 v${snap.pool_version}）</div>`;
       } else {
-        snapBanner = `<div style="padding:6px 12px;font-size:11px;color:#ffd54f;background:#3a3320;border-bottom:1px solid #222">⚠ 核心池已更新（当前 v${data.version}），最新快照基于 v${snap.pool_version}——建议重建快照：python -m backtest snapshot</div>`;
+        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#ffd54f;background:#3a3320;border-bottom:1px solid #222">⚠ 核心池已更新（当前 v${data.version}），最新快照基于 v${snap.pool_version}——建议重建快照：python -m backtest snapshot</div>`;
       }
     }
   } catch (e) { /* 快照信息不可用时保持引导文案 */ }
-  const rows = items.map((it, i) => `
+  renderPoolPanel();
+}
+
+function renderPoolPanel() {
+  const el = document.getElementById('wp-content-pool');
+  const data = _poolLastData || { version: 0, items: [] };
+  const items = data.items || [];
+  const cur = (typeof currentSymbol !== 'undefined' && currentSymbol) ? currentSymbol : '';
+  // 行业筛选（纯前端过滤）
+  const industries = [];
+  items.forEach(it => {
+    const ind = (it.industry || '').trim();
+    if (ind && !industries.includes(ind)) industries.push(ind);
+  });
+  industries.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+  const visible = _poolIndustryFilter
+    ? items.filter(it => (it.industry || '').trim() === _poolIndustryFilter)
+    : items;
+  const indOpts = ['<option value="">全部行业</option>'].concat(
+    industries.map(ind => `<option value="${escHtml(ind)}" ${_poolIndustryFilter === ind ? 'selected' : ''}>${escHtml(ind)}</option>`)
+  ).join('');
+  const countText = _poolIndustryFilter ? `${visible.length}/${items.length} 只` : `${items.length} 只`;
+  const rows = visible.map((it, i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #1c1c1c;font-size:12px">
       <span style="color:#666;width:18px">${i + 1}</span>
       <a href="#" onclick="analyze('${it.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none;min-width:52px">${it.symbol}</a>
-      <span style="min-width:80px;color:#ddd">${escHtml(it.name || '--')}</span>
+      <span style="min-width:80px;color:#ddd" title="${escHtml(it.industry || '')}">${escHtml(it.name || '--')}</span>
+      ${it.industry ? `<span style="color:#666;font-size:10px;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.industry)}</span>` : ''}
       <input value="${escHtml(it.note || '')}" placeholder="备注" style="flex:1;background:#111;border:1px solid #2a2a2a;color:#bbb;font-size:11px;padding:2px 6px"
         onchange="poolNote('${it.symbol}', this.value)">
       <button onclick="poolMove('${it.symbol}', -1)" ${i === 0 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↑</button>
-      <button onclick="poolMove('${it.symbol}', 1)" ${i === items.length - 1 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↓</button>
+      <button onclick="poolMove('${it.symbol}', 1)" ${i === visible.length - 1 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↓</button>
       <button onclick="poolRemove('${it.symbol}')" style="background:none;border:1px solid #5a2a2a;color:#e57373;cursor:pointer;padding:0 6px">删</button>
     </div>`).join('');
 
   el.innerHTML = `
     <div style="display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;align-items:center;flex-wrap:wrap">
       <span>池版本 <b style="color:#ff9800">v${data.version}</b></span>
-      <span>${items.length} 只</span>
+      <span>${countText}</span>
       <input id="pool-add-symbol" placeholder="代码 如 600519" size="9" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
       <input id="pool-add-name" placeholder="名称(可选)" size="8" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
       <button onclick="poolAdd()" style="background:#ff9800;border:none;color:#000;padding:2px 10px;cursor:pointer;font-size:11px">添加</button>
       <button onclick="poolAddCurrent('${cur}')" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur || '无'})</button>
+      <select id="pool-industry-filter" onchange="_poolIndustryFilter=this.value;renderPoolPanel()" title="按行业筛选（纯前端过滤）"
+        style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 4px;max-width:110px">${indOpts}</select>
+      <button onclick="poolFillIndustry()" ${items.length ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">补全行业</button>
+      <button onclick="togglePoolImport()" style="${_poolImportOpen ? 'background:#ff9800;border:none;color:#000;' : 'background:none;border:1px solid #333;color:#aaa;'}cursor:pointer;padding:2px 8px;font-size:11px;margin-left:auto">批量导入</button>
     </div>
-    ${snapBanner}
-    ${rows || '<div style="padding:20px;color:#666;font-size:12px">核心池为空——手动输入代码添加，或分析个股后点「+ 当前」加入。<br>核心池将用于信号档案筛选与 I7.4 历史统计。</div>'}`;
+    ${_poolSnapBanner}
+    ${_poolImportOpen ? `
+    <div style="padding:8px 12px;border-bottom:1px solid #222">
+      <textarea id="pool-import-text" rows="5" placeholder="每行一条：代码 或 代码,名称（逗号/制表符分隔，兼容 Excel 直接粘贴）&#10;例：&#10;600519,贵州茅台&#10;000001"
+        style="width:100%;background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:4px 6px;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+        <button onclick="poolImportSubmit()" style="background:#ff9800;border:none;color:#000;padding:2px 12px;cursor:pointer;font-size:11px">导入</button>
+        <button onclick="togglePoolImport()" style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">取消</button>
+        <span id="pool-import-result" style="font-size:11px;color:#888"></span>
+      </div>
+    </div>` : ''}
+    ${rows || '<div style="padding:20px;color:#666;font-size:12px">核心池为空——手动输入代码添加、分析个股后点「+ 当前」加入，或用「批量导入」粘贴多行代码。<br>核心池将用于信号档案筛选与历史统计。</div>'}`;
 }
 
 async function poolAdd() {
@@ -3326,6 +3434,65 @@ async function poolMove(symbol, offset) {
   const data = await poolPost({ action: 'move', symbol, offset });
   if (!data.ok) alert(data.error || '移动失败');
   else loadPool();
+}
+
+// ===== 批量导入 / 行业补全（frontend-iteration） =====
+function _infoToast(text) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.onclick = () => removeToast(toast);
+  toast.innerHTML = `<div style="font-size:12px">${escHtml(text)}</div>`;
+  container.appendChild(toast);
+  setTimeout(() => removeToast(toast), 5000);
+}
+
+function togglePoolImport() {
+  _poolImportOpen = !_poolImportOpen;
+  renderPoolPanel();
+}
+
+async function poolImportSubmit() {
+  const ta = document.getElementById('pool-import-text');
+  const text = ((ta && ta.value) ? ta.value : '').trim();
+  if (!text) return;
+  // 每行一条：代码 或 代码,名称（逗号/制表符/顿号分隔，兼容 Excel 粘贴）
+  const items = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/[,\t，、]/).map(s => s.trim()).filter(Boolean);
+    return { symbol: parts[0] || '', name: parts.slice(1).join(' ') };
+  }).filter(it => it.symbol);
+  const resEl = document.getElementById('pool-import-result');
+  const showImportError = msg => {
+    if (resEl) {
+      resEl.className = 'wp-error';
+      resEl.style.cssText = 'color:#e57373;font-size:11px';
+      resEl.textContent = msg;
+    } else {
+      alert(msg);
+    }
+  };
+  try {
+    const data = await poolPost({ action: 'import', items });
+    if (!data.ok) {
+      showImportError('导入失败：' + (data.error || '未知错误'));
+      return;
+    }
+    _poolImportOpen = false;
+    _infoToast(`批量导入完成：新增 ${data.added} 只，跳过 ${data.skipped} 只`);
+    loadPool();
+  } catch (e) {
+    showImportError('导入失败：' + String(e));
+  }
+}
+
+async function poolFillIndustry() {
+  try {
+    const data = await poolPost({ action: 'fill-industry' });
+    if (!data.ok) alert(data.error || '行业补全失败');
+    else _infoToast(data.filled ? `行业补全完成：更新 ${data.filled} 只` : '池内行业信息完整，无需补全');
+    loadPool();
+  } catch (e) { alert('行业补全失败：' + String(e)); }
 }
 
 // ===== 相邻查看方向一致率统计 =====
