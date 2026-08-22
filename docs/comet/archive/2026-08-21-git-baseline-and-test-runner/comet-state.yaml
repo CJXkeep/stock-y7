@@ -1,0 +1,319 @@
+schema: comet.native.v4
+name: git-baseline-and-test-runner
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: null
+  target_branch: null
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：`python run_all_tests.py` 退出码 0，输出汇总显示 5 个测试文件 / 41 项测试全部通过。
+    result: passed
+    reason:
+      text: 实测 python run_all_tests.py 退出码 0，汇总'通过 5/5 个文件'，各文件 5+11+11+8+6=41 项全 PASS
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：临时注入一个必败的 `tests/test_zz_tmp_fail.py` 后运行 `python
+      run_all_tests.py`，整体退出码非零且输出指明失败文件；删除后恢复全绿。
+    result: passed
+    reason:
+      text: 代码审查证实子进程逐文件收集退出码、失败即打印[FAIL]文件名并列入汇总清单、循环继续执行其余文件、任一失败整体 return 1；Builder
+        注入实测(退出码1/指明文件/其余仍执行)佐证，当前 tests 恰 5 文件且无残留
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：`python run_all_tests.py --list` 列出发现的测试文件但不运行；`--filter p0`
+      只运行文件名匹配者；`--quiet` 只输出汇总行。
+    result: passed
+    reason:
+      text: --list 列出 5 文件即返回 EXIT=0 不运行；--filter p0 仅运行 test_p0_fixes.py 且通过；--quiet
+        分离 stderr 后 stdout 仅分隔线+汇总行+'全部通过'
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：`git tag` 包含 `v4-baseline` 且指向基线提交；当前分支为 `main`。
+    result: passed
+    reason:
+      text: branch=main；唯一 tag 为注解 tag v4-baseline(cat-file 类型 tag)，指向基线提交 cd328b2 即
+        HEAD，git describe --tags=v4-baseline
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：提交后 `git status` 干净：`__pycache__/`、`data/`
+      下运行数据、`.comet/runtime/`、`.worktrees/`、`logs/` 等不出现在未跟踪列表。
+    result: passed
+    reason:
+      text: check-ignore -v 命中
+        __pycache__/(L8)、data/pool.json(L19)、.comet/runtime/(L12)；porcelain
+        无任何未跟踪项，唯一 M 为本 change 工作流状态文件 build→verify 阶段写入的簿记更新
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：既有 41 项回归测试经由 `run_all_tests.py` 全部通过（策略语义不变）。
+    result: passed
+    reason:
+      text: grep 统计 5 文件共 41 个 ^def test_ 与 runner 实测 41 项全过一致；基线提交外无策略/测试文件改动
+      truncated: false
+builder_handoff:
+  candidate_id: 62678647-4160-4758-9680-e89ae5e8074f
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:34b4ca52-cf5e-44e8-a869-d9ca46fdafac
+  iteration: 1
+  summary:
+    text: 实现完成：新增纯标准库 run_all_tests.py（发现
+      tests/test_*.py、子进程逐文件运行、--filter/--quiet/--list、任一失败整体非零退出）；补全
+      .gitignore（保留 Comet 管理块；忽略
+      __pycache__、*.py[cod]、.comet/runtime、data/snapshots（manifest.json
+      例外）、data/journal、data/pool.json、data/results、.worktrees、logs）；git init -b
+      main 完成基线提交并打注 tag v4-baseline。未修改任何策略/业务代码与既有测试文件。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+  checks:
+    - name:
+        text: python -m compileall run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python run_all_tests.py（全量）
+        truncated: false
+      result: passed
+      note:
+        text: 5/5 个测试文件通过、41 项测试，退出码 0
+        truncated: false
+    - name:
+        text: python run_all_tests.py --list / --filter p0 / --quiet
+        truncated: false
+      result: passed
+      note:
+        text: --list 列出 5 个文件且不运行；--filter p0 仅运行 test_p0_fixes.py（11/11）；--quiet
+          仅输出汇总行，失败时附失败详情
+        truncated: false
+    - name:
+        text: A2 负路径：注入 tests/test_zz_tmp_fail.py
+        truncated: false
+      result: passed
+      note:
+        text: 整体退出码 1、输出指明失败文件、其余 5 个文件仍被执行；验证后已删除并恢复全绿
+        truncated: false
+    - name:
+        text: git check-ignore 探测
+        truncated: false
+      result: passed
+      note:
+        text: __pycache__、data/pool.json、.comet/runtime
+          命中忽略；data/snapshots/_probe/manifest.json 不被忽略、同目录 kline.csv
+          被忽略；探测文件已清除
+        truncated: false
+    - name:
+        text: git 基线核验
+        truncated: false
+      result: passed
+      note:
+        text: 当前分支 main；git tag -l 含 v4-baseline；git describe --tags 解析为 v4-baseline；提交后
+          git status --porcelain 为空（0 行）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Windows 下部分终端捕获管道时中文汇总行显示为乱码（pwsh 编码采集问题），不影响退出码与成败判定
+      truncated: false
+    - text: --quiet 模式捕获子进程输出、仅失败时展示；非 quiet 模式子进程输出实时透传
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-21T15:43:34.474Z
+blockers: []
+verification:
+  candidate_id: 62678647-4160-4758-9680-e89ae5e8074f
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:e54570b5-b524-48a7-8623-d7950794ca03
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: full-regression
+      name:
+        text: python run_all_tests.py 全量回归（A1/A6）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1116
+    - id: runner-list-mode
+      name:
+        text: --list 仅列出 5 个测试文件不运行（A3）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --list
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 71
+    - id: runner-filter-mode
+      name:
+        text: --filter p0 仅运行 test_p0_fixes.py（A3）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --filter
+          truncated: false
+        - text: p0
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 283
+    - id: git-branch-main
+      name:
+        text: 当前分支为 main（A4）
+        truncated: false
+      argv_display:
+        - text: rev-parse
+          truncated: false
+        - text: --abbrev-ref
+          truncated: false
+        - text: HEAD
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 69
+    - id: git-tag-baseline
+      name:
+        text: 标签含 v4-baseline（A4）
+        truncated: false
+      argv_display:
+        - text: tag
+          truncated: false
+        - text: -l
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 63
+    - id: git-describe
+      name:
+        text: describe 解析为 v4-baseline（A4）
+        truncated: false
+      argv_display:
+        - text: describe
+          truncated: false
+        - text: --tags
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 63
+    - id: worktree-clean
+      name:
+        text: 提交后工作区干净（A5）
+        truncated: false
+      argv_display:
+        - text: status
+          truncated: false
+        - text: --porcelain
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 76
+    - id: ignore-rules-hit
+      name:
+        text: __pycache__ 等命中忽略规则（A5）
+        truncated: false
+      argv_display:
+        - text: check-ignore
+          truncated: false
+        - text: -v
+          truncated: false
+        - text: __pycache__
+          truncated: false
+        - text: data/pool.json
+          truncated: false
+        - text: .comet/runtime
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 64
+  summary:
+    text: 六项验收全部通过：统一测试入口功能完备且全绿，Git 基线(main+v4-baseline 注解 tag)与忽略规则均符合规格。
+    truncated: false
+  risks:
+    - text: comet-state.yaml 当前有未提交修改（verify 阶段状态写入），需由工作流后续步骤随 finish 提交，非运行时垃圾
+      truncated: false
+    - text: --quiet 下子测试进程自身 logging 可能经继承句柄到达终端 stderr，但 runner 自身 stdout
+        仅汇总行、退出码不受影响
+      truncated: false
+    - text: Windows 管道下中文汇总行显示乱码仅为终端编码问题，不影响退出码与文件判定
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-21T15:57:10.465Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 六项验收全部通过：统一测试入口功能完备且全绿，Git 基线(main+v4-baseline 注解 tag)与忽略规则均符合规格。
+      truncated: false
+    completed_at: 2026-08-21T15:57:10.465Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-21T15:32:21.190Z
