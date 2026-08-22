@@ -1,0 +1,232 @@
+schema: comet.native.v4
+name: usability-polish
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：/api/snapshot-info 返回最新快照 {snapshot_id,created_at,pool_version} 或
+      {snapshot_id:null}；看板核心池面板对比当前池 version 并在差异时渲染黄条提示（静态+handler 核验）。
+    result: passed
+    reason:
+      text: handle_snapshot_info 扫描最新合法目录返回三字段/无快照 null；看板三态提示（同步✓/已更新⚠/无快照引导）齐备
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：默认模式（simulate=false）的 report.md 也含 capital 披露行且注明仅模拟生效。
+    result: passed
+    reason:
+      text: capital 行无条件输出，默认模式注明仅模拟生效
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：真双触日（low≤stop 且 high≥target 同日）→ 模拟 outcome=stop（保守），测试构造已修正。
+    result: passed
+    reason:
+      text: 真双触构造断言 outcome=stop；hit_stop 先于 hit_target 判定
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：offset 非法值 → {"ok":false,...} 正常响应而非异常；poolNote/poolMove 成功后触发 loadPool
+      重拉。
+    result: passed
+    reason:
+      text: offset try-int 安全返回 ok:false；poolNote/poolMove 成功后 loadPool 重拉
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：config.POOL_MAX_ITEMS 与 pool.POOL_MAX_ITEMS 同源一致。
+    result: passed
+    reason:
+      text: config.POOL_MAX_ITEMS=60 为单一来源，pool.py 引用并保留别名兼容
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：README 含三段 v5 使用说明与统计管线命令示例。
+    result: passed
+    reason:
+      text: README v5 三小节 + 三条管线命令示例 + 口径提醒与非投资建议
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：journal/pool 加载失败均呈现 wp-error 统一样式。
+    result: passed
+    reason:
+      text: loadJournal/loadPool catch 与 error 分支统一 wp-error
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：run_all_tests.py 全量回归通过。
+    result: passed
+    reason:
+      text: 独立复跑 test_polish 7/7、run_all_tests 9/9 文件全过
+      truncated: false
+builder_handoff:
+  candidate_id: 69ebdf5e-9c75-4ca9-a0ce-85d64a3270b1
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:40d379b6-58c3-4ab7-9ef0-193d22517347
+  iteration: 1
+  summary:
+    text: I7.5 实现完成：app.py 新增 handle_snapshot_info（扫描 data/snapshots 最新合法目录读
+      manifest，返回 snapshot_id/created_at/pool_version，无快照返回 null）+ GET
+      /api/snapshot-info 路由；handle_pool_post move 分支 offset try-int 健壮化（非法返回
+      ok:false）；POOL_MAX_ITEMS 移入 backtest/config.py（pool.py
+      引用之，保留模块别名兼容）；report.py capital
+      披露改为无条件一行（默认模式注明仅模拟生效）；看板：poolNote/poolMove 成功后立即 loadPool 重拉、失败
+      alert，核心池面板新增快照同步三态提示条（同步 ✓ / 已更新 ⚠ 建议重建 / 无快照引导），journal 与 pool loader 的
+      catch 统一 wp-error 错误样式；tests/test_stats.py 止损用例构造修正为真双触日（low≤stop 且
+      high≥target 同日）；新建 README.md 含 v5 三段使用说明与统计管线命令。新增 tests/test_polish.py 7
+      项覆盖 A1-A5/A7 + README 静态断言。开发期修复一次自身编辑引入的 app.py 行合并语法错误（compileall
+      拦截）。全量回归 9 文件全绿。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: python -m compileall -q backtest app.py
+        truncated: false
+      result: passed
+      note:
+        text: 退出码 0
+        truncated: false
+    - name:
+        text: python tests/test_polish.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7 通过
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 9/9 文件全绿
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 快照失效为轻量版本对比，无自动重建调度（非目标）
+      truncated: false
+    - text: wp-error 样式以行内样式呈现（未新增全局 CSS 类定义）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-22T03:54:50.679Z
+blockers: []
+verification:
+  candidate_id: 69ebdf5e-9c75-4ca9-a0ce-85d64a3270b1
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:cfae95c5-1cb6-469d-89d4-485cb3a58123
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: compile-all
+      name:
+        text: 语法编译 backtest 与 app
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: compileall
+          truncated: false
+        - text: -q
+          truncated: false
+        - text: backtest
+          truncated: false
+        - text: app.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 85
+    - id: polish-tests
+      name:
+        text: test_polish.py 7 项全过（A1-A5/A7 + README）
+        truncated: false
+      argv_display:
+        - text: tests/test_polish.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 273
+    - id: full-regression
+      name:
+        text: run_all_tests.py 全量回归（A8）
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2587
+  summary:
+    text: A1-A8 八项全部通过，实现与 spec §1-§6 逐条吻合，usability-polish（I7.5）验收通过。
+    truncated: false
+  risks:
+    - text: snapshot-info 目录名校验为前缀匹配（与 spec 口径一致）
+      truncated: false
+    - text: 看板 snapshot-info 异常时静默回退引导文案，不区分无快照与接口故障
+      truncated: false
+    - text: manifest 缺 pool_version 时边界显示为已更新黄条
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-22T04:03:01.807Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: A1-A8 八项全部通过，实现与 spec §1-§6 逐条吻合，usability-polish（I7.5）验收通过。
+      truncated: false
+    completed_at: 2026-08-22T04:03:01.807Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-22T03:42:54.602Z

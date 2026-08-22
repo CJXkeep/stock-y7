@@ -187,8 +187,12 @@ def handle_pool_post(body: dict) -> dict:
         pool_data, ok, message = stock_pool.set_note(
             pool_data, body.get("symbol"), str(body.get("note", "")))
     elif action == "move":
+        try:
+            offset = int(body.get("offset", 0))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "offset 必须为整数"}
         pool_data, ok, message = stock_pool.move(
-            pool_data, body.get("symbol"), int(body.get("offset", 0)))
+            pool_data, body.get("symbol"), offset)
     else:
         return {"ok": False, "error": f"未知 action: {action}"}
     resp = dict(pool_data)
@@ -196,6 +200,33 @@ def handle_pool_post(body: dict) -> dict:
     if not ok:
         resp["error"] = message
     return resp
+
+
+def handle_snapshot_info(params: dict) -> dict:
+    """最新快照信息（I7.5 快照失效提示用）。无快照返回 snapshot_id=None。"""
+    import re as _re
+    root = journal_config.SNAPSHOT_DIR
+    try:
+        candidates = sorted(
+            (name for name in os.listdir(root)
+             if _re.match(r"\d{8}T\d{6}Z", name)
+             and os.path.isdir(os.path.join(root, name))),
+            reverse=True)
+    except OSError:
+        candidates = []
+    for name in candidates:
+        manifest_path = os.path.join(root, name, "manifest.json")
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                manifest = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        return {
+            "snapshot_id": manifest.get("snapshot_id", name),
+            "created_at": manifest.get("created_at"),
+            "pool_version": manifest.get("pool_version"),
+        }
+    return {"snapshot_id": None, "created_at": None, "pool_version": None}
 
 
 def _parse_count(params: dict, default: int = 250, max_count: int = MAX_KLINE_COUNT) -> int:
@@ -1135,6 +1166,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(handle_journal(params))
                 elif path == "/api/pool":
                     self._json(handle_pool_get(params))
+                elif path == "/api/snapshot-info":
+                    self._json(handle_snapshot_info(params))
                 elif path == "/api/scan":
                     self._json(handle_scan(params))
                 else:

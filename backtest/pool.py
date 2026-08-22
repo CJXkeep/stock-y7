@@ -18,7 +18,7 @@ from backtest import config
 _log = logging.getLogger("backtest.pool")
 
 POOL_SCHEMA = "v5.pool.v1"
-POOL_MAX_ITEMS = 60
+POOL_MAX_ITEMS = config.POOL_MAX_ITEMS  # 单一配置源（I7.5 起移至 config）
 
 
 def pool_path(pool_path: str = None) -> str:

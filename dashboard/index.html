@@ -3168,11 +3168,11 @@ async function loadJournal() {
     const r = await fetch(`${API}/api/journal?${qs}`);
     data = await r.json();
   } catch (e) {
-    el.innerHTML = '<div class="wp-empty">信号日志读取失败</div>';
+    el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">信号日志读取失败：' + escHtml(String(e)) + '</div>';
     return;
   }
   if (data.error) {
-    el.innerHTML = `<div class="wp-empty">${escHtml(data.error)}</div>`;
+    el.innerHTML = `<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">${escHtml(data.error)}</div>`;
     return;
   }
   const records = data.records || [];
@@ -3247,11 +3247,24 @@ async function loadPool() {
     const r = await fetch(`${API}/api/pool`);
     data = await r.json();
   } catch (e) {
-    el.innerHTML = '<div class="wp-empty">核心池读取失败</div>';
+    el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">核心池读取失败：' + escHtml(String(e)) + '</div>';
     return;
   }
   const items = data.items || [];
   const cur = (typeof currentSymbol !== 'undefined' && currentSymbol) ? currentSymbol : '';
+  // 快照同步状态（I7.5 失效提示闭环）
+  let snapBanner = '<div style="padding:6px 12px;font-size:11px;color:#888;border-bottom:1px solid #222">未找到历史统计快照——可运行 python -m backtest snapshot 生成</div>';
+  try {
+    const sr = await fetch(`${API}/api/snapshot-info`);
+    const snap = await sr.json();
+    if (snap.snapshot_id) {
+      if (snap.pool_version === data.version) {
+        snapBanner = `<div style="padding:6px 12px;font-size:11px;color:#81c784;border-bottom:1px solid #222">✓ 快照与核心池同步（${escHtml(snap.snapshot_id)}，基于 v${snap.pool_version}）</div>`;
+      } else {
+        snapBanner = `<div style="padding:6px 12px;font-size:11px;color:#ffd54f;background:#3a3320;border-bottom:1px solid #222">⚠ 核心池已更新（当前 v${data.version}），最新快照基于 v${snap.pool_version}——建议重建快照：python -m backtest snapshot</div>`;
+      }
+    }
+  } catch (e) { /* 快照信息不可用时保持引导文案 */ }
   const rows = items.map((it, i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #1c1c1c;font-size:12px">
       <span style="color:#666;width:18px">${i + 1}</span>
@@ -3273,6 +3286,7 @@ async function loadPool() {
       <button onclick="poolAdd()" style="background:#ff9800;border:none;color:#000;padding:2px 10px;cursor:pointer;font-size:11px">添加</button>
       <button onclick="poolAddCurrent('${cur}')" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur || '无'})</button>
     </div>
+    ${snapBanner}
     ${rows || '<div style="padding:20px;color:#666;font-size:12px">核心池为空——手动输入代码添加，或分析个股后点「+ 当前」加入。<br>核心池将用于信号档案筛选与 I7.4 历史统计。</div>'}`;
 }
 
@@ -3297,16 +3311,21 @@ async function poolAddCurrent(symbol) {
 
 async function poolRemove(symbol) {
   if (!confirm(`从核心池移除 ${symbol}？`)) return;
-  await poolPost({ action: 'remove', symbol });
+  const data = await poolPost({ action: 'remove', symbol });
+  if (!data.ok) alert(data.error || '删除失败');
   loadPool();
 }
 
 async function poolNote(symbol, note) {
-  await poolPost({ action: 'note', symbol, note });
+  const data = await poolPost({ action: 'note', symbol, note });
+  if (!data.ok) alert(data.error || '备注保存失败');
+  else loadPool();
 }
 
 async function poolMove(symbol, offset) {
-  await poolPost({ action: 'move', symbol, offset });
+  const data = await poolPost({ action: 'move', symbol, offset });
+  if (!data.ok) alert(data.error || '移动失败');
+  else loadPool();
 }
 
 // ===== 相邻查看方向一致率统计 =====

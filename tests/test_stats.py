@@ -309,7 +309,8 @@ def _sim_bars(entry_open=100.0):
 def test_simulation_stop_first_conservative():
     from backtest.stats import simulate_signal
     bars, dates = _sim_bars()
-    bars[14] = [dates[14], 100.0, 96.0, 94.0, 95.5, 1000.0]  # 入场次日双触：低94 高96
+    # 入场次日**真双触**：low=94≤stop95 且 high=112≥target110 同日 → 保守记止损
+    bars[14] = [dates[14], 100.0, 112.0, 94.0, 105.0, 1000.0]
     signal = {"t": 12, "stop": 95.0, "target": 110.0}
     sim = simulate_signal("600519", "", bars, signal, capital=20000.0)
     # lots=floor(19000/10000)=1 → 100股；入场 100；止损 95 先于目标

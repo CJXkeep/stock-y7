@@ -29,6 +29,9 @@ BUY_SIDE_TYPES = ("buy", "strong_buy", "cautious_buy")
 # /api/journal 默认返回的最新记录条数上限
 JOURNAL_API_LIMIT = 500
 
+# 核心池容量上限（I7.5 起统一在 config 维护，backtest/pool.py 引用）
+POOL_MAX_ITEMS = 60
+
 # ---- 历史信号统计（I7.4） ----
 SNAPSHOT_DIR = os.path.join(ROOT, "data", "snapshots")
 RESULTS_DIR = os.path.join(ROOT, "data", "results")

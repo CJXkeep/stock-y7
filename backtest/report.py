@@ -52,6 +52,8 @@ def render_report(summary: dict, manifest: dict) -> str:
     if meta.get("simulate"):
         lines.append("- 单信号独立模拟：capital=%.0f 元、T+1 开盘入场、同日双触保守记止损、费率佣金双边 max(0.025%%×金额,5元)+印花税卖出 0.05%%；insufficient_capital=%d 笔、开盘涨停未成交 unfilled=%d 笔" % (
             meta.get("capital", 0), meta.get("insufficient_capital", 0), meta.get("unfilled_limit", 0)))
+    else:
+        lines.append("- 资金假设：capital=%.0f 元（仅模拟模式生效，本次未启用模拟）" % meta.get("capital", 0))
     lines.append("- 统计为信号与市场环境的复合结果，非因果；自用参考，**非投资建议**")
     lines.append("")
 
