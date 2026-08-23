@@ -122,6 +122,8 @@ function initCharts() {
   minuteVolChart.setOption(opts);
   indicatorChart.setOption(opts);
 
+  bindBoxZoom();   // K线区拖拽框选X轴范围
+
   window.addEventListener('resize', () => {
     klineChart.resize(); volumeChart.resize(); flowChart.resize();
     minuteChart.resize(); minuteVolChart.resize();
@@ -436,7 +438,7 @@ function renderKline(klines, signal) {
       }
     },
     dataZoom: [
-      { type: 'inside', start: ds, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+      { type: 'inside', start: ds, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: false, moveOnMouseWheel: false },
       { type: 'slider', start: ds, end: 100, height: 28, bottom: 8,
         borderColor: '#222', backgroundColor: '#0a0a0a',
         fillerColor: 'rgba(255,152,0,0.1)',
@@ -465,7 +467,7 @@ function renderKline(klines, signal) {
     }],
     tooltip: { trigger: 'axis', formatter: p => p[0] ? `<div style="font-size:11px">${p[0].axisValue}<br/>量 ${fmtVol(p[0].value)}</div>` : '' },
     dataZoom: [
-      { type: 'inside', start: ds, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: true },
+      { type: 'inside', start: ds, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: false },
       { type: 'slider', start: ds, end: 100, show: false },
     ],
   }, true);
@@ -473,6 +475,64 @@ function renderKline(klines, signal) {
   bindZoomSync();
   updateZoomInfo(ds, 100);
   renderIndicator(_currentIndicator);
+}
+
+// ===== 框选缩放：K线区直接拖拽划定X轴范围（松手生效，双击复位） =====
+let _boxBound = false;
+let _boxSel = null;   // {x0, el, moved}
+function bindBoxZoom() {
+  if (_boxBound) return;
+  _boxBound = true;
+  const dom = document.getElementById('kline-chart');
+  dom.title = '拖拽框选放大 · 滚轮缩放 · 双击复位';
+  const zr = klineChart.getZr();
+
+  zr.on('mousedown', e => {
+    if (!e.event || e.event.button !== 0) return;   // 仅左键
+    const r = dom.getBoundingClientRect();
+    const sliderTop = r.height - 36 - 8;   // 底部滑块(高28+bottom8)区域不参与框选
+    if (e.offsetY > sliderTop || e.offsetY < 4) return;
+    const rect = document.createElement('div');
+    rect.className = 'zoom-box';
+    rect.style.left = e.offsetX + 'px';
+    rect.style.top = '4px';
+    rect.style.height = (sliderTop - 8) + 'px';
+    rect.style.width = '0px';
+    dom.appendChild(rect);
+    _boxSel = { x0: e.offsetX, el: rect, moved: false };
+  });
+
+  zr.on('mousemove', e => {
+    if (!_boxSel) return;
+    const w = Math.abs(e.offsetX - _boxSel.x0);
+    if (w > 6) _boxSel.moved = true;
+    _boxSel.el.style.left = Math.min(e.offsetX, _boxSel.x0) + 'px';
+    _boxSel.el.style.width = w + 'px';
+  });
+
+  zr.on('mouseup', e => {
+    if (!_boxSel) return;
+    const bs = _boxSel; _boxSel = null;
+    if (bs.el && bs.el.parentNode) bs.el.remove();
+    if (!bs.moved) return;   // 单击不算框选（保留十字光标/tooltip）
+    const total = _klineData.length;
+    if (!total) return;
+    let i1, i2;
+    try {
+      i1 = Math.round(klineChart.convertFromPixel({ xAxisIndex: 0 }, Math.min(bs.x0, e.offsetX)));
+      i2 = Math.round(klineChart.convertFromPixel({ xAxisIndex: 0 }, Math.max(bs.x0, e.offsetX)));
+    } catch (err) { return; }
+    if (i1 == null || i2 == null || isNaN(i1) || isNaN(i2)) return;
+    i1 = Math.max(0, Math.min(total - 1, i1));
+    i2 = Math.max(0, Math.min(total - 1, i2));
+    if (i2 - i1 < 1) { i1 = Math.max(0, i1 - 1); i2 = Math.min(total - 1, i2 + 1); }   // 选太窄时前后各扩一根
+    klineChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
+    volumeChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
+    if (_currentIndicator !== 'none') indicatorChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
+  });
+
+  zr.on('globalout', () => { if (_boxSel) { _boxSel.el.remove(); _boxSel = null; } });
+  dom.addEventListener('dblclick', () => applyRange(0));   // 双击复位全部
 }
 
 function findEntryIndex(klines, entryPrice) {
