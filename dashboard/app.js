@@ -115,6 +115,9 @@ function initCharts() {
   minuteVolChart = echarts.init(document.getElementById('minute-vol'));
   indicatorChart = echarts.init(document.getElementById('indicator-chart'));
 
+  // K线/成交量/副图指标 三图联动：任一处缩放（滑块/滚轮/框选）自动同步到其余两图
+  echarts.connect([klineChart, volumeChart, indicatorChart]);
+
   klineChart.setOption(opts);
   volumeChart.setOption(opts);
   flowChart.setOption(opts);
@@ -526,9 +529,7 @@ function bindBoxZoom() {
     i1 = Math.max(0, Math.min(total - 1, i1));
     i2 = Math.max(0, Math.min(total - 1, i2));
     if (i2 - i1 < 1) { i1 = Math.max(0, i1 - 1); i2 = Math.min(total - 1, i2 + 1); }   // 选太窄时前后各扩一根
-    klineChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
-    volumeChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
-    if (_currentIndicator !== 'none') indicatorChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });
+    klineChart.dispatchAction({ type: 'dataZoom', startValue: i1, endValue: i2 });   // connect 自动带到量/副图
   });
 
   zr.on('globalout', () => { if (_boxSel) { _boxSel.el.remove(); _boxSel = null; } });
@@ -546,16 +547,24 @@ function findEntryIndex(klines, entryPrice) {
 }
 
 // ===== 缩放联动 =====
+// 三图窗口联动已由 echarts.connect 托管；这里只负责 zoom-info 文本与预设按钮高亮。
+// 注意：不能读 option.dataZoom[0]——拖滑块时滚轮组件状态是过期的，必须优先取事件负载。
 function bindZoomSync() {
   if (_zoomBound) return;
   _zoomBound = true;
-  klineChart.on('datazoom', () => {
-    const dz = klineChart.getOption().dataZoom[0];
-    if (dz) {
-      volumeChart.dispatchAction({ type: 'dataZoom', start: dz.start, end: dz.end });
-      indicatorChart.dispatchAction({ type: 'dataZoom', start: dz.start, end: dz.end });
-      updateZoomInfo(dz.start, dz.end);
-      syncRangeBtns(dz.start, dz.end);
+  klineChart.on('datazoom', evt => {
+    let s = null, e = null;
+    const b = evt && evt.batch;
+    if (b && b.length) { s = b[0].start; e = b[0].end; }
+    else if (evt && typeof evt.start === 'number') { s = evt.start; e = evt.end; }
+    if (s == null || e == null) {
+      const dz = klineChart.getOption().dataZoom || [];
+      const c = dz[dz.length - 1] || {};
+      s = c.start; e = c.end;
+    }
+    if (s != null && e != null) {
+      updateZoomInfo(s, e);
+      syncRangeBtns(s, e);
     }
   });
 }
@@ -566,9 +575,7 @@ function applyRange(days) {
   let s, e;
   if (days === 0 || days >= total) { s = 0; e = 100; }
   else { s = Math.max(0, (1 - days / total) * 100); e = 100; }
-  klineChart.dispatchAction({ type: 'dataZoom', start: s, end: e });
-  volumeChart.dispatchAction({ type: 'dataZoom', start: s, end: e });
-  indicatorChart.dispatchAction({ type: 'dataZoom', start: s, end: e });
+  klineChart.dispatchAction({ type: 'dataZoom', start: s, end: e });   // connect 自动带到量/副图
   updateZoomInfo(s, e);
 }
 
@@ -3018,6 +3025,15 @@ function renderIndicator(ind) {
       { type: 'slider', start: 0, end: 100, show: false },
     ],
   }, true);
+
+  // 重建后跟随主图当前窗口（否则切指标会跳回全量范围）
+  try {
+    const kd = klineChart.getOption().dataZoom || [];
+    const cur = kd[kd.length - 1] || {};
+    if (typeof cur.start === 'number') {
+      indicatorChart.dispatchAction({ type: 'dataZoom', start: cur.start, end: cur.end });
+    }
+  } catch (e) {}
 }
 
 // EMA计算
