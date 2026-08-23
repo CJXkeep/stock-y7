@@ -504,6 +504,23 @@ class Quote:
     timestamp: str = ""
 
 
+def _quote_intraday_time(raw: Any) -> str:
+    """解析东财f86更新时间为"HH:MM"；非当日的行情返回空串。
+
+    f86为Unix秒级时间戳（兼容毫秒）。仅当行情日期是今天时才返回时间，
+    避免周末/隔夜的最后一次成交时间被误判为盘中实时。
+    """
+    ts = _to_float(raw)
+    if not ts or ts <= 0:
+        return ""
+    if ts > 1e12:  # 毫秒时间戳
+        ts /= 1000.0
+    lt = time.localtime(ts)
+    if time.strftime("%Y-%m-%d", lt) != time.strftime("%Y-%m-%d"):
+        return ""
+    return time.strftime("%H:%M", lt)
+
+
 def fetch_quote(symbol: str) -> Optional[Quote]:
     """实时行情。东财stock/get，fltt=2价格不除100。2秒缓存保证秒级实时性。"""
     cache_key = f"quote_{symbol}"
@@ -514,7 +531,7 @@ def fetch_quote(symbol: str) -> Optional[Quote]:
     secid = symbol_to_secid(symbol)
     params = {
         "secid": secid,
-        "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f168",
+        "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f86,f169,f170,f168",
         "fltt": "2",
         "invt": "2",
         "ut": "fa5fd1943c7b386f172d6893dbfba10b",
@@ -537,6 +554,7 @@ def fetch_quote(symbol: str) -> Optional[Quote]:
             amount=_to_float(d.get("f48")) or 0,
             turnover=_to_float(d.get("f168")) or 0,
         )
+        q.timestamp = _quote_intraday_time(d.get("f86"))
         _cache_set(cache_key, q)
         return q
     return None

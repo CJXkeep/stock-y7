@@ -1967,7 +1967,10 @@ function renderDataMeta(meta) {
   if (meta.source) parts.push(`数据源:${meta.source}`);
   if (meta.adjust) parts.push(`复权:${meta.adjust}`);
   if (meta.latest_bar_date) parts.push(`最新bar:${meta.latest_bar_date}`);
-  if (meta.latest_bar_status) parts.push(`状态:${meta.latest_bar_status}`);
+  if (meta.latest_bar_status) {
+    const statusLabels = { intraday: '盘中', closed: '已收盘', unknown: '未知' };
+    parts.push(`状态:${statusLabels[meta.latest_bar_status] || meta.latest_bar_status}`);
+  }
   if (meta.calculated_at) parts.push(`计算:${meta.calculated_at}`);
   el.innerHTML = parts.join(' | ') || '';
 }
@@ -2330,22 +2333,57 @@ function selectStock(code, name) {
 }
 
 // ===== 分析 =====
+let _lastOkTime = '';          // 上次分析成功时间（data_meta.calculated_at）
+let _failRetryCount = 0;       // 连续失败后的自动重试次数
+const _MAX_FAIL_RETRY = 2;     // 自动重试上限（手动点击"立即重试"不受限）
+let _failRetryTimer = null;
+
+function _scheduleFailRetry(symbol) {
+  if (_failRetryCount >= _MAX_FAIL_RETRY) return;
+  _failRetryCount += 1;
+  if (_failRetryTimer) clearTimeout(_failRetryTimer);
+  _failRetryTimer = setTimeout(() => {
+    _failRetryTimer = null;
+    if (currentSymbol === symbol) analyze(symbol);
+  }, 8000);
+}
+
+function _markAnalyzeFail(symbol) {
+  document.getElementById('loading').style.display = 'none';
+  const el = document.getElementById('sum-body');
+  const retryLink = `<span style="color:#4fc3f7;cursor:pointer;text-decoration:underline" onclick="analyze('${symbol}')">立即重试</span>`;
+  const autoTxt = _failRetryCount < _MAX_FAIL_RETRY ? '，8秒后自动重试' : '';
+  if (_lastOkTime && el.innerHTML.trim()) {
+    // 已有上次成功结果：保留旧数据，只在结论区顶部插一条失败横幅
+    const oldBanner = document.getElementById('analyze-fail-banner');
+    if (oldBanner) oldBanner.remove();
+    el.insertAdjacentHTML('afterbegin',
+      `<div id="analyze-fail-banner" style="margin-bottom:8px;padding:6px 8px;background:rgba(255,107,107,0.08);border-radius:6px;border:1px solid rgba(255,107,107,0.15);font-size:11px;color:#ff6b6b;line-height:1.5">⚠ 本次刷新失败，以下为上次结果（计算于 ${_lastOkTime}）· ${retryLink}${autoTxt}</div>`);
+  } else {
+    // 无历史数据：整块错误提示 + 重试入口
+    el.innerHTML = `<div class="sum-text" style="color:${C.down}">请求失败，请检查服务是否运行<br><span style="display:inline-block;margin-top:8px;font-size:11px">${retryLink}${autoTxt}</span></div>`;
+  }
+  _scheduleFailRetry(symbol);
+}
+
 async function analyze(symbol) {
   currentSymbol = symbol;
   document.getElementById('loading').style.display = 'flex';
   if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  if (_failRetryTimer) { clearTimeout(_failRetryTimer); _failRetryTimer = null; }
 
   // 周K视图传period=week，否则默认day
   const periodParam = currentView === 'week' ? '&period=week' : '';
 
+  // 缠论接口单独容错：它失败不应拖垮主分析渲染
+  const clFetch = fetch(`${API}/api/chanlun_daily?symbol=${symbol}${periodParam}`).catch(() => null);
+
   try {
-    const [r, clRes] = await Promise.all([
-      fetch(`${API}/api/analyze?symbol=${symbol}${periodParam}`),
-      fetch(`${API}/api/chanlun_daily?symbol=${symbol}${periodParam}`),
-    ]);
+    const r = await fetch(`${API}/api/analyze?symbol=${symbol}${periodParam}`);
     const data = await r.json();
+    const clRes = await clFetch;
     _dailyChanlun = null;
-    try { _dailyChanlun = await clRes.json(); } catch(e) {}
+    try { if (clRes) _dailyChanlun = await clRes.json(); } catch(e) {}
     document.getElementById('loading').style.display = 'none';
 
     if (data.error) {
@@ -2391,6 +2429,10 @@ async function analyze(symbol) {
     // 渲染相邻查看方向一致率统计
     renderSignalAccuracy(symbol);
 
+    // 成功标记：记录本次成功时间并重置连续失败计数
+    _lastOkTime = (data.data_meta && data.data_meta.calculated_at) || new Date().toLocaleTimeString();
+    _failRetryCount = 0;
+
     // 缠论日线/周线分析
     document.getElementById('chanlun-daily-label').textContent = currentView === 'week' ? '缠论周线分析' : '缠论日线分析';
     if (_dailyChanlun && !_dailyChanlun.error) {
@@ -2409,8 +2451,7 @@ async function analyze(symbol) {
     if (currentView === 'minute') loadMinute(symbol);
     _refreshTimer = setInterval(() => refreshQuote(symbol), 2000);
   } catch(e) {
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('sum-body').innerHTML = `<div class="sum-text" style="color:${C.down}">请求失败，请检查服务是否运行</div>`;
+    _markAnalyzeFail(symbol);
   }
 }
 

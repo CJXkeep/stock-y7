@@ -672,6 +672,19 @@ def _localize_signal_text(signal_data: dict, period: str) -> dict:
 
 
 # ---- API处理 ----
+def _in_trading_session() -> bool:
+    """本地时间是否处于A股交易时段（含集合竞价与收盘前后几分钟缓冲）。
+
+    仅按星期与时刻判断，不含节假日表：节假日因行情日期非当日，
+    quote.timestamp 为空串，自然落到 closed，不会误报盘中。
+    """
+    t = time.localtime()
+    if t.tm_wday >= 5:  # 周六日
+        return False
+    m = t.tm_hour * 60 + t.tm_min
+    return (9 * 60 + 15 <= m <= 11 * 60 + 35) or (12 * 60 + 55 <= m <= 15 * 60 + 5)
+
+
 def handle_analyze(params: dict) -> dict:
     symbol = params.get("symbol", [""])[0].strip()
     if not symbol:
@@ -736,7 +749,10 @@ def handle_analyze(params: dict) -> dict:
         "source": klines[-1].source if klines else "",
         "adjust": klines[-1].adjust if klines else "",
         "latest_bar_date": klines[-1].date if klines else "",
-        "latest_bar_status": "intraday" if quote and quote.timestamp else "unknown",
+        "latest_bar_status": (
+            "intraday" if quote and quote.timestamp and _in_trading_session()
+            else ("closed" if klines else "unknown")
+        ),
         "calculated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
