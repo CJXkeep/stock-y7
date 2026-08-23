@@ -3233,7 +3233,45 @@ const _journalTypeNames = {
   chanlun_sell1: '缠论一卖', chanlun_sell2: '缠论二卖',
 };
 let _journalShowDupes = false;
+// ---- 证券名称解析（frontend迭代：信号档案等仅存代码的场景补显示名称） ----
+const STORAGE_SYM_NAMES = 'qs_symbol_names';
+function _symNames() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_SYM_NAMES)) || {}; } catch (e) { return {}; }
+}
+function _saveSymNames(m) {
+  try { localStorage.setItem(STORAGE_SYM_NAMES, JSON.stringify(m)); } catch (e) {}
+}
+// 已知名称：自选股详情表 > 历史记录 > 本地名称缓存
+function _knownName(sym) {
+  const m = getStockMap();
+  if (m[sym] && m[sym].name) return m[sym].name;
+  const h = getHistory().find(x => x.code === sym);
+  if (h && h.name) return h.name;
+  return _symNames()[sym] || null;
+}
+// 批量补齐缺失名称（/api/quotes 每批≤50只），有新学到时返回 true
+async function _resolveSymbolNames(symbols) {
+  const missing = [...new Set((symbols || []).filter(s => s && !_knownName(s)))];
+  if (!missing.length) return false;
+  let learned = false;
+  for (let i = 0; i < missing.length; i += 50) {
+    const chunk = missing.slice(i, i + 50);
+    try {
+      const r = await fetch(`${API}/api/quotes?codes=${encodeURIComponent(chunk.join(','))}`);
+      const j = await r.json();
+      const m = _symNames();
+      for (const c of chunk) {
+        const q = j.quotes && j.quotes[c];
+        if (q && q.name && !m[c]) { m[c] = q.name; learned = true; }
+      }
+      if (learned) _saveSymNames(m);
+    } catch (e) {}
+  }
+  return learned;
+}
+
 let _journalTypeFilter = '';
+let _journalRenderSeq = 0;   // 防止名称异步补齐后的重渲染覆盖更新的渲染
 let _journalSymbolFilter = '';
 // 导出用：最近一次 /api/journal 结果与其过滤条件（frontend-iteration）
 window._journalLastRecords = [];
@@ -3273,6 +3311,11 @@ async function loadJournal() {
     symbol: _journalSymbolFilter,
     include_dupes: _journalShowDupes,
   };
+  // 名称补齐：先按本地已知渲染，缺失的批量反查，学到新名称后重渲染一次（seq 防过期覆盖）
+  const _seq = ++_journalRenderSeq;
+  _resolveSymbolNames(records.map(r => r.symbol)).then(learned => {
+    if (learned && _seq === _journalRenderSeq) loadJournal();
+  });
   const s = data.summary || {};
   const typeOpts = ['<option value="">全部类型</option>'].concat(
     Object.keys(_journalTypeNames).map(k =>
@@ -3287,9 +3330,10 @@ async function loadJournal() {
     const cell = h => h == null ? '<span style="color:#555">--</span>'
       : `<span style="color:${h > 0 ? C.up : h < 0 ? C.down : '#999'}">${h > 0 ? '+' : ''}${h.toFixed(2)}%</span>`;
     const dupTag = rec.deduped ? '<span title="近期已记录（去重窗口内重复信号）">🔁</span>' : '';
+    const nm = _knownName(rec.symbol);
     return `<tr>
       <td>${rec.trigger_date || ''}</td>
-      <td><a href="#" onclick="analyze('${rec.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a></td>
+      <td><a href="#" onclick="analyze('${rec.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a>${nm ? `<div style="color:#888;font-size:10px;margin-top:1px">${escHtml(nm)}</div>` : ''}</td>
       <td>${_journalTypeNames[rec.signal_type] || rec.signal_type}${dupTag}</td>
       <td>${rec.snapshot_close != null ? rec.snapshot_close : '--'}</td>
       <td>${cell(f[5] && f[5].return_pct)}</td>
@@ -3360,13 +3404,13 @@ function _journalExportStem() {
 function exportJournalCsv() {
   const records = window._journalLastRecords || [];
   if (!records.length) { alert('当前过滤条件下暂无记录可导出'); return; }
-  const header = ['信号日', '代码', '类型', '动作', '信号价', '去重标记', '5日%', '10日%', '20日%', '60日%'];
+  const header = ['信号日', '代码', '名称', '类型', '动作', '信号价', '去重标记', '5日%', '10日%', '20日%', '60日%'];
   const lines = [header.join(',')];
   records.forEach(rec => {
     const f = _followupMap(rec);
     const pct = h => (f[h] && f[h].return_pct != null) ? f[h].return_pct : '';
     lines.push([
-      rec.trigger_date || '', rec.symbol || '',
+      rec.trigger_date || '', rec.symbol || '', _knownName(rec.symbol) || '',
       _journalTypeNames[rec.signal_type] || rec.signal_type || '',
       rec.action || '', rec.snapshot_close != null ? rec.snapshot_close : '',
       rec.deduped ? '是' : '否',
