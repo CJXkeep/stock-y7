@@ -1,0 +1,250 @@
+schema: comet.native.v4
+name: frontend-polish-v43
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: 'A1: FX=关 时点击任意股票分析，加载遮罩内出现"分析中…"文字提示，不再空白；FX=标准/炫酷时该提示不可见、骨架屏照常'
+    result: passed
+    reason:
+      text: "index.html loading-overlay 内含 spinner-wrap#spinner-fallback 节点（spinner +
+        sk-fallback-text「分析中…」），style.css 默认 display:none、body.fx-off 下
+        display:flex 且 fx-off 时 #skeleton-wrap 隐藏，标准/炫酷档骨架屏不受影响"
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: "A2: FX=关 或系统 prefers-reduced-motion 下：新 toast
+      出现时无滑入动画、自选变更角标不闪烁；标准/炫酷档两者行为与现状一致"
+    result: passed
+    reason:
+      text: body.fx-off 对 .toast/.toast.removing/.wc-change-badge 施加
+        animation:none!important，并以 @media(prefers-reduced-motion:reduce) 对
+        */*::before/*::after 全局兜底
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "A3: style.css 中不再存在
+      signal-main/sm-action/sm-bg-*/sm-desc/sm-score/ta-row/ta-val/ta-label/tra\
+      de-advice/wp-overview 选择器；`.up/.down` 全文件各仅一处定义；页面涨跌着色（列表/分时/一览）视觉不变"
+    result: passed
+    reason:
+      text: 12 个孤儿选择器在前端四份源码零命中；.up/.down 各恰一处定义（无 !important）；作用域着色规则
+        .sb-rnum.up,.sb-rpct.up 与 .sb-rnum.down,.sb-rpct.down
+        存在且位于基础色规则之后；.sb-badge 仅 1 处定义
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "A4: 前端源码中不存在
+      `closePanel`/`togglePanel`/`_panelOpen`；点击历史记录、多股一览、信号档案、核心池条目仍能正常切换分析标的且\
+      侧栏保持打开"
+    result: passed
+    reason:
+      text: closePanel/togglePanel/_panelOpen 前端源码零命中；历史/一览/档案/核心池条目 onclick 仅保留
+        analyze 跳转且 node --check 独立复跑 exit 0；addHistory 以 _sbSection==='history'
+        驱动实时刷新
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "A5: 本 brief Decisions 记录三处规格演进说明（见下），后续审计可追溯"
+    result: passed
+    reason:
+      text: brief.md Decisions 含 D1(watchlist-sidebar A70 工作台化)/D2(beginner-mode A31
+        CANSLIM 词条)/D3(P1-1 spinner 方案)/D4(_currentTab 保留) 四条规格演进留痕
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "A6: `node --check` 通过；`python run_all_tests.py --quiet` 全量通过；8795 探针 `/`
+      `/style.css` `/app.js` 均 200 且内容含本次修复标记（spinner 节点、reduced-motion 媒体查询）"
+    result: passed
+    reason:
+      text: Runtime 三项（14/14 测试、node --check、8795 探针）全部通过；Verifier 独立复跑 node --check 与
+        tests/test_frontend_polish_v43.py（PASS 4 项守护）均通过
+      truncated: false
+builder_handoff:
+  candidate_id: 2a507418-99e0-430d-b91a-98dda9090dbe
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:162a956e-0633-4bdd-8f32-24d3f4c14db6
+  iteration: 1
+  summary:
+    text: frontend-polish-v43 Build 完成，收口审查报告全部可执行项：①P1-1 loading-overlay 恢复
+      spinner+『分析中…』回退节点（id=spinner-fallback），默认隐藏、仅 body.fx-off
+      显示，标准/炫酷档骨架屏不变；②P2-1 存量动画门控：body.fx-off 下 .toast/.toast.removing 与
+      .wc-change-badge 禁用动效，并新增 @media(prefers-reduced-motion:reduce) 全局兜底；③P2-2
+      移除12个孤儿选择器(signal-main/sm-action/sm-bg-*/sm-desc/sm-score/ta-row/ta-val/ta-label/trade-advice/wp-overview)，.up/.down
+      合并为全局唯一定义并新增 .sb-rnum/.sb-rpct 作用域着色规则保障侧栏红绿显示，.sb-badge overflow
+      属性合并回主块；④P2-4 删除空壳 closePanel/togglePanel/_panelOpen
+      及模板字符串中的全部调用，addHistory 的历史区实时刷新改由 _sbSection==='history' 驱动。验证：node
+      --check 通过；run_all_tests.py --quiet 14/14 文件全通过（新增
+      tests/test_frontend_polish_v43.py
+      四项守护：回退节点/门控与减动效兜底/孤儿类清零与up-down唯一/空壳标识符清零）；8795 探针 HTML 含
+      spinner-fallback、CSS 含 prefers-reduced-motion 兜底且孤儿类零命中、JS 无
+      closePanel/_panelOpen。提交 16e0a74。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+  checks:
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 14/14 测试文件全部通过，含新增 frontend-polish-v43 四项守护
+        truncated: false
+    - name:
+        text: node --check dashboard/app.js
+        truncated: false
+      result: passed
+      note:
+        text: 语法检查通过（含模板字符串修复后复核）
+        truncated: false
+    - name:
+        text: 静态资产内容探针
+        truncated: false
+      result: passed
+      note:
+        text: / 含 spinner-fallback 节点；style.css 含 @media prefers-reduced-motion 且
+          sm-action/trade-advice 等12个孤儿选择器零命中；app.js 无
+          closePanel/_panelOpen/togglePanel 标识符
+        truncated: false
+    - name:
+        text: 侧栏涨跌着色回归确认
+        truncated: false
+      result: passed
+      note:
+        text: ".up/.down 全局各仅一处定义 + .sb-rnum/.sb-rpct.up/.down 作用域规则按序覆盖基础色 #888"
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: prefers-reduced-motion 采用全局 0.01ms 兜底策略，toast 在该偏好下为瞬时出现/消失（符合偏好语义）
+      truncated: false
+    - text: fx-off 下 toast 关闭动画以 visibility:hidden 即时消失替代滑出（350ms 定时移除节点不变）
+      truncated: false
+    - text: _currentTab 因 clearCurrentTab 仍使用而保留（brief D4 已声明）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-23T12:00:23.100Z
+blockers: []
+verification:
+  candidate_id: 2a507418-99e0-430d-b91a-98dda9090dbe
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:83dd2a2a-2328-4a00-b144-bcf5b9c5d09e
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: full-regression-suite
+      name:
+        text: 全量回归测试
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 5945
+    - id: js-syntax-appjs
+      name:
+        text: app.js 语法检查
+        truncated: false
+      argv_display:
+        - text: --check
+          truncated: false
+        - text: dashboard/app.js
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 218
+    - id: polish-static-probes
+      name:
+        text: 修复标记与清理项静态探针（8795 热加载资产）
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: "import urllib.request as u;
+            html=u.urlopen('http://127.0.0.1:8795/',timeout=10).read().decode('\
+            utf-8');
+            css=u.urlopen('http://127.0.0.1:8795/style.css',timeout=10).read().\
+            decode('utf-8');
+            js=u.urlopen('http://127.0.0.1:8795/app.js',timeout=10).read().deco\
+            de('utf-8'); assert 'spinner-fallback' in html; assert '@media
+            (prefers-reduced-motion: reduce)' in css; assert '.sm-action' not in
+            css and '.trade-advice' not in css and '.wp-overview' not in css;
+            assert len([l for l in css.splitlines() if l.startswith('.up
+            {')])==1 and len([l for l in css.splitlines() if l.startswith('.down
+            {')])==1; assert 'closePanel' not in js and '_panelOpen' not in js
+            and 'togglePanel' not in js; print('polish probes OK')"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1083
+  summary:
+    text: A1~A6 全部通过：P1-1 回退节点与门控、P2-1 动画禁用与减动效兜底、P2-2 死 CSS 清零及 up/down
+      单一定义+侧栏作用域着色、P2-4 空壳收敛且条目跳转语法完整、D1-D4 规格演进留痕齐备、守护测试独立复跑通过，判定 pass。
+    truncated: false
+  risks:
+    - text: FX 四档切换的运行时视觉手测（toast 出现/消失、角标静止、关档文案可见性）超出静态只读验收能力，建议归档前人工过一遍 A1/A2
+        的浏览器路径
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-23T14:11:00.585Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: A1~A6 全部通过：P1-1 回退节点与门控、P2-1 动画禁用与减动效兜底、P2-2 死 CSS 清零及 up/down
+        单一定义+侧栏作用域着色、P2-4 空壳收敛且条目跳转语法完整、D1-D4 规格演进留痕齐备、守护测试独立复跑通过，判定 pass。
+      truncated: false
+    completed_at: 2026-08-23T14:11:00.585Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-23T11:42:54.138Z
