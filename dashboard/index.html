@@ -30,18 +30,47 @@
   </div>
   <div class="watch-wrap">
     <button class="wc-btn wc-star" id="star-btn" title="加入/移除自选" onclick="toggleStar()">☆</button>
-    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="toggleSidebar()">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
-    <button class="wc-btn" id="history-btn" onclick="togglePanel('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
-    <div class="wp-panel" id="wp-panel">
+    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="openSbSection('watch')">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
+    <button class="wc-btn" id="history-btn" onclick="openSbSection('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
+  </div>
+  <div class="quote-bar" id="quote-bar">
+    <span class="qb-name flat">输入代码开始分析</span>
+  </div>
+</div>
+
+<!-- ===== 左侧工作台（frontend迭代：自选/历史/一览/档案/核心池/扫描归档 分区） ===== -->
+<div id="sidebar" class="sidebar">
+  <div class="sb-header">
+    <span class="sb-title" id="sb-title">自选股</span>
+    <button class="sb-collapse-btn" id="sb-toggle" title="收起/展开侧边栏" onclick="toggleSidebar()">◀</button>
+  </div>
+  <div class="sb-tabs" id="sb-tabs">
+    <button class="sb-tab active" data-sb="watch">自选</button>
+    <button class="sb-tab" data-sb="history">历史</button>
+    <button class="sb-tab" data-sb="overview">一览</button>
+    <button class="sb-tab" data-sb="journal">档案</button>
+    <button class="sb-tab" data-sb="pool">核心池</button>
+    <button class="sb-tab" data-sb="scan">扫描档</button>
+  </div>
+
+  <!-- 分区：自选股（窄栏） -->
+  <div id="sb-pane-watch" class="sb-pane active">
+    <div class="sb-groups" id="sb-groups"></div>
+    <div class="sb-footer">
+      <button class="sb-add-group" onclick="addGroupInline()">+ 新建分组</button>
+    </div>
+  </div>
+
+  <!-- 分区：历史 / 一览 / 档案 / 核心池（宽面板，原 wp-panel 迁入） -->
+  <div id="sb-pane-modules" class="sb-pane">
+    <div class="wp-panel sb-wp-host show" id="wp-panel">
       <div class="wp-tabs">
-        <button class="wp-tab active" data-tab="watch" onclick="switchTab('watch')">自选股<span class="wp-tab-count" id="wt-count"></span></button>
-        <button class="wp-tab" data-tab="history" onclick="switchTab('history')">历史记录<span class="wp-tab-count" id="ht-count"></span></button>
-        <button class="wp-tab" data-tab="overview" onclick="switchTab('overview')">多股一览<span class="wp-tab-count" id="ov-count"></span></button>
-        <button class="wp-tab" data-tab="journal" onclick="switchTab('journal')">信号档案</button>
-        <button class="wp-tab" data-tab="pool" onclick="switchTab('pool')">核心池</button>
+        <button class="wp-tab" data-tab="history" onclick="openSbSection('history')">历史记录<span class="wp-tab-count" id="ht-count"></span></button>
+        <button class="wp-tab" data-tab="overview" onclick="openSbSection('overview')">多股一览<span class="wp-tab-count" id="ov-count"></span></button>
+        <button class="wp-tab" data-tab="journal" onclick="openSbSection('journal')">信号档案</button>
+        <button class="wp-tab" data-tab="pool" onclick="openSbSection('pool')">核心池</button>
       </div>
-      <div class="wp-list" id="wp-content-watch"></div>
-      <div class="wp-list" id="wp-content-history" style="display:none"></div>
+      <div class="wp-list" id="wp-content-history"></div>
       <div class="wp-list" id="wp-content-overview" style="display:none"></div>
       <div class="wp-list" id="wp-content-journal" style="display:none"></div>
       <div class="wp-list" id="wp-content-pool" style="display:none"></div>
@@ -51,21 +80,12 @@
       </div>
     </div>
   </div>
-  <div class="quote-bar" id="quote-bar">
-    <span class="qb-name flat">输入代码开始分析</span>
-  </div>
-</div>
 
-<!-- ===== 自选股侧边栏（frontend-ux-v42 R2） ===== -->
-<div id="sidebar" class="sidebar">
-  <div class="sb-header">
-    <span class="sb-title">自选股</span>
-    <button class="sb-collapse-btn" id="sb-toggle" title="收起/展开侧边栏" onclick="toggleSidebar()">◀</button>
+  <!-- 分区：扫描归档（宽面板） -->
+  <div id="sb-pane-scan" class="sb-pane">
+    <div id="sb-wide-scan"></div>
   </div>
-  <div class="sb-groups" id="sb-groups"></div>
-  <div class="sb-footer">
-    <button class="sb-add-group" onclick="addGroupInline()">+ 新建分组</button>
-  </div>
+
   <span class="sb-collapsed-badge"></span>
 </div>
 

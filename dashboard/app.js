@@ -2323,21 +2323,8 @@ function clearHistory() {
 
 // --- 渲染 ---
 function renderWatchlist() {
-  const el = document.getElementById('wp-content-watch');
-  const list = getWatchlist();
-  if (!list.length) {
-    el.innerHTML = '<div class="wp-empty"><span class="wp-empty-icon">☆</span>还没有自选股<br>分析股票后点击 ☆ 添加</div>';
-    return;
-  }
-  el.innerHTML = list.map(s => {
-    const tag = sigTag(s.action, s.score);
-    return `<div class="wp-item" onclick="analyze('${s.code}');closePanel()">
-      <span class="code">${s.code}</span>
-      <span class="name">${escHtml(s.name)}</span>
-      ${tag}
-      <button class="remove" onclick="event.stopPropagation();removeFromWatchlist('${s.code}')" title="移除">×</button>
-    </div>`;
-  }).join('');
+  // 自选列表已迁至左侧工作台「自选」分区，统一由分组侧栏渲染
+  renderSidebar();
 }
 
 function renderHistory() {
@@ -2386,12 +2373,9 @@ function escHtml(s) {
 }
 
 // --- 面板控制 ---
-function closePanel() {
-  document.getElementById('wp-panel').classList.remove('show');
-  _panelOpen = false;
-  document.getElementById('watch-btn').classList.remove('active');
-  document.getElementById('history-btn').classList.remove('active');
-}
+// wp-panel 已常驻左侧工作台，不再有"弹出层关闭"语义；保留函数为空操作，
+// 兼容历史/一览/档案/核心池条目 onclick 里的历史调用。
+function closePanel() {}
 
 function togglePanel(tab) {
   _currentTab = tab;
@@ -2411,35 +2395,35 @@ function togglePanel(tab) {
 }
 
 function switchTab(tab) {
+  // wp-panel 已迁入左侧工作台：自选股 tab 回路由到自选分区
+  if (tab === 'watch' && document.getElementById('sb-pane-watch')) { openSbSection('watch'); return; }
   _currentTab = tab;
   // tab样式
   document.querySelectorAll('.wp-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.tab === tab);
   });
-  // 内容切换
-  document.getElementById('wp-content-watch').style.display = tab === 'watch' ? 'block' : 'none';
+  document.querySelectorAll('.sb-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.sb === tab);
+  });
+  // 内容切换（wp-content-watch 已随自选功能迁至独立分区，安全跳过）
+  const wEl = document.getElementById('wp-content-watch');
+  if (wEl) wEl.style.display = tab === 'watch' ? 'block' : 'none';
   document.getElementById('wp-content-history').style.display = tab === 'history' ? 'block' : 'none';
   document.getElementById('wp-content-overview').style.display = tab === 'overview' ? 'block' : 'none';
   document.getElementById('wp-content-journal').style.display = tab === 'journal' ? 'block' : 'none';
   document.getElementById('wp-content-pool').style.display = tab === 'pool' ? 'block' : 'none';
-  // 按钮高亮
-  document.getElementById('watch-btn').classList.toggle('active', tab === 'watch');
-  document.getElementById('history-btn').classList.toggle('active', tab === 'history');
   // 渲染内容
-  if (tab === 'watch') renderWatchlist();
-  else if (tab === 'history') renderHistory();
+  if (tab === 'history') renderHistory();
   else if (tab === 'overview') loadOverview();
   else if (tab === 'journal') loadJournal();
   else if (tab === 'pool') loadPool();
   // 底部操作栏
   const footer = document.getElementById('wp-footer');
-  const list = tab === 'watch' ? getWatchlist() : tab === 'history' ? getHistory() : [];
+  const list = tab === 'history' ? getHistory() : [];
   if (list.length > 0 && tab !== 'overview') {
     footer.style.display = 'flex';
-    document.getElementById('wp-footer-info').textContent = tab === 'watch'
-      ? `共 ${list.length} 只自选股`
-      : `共 ${list.length} 条记录`;
-    document.getElementById('wp-clear-btn').textContent = tab === 'watch' ? '清空自选' : '清空历史';
+    document.getElementById('wp-footer-info').textContent = `共 ${list.length} 条记录`;
+    document.getElementById('wp-clear-btn').textContent = '清空历史';
   } else {
     footer.style.display = 'none';
   }
@@ -2492,10 +2476,40 @@ updateQuote = function(q) {
   if (q && q.name) _currentStockName = q.name;
 };
 
-// ==================== 自选股侧边栏（frontend-ux-v42 R2） ====================
+// ==================== 左侧工作台（frontend迭代：分区 + 宽面板） ====================
 let _sbOpen = true;
 let _sbActiveGroup = 'default';
 let _sbTimer = null;
+let _sbSection = 'watch';   // watch | history | overview | journal | pool | scan
+const SB_SECTIONS = { watch: '自选股', history: '历史记录', overview: '多股一览', journal: '信号档案', pool: '核心池', scan: '扫描归档' };
+
+function loadSbSection() {
+  try { const v = localStorage.getItem('qs_sb_section'); if (v && SB_SECTIONS[v]) _sbSection = v; } catch (e) {}
+}
+// 切换分区（顶栏按钮/侧栏tab/面板内tab统一入口）
+function openSbSection(sec) {
+  if (!SB_SECTIONS[sec]) return;
+  _sbSection = sec;
+  try { localStorage.setItem('qs_sb_section', sec); } catch (e) {}
+  if (!_sbOpen) _sbOpen = true;
+  applySidebar();
+  renderSbSection();
+}
+function renderSbSection() {
+  document.querySelectorAll('.sb-tab').forEach(t => t.classList.toggle('active', t.dataset.sb === _sbSection));
+  const pWatch = document.getElementById('sb-pane-watch');
+  const pMods = document.getElementById('sb-pane-modules');
+  const pScan = document.getElementById('sb-pane-scan');
+  if (!pWatch || !pMods || !pScan) return;
+  pWatch.classList.toggle('active', _sbSection === 'watch');
+  pMods.classList.toggle('active', ['history', 'overview', 'journal', 'pool'].includes(_sbSection));
+  pScan.classList.toggle('active', _sbSection === 'scan');
+  const title = document.getElementById('sb-title');
+  if (title) title.textContent = SB_SECTIONS[_sbSection];
+  if (_sbSection === 'watch') renderSidebar();
+  else if (_sbSection === 'scan') renderScanArchiveList();
+  else switchTab(_sbSection);   // 复用原面板渲染器，内部 tab 高亮同步
+}
 
 function isMarketOpen() {
   const d = new Date(); const wd = d.getDay();
@@ -2514,6 +2528,8 @@ function applySidebar() {
   const sb = document.getElementById('sidebar'); const t = document.getElementById('sb-toggle');
   if (sb) sb.classList.toggle('open', _sbOpen);
   document.body.classList.toggle('sb-open', _sbOpen);
+  document.body.classList.toggle('sb-section-watch', _sbSection === 'watch');   // 驱动 --sb-w 宽度变量
+  document.querySelectorAll('.sb-tab').forEach(x => x.classList.toggle('active', x.dataset.sb === _sbSection));
   if (t) t.textContent = _sbOpen ? '◀' : '▶';
   setTimeout(resizeAllChartsSafe, (_fxLevel === 'max') ? 220 : 0);
 }
@@ -2840,12 +2856,20 @@ function showToastMsg(msg) {
 // ===== 启动 =====
 applyFx();                 // FX 档位（body class + 设置面板状态）
 sidebarLoadState();        // 侧边栏开合记忆
+loadSbSection();           // 上次停留的工作台分区
 migrateWatchlist();        // 旧自选一次性迁移（在首次渲染前执行）
 initCharts();
 updateBadges();
 loadMode();
+// 工作台分区 tab 点击
+const _sbTabs = document.getElementById('sb-tabs');
+if (_sbTabs) _sbTabs.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('.sb-tab');
+  if (b) openSbSection(b.dataset.sb);
+});
 applySidebar();
 renderSidebar();
+renderSbSection();
 sbSchedulePolling();
 sbRefreshQuotes();         // 启动即刷一轮自选行情
 // 自动加载上次分析的股票（没有则默认茅台）
@@ -3745,6 +3769,8 @@ function archiveScanRun(data) {
   list.unshift(run);
   while (list.length > MAX_SCAN_ARCHIVE) list.pop();
   saveScanArchive(list);
+  // 用户正停留在侧栏"扫描档"分区时，就地刷新列表
+  if (_sbSection === 'scan' && document.getElementById('sb-wide-scan')) renderScanArchiveList();
   return run;
 }
 
@@ -3846,7 +3872,7 @@ function renderScanResults(data) {
         <div style="color:#666;font-size:13px">当前市场可能处于调整期，可稍后再试</div>
         <div style="margin-top:16px">
           <button class="scan-btn" onclick="renderScanIdle()">重新扫描</button>
-          ${archivedRun ? `<button class="scan-btn scan-btn-ghost" onclick="renderScanArchiveList()">历史归档 (${getScanArchive().length})</button>` : ''}
+          ${archivedRun ? `<button class="scan-btn scan-btn-ghost" onclick="closeScan();openSbSection('scan')">在左侧查看归档 (${getScanArchive().length})</button>` : ''}
         </div>
       </div>`;
     return;
@@ -3856,7 +3882,7 @@ function renderScanResults(data) {
       <span>扫描完成，耗时 <b style="color:#ddd">${elapsed}s</b></span>
       <span>双周期买入: <b style="color:#ff9800">${results.length}</b> 只</span>
       <span class="scan-archived-tag" title="结果已自动归档到本地，可在历史归档中回看">已归档✓</span>
-      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="renderScanArchiveList()">历史归档 (${getScanArchive().length})</button>
+      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="closeScan();openSbSection('scan')">在左侧查看归档 (${getScanArchive().length})</button>
       <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="renderScanIdle()">重新扫描</button>
     </div>
     ${_scanTableHtml(results)}
@@ -3925,11 +3951,12 @@ function renderScanArchiveList() {
       </div>`).join('');
     rows = `<div class="scan-hist-list">${rows}</div>`;
   }
-  document.getElementById('scan-content').innerHTML = `
+  const host = document.getElementById('sb-wide-scan');
+  if (!host) return;   // 宿主在左侧工作台扫描分区
+  host.innerHTML = `
     <div class="scan-stats" style="margin-bottom:12px">
       <span>扫描历史归档 <b style="color:#ddd">${list.length}</b> / ${MAX_SCAN_ARCHIVE} 次</span>
       ${list.length ? `<button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="clearScanArchive()">清空全部</button>` : ''}
-      <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="openScan()">返回</button>
     </div>
     ${rows}`;
 }
@@ -3937,7 +3964,9 @@ function renderScanArchiveList() {
 function renderArchivedRun(id) {
   const run = getScanArchive().find(r => r.id === id);
   if (!run) { renderScanArchiveList(); return; }
-  document.getElementById('scan-content').innerHTML = `
+  const host = document.getElementById('sb-wide-scan');
+  if (!host) return;
+  host.innerHTML = `
     <div class="scan-stats" style="margin-bottom:12px">
       <span>归档 ${_fmtScanTime(run.finishedAt)}</span>
       <span>命中 <b style="color:#ff9800">${run.count}</b> 只 · 耗时 ${run.elapsed}s</span>
