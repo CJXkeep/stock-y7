@@ -77,9 +77,10 @@ def test_week_localize_does_not_replace_today():
 
 
 def test_frontend_has_data_meta_renderer():
-    html_path = os.path.join(ROOT, "dashboard", "index.html")
-    with open(html_path, "r", encoding="utf-8") as f:
-        html = f.read()
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _frontend_source import read_frontend_source
+    html = read_frontend_source()
     assert 'id="sum-meta"' in html
     assert "renderDataMeta(data.data_meta)" in html
     assert "function renderDataMeta" in html
@@ -90,7 +91,8 @@ def test_no_canslim_identifier_in_source():
         os.path.join(ROOT, "app.py"),
         os.path.join(ROOT, "analysis", "signal_engine.py"),
         os.path.join(ROOT, "analysis", "momentum_module.py"),
-        os.path.join(ROOT, "dashboard", "index.html"),
+        *[os.path.join(ROOT, "dashboard", n)
+          for n in ("index.html", "app.js", "glossary.js", "style.css")],
     ]
     for path in targets:
         with open(path, "r", encoding="utf-8") as f:

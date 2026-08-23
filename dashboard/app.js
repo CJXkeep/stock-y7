@@ -21,6 +21,58 @@ let _lastSignal = {};        // 记录各股票的上次信号 { code: { action,
 const STORAGE_SIGNALS = 'qs_signal_records';  // 信号记录存储key
 const MAX_SIGNAL_RECORDS = 200;  // 最多记录200条信号
 
+// ==================== FX 动效系统（frontend-ux-v42 R3） ====================
+// 档位：off=关 / std=标准 / max=炫酷 / auto=自动判定（默认）
+// 护栏：仅 transform/opacity 动画；图表动画仅首帧；关档 JS 跳过调度；reduced-motion 强制关
+let _fxSetting = 'auto';
+let _fxLevel = 'std';
+const _animConsumed = {};   // 图表首帧动画消耗标记（按图表key）
+
+function _fxReducedMotion() {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  catch (e) { return false; }
+}
+function _fxResolveAuto() {
+  if (_fxReducedMotion()) return 'off';
+  try {
+    if (navigator.deviceMemory && navigator.deviceMemory < 4) return 'off';
+    if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) return 'off';
+  } catch (e) {}
+  return 'std';
+}
+function applyFx() {
+  let s = 'auto';
+  try { s = localStorage.getItem('qs_fx') || 'auto'; } catch (e) {}
+  _fxSetting = s;
+  // prefers-reduced-motion 最高优先级：任何档位强制无动画
+  _fxLevel = _fxReducedMotion() ? 'off' : (s === 'off' || s === 'std' || s === 'max' ? s : _fxResolveAuto());
+  document.body.classList.remove('fx-off', 'fx-std', 'fx-max');
+  document.body.classList.add('fx-' + _fxLevel);
+  const hint = document.getElementById('fx-hint');
+  if (hint) {
+    const actual = { off: '关', std: '标准', max: '炫酷' }[_fxLevel];
+    hint.textContent = _fxSetting === 'auto'
+      ? `自动档：当前实际「${actual}」（低配设备/系统减动效偏好会自动降为关）`
+      : { off: '已关闭全部动效', std: '标准动效：内容入场与微交互', max: '炫酷动效：含图表首帧动画与氛围效果' }[_fxSetting] || '';
+    document.querySelectorAll('.fx-opt').forEach(b => b.classList.toggle('active', b.dataset.fx === _fxSetting));
+  }
+}
+function setFx(s) {
+  try { localStorage.setItem('qs_fx', s); } catch (e) {}
+  applyFx();
+}
+function fxEnabled() { return _fxLevel !== 'off'; }
+
+// 图表首帧动画开关：max档且该图表未被消耗过才允许动画；不带key=用户主动重渲染（如切换指标），max档恒可动画
+function chartAnim(key) {
+  if (_fxLevel !== 'max') return false;
+  if (key === undefined) return true;
+  if (_animConsumed[key]) return false;
+  _animConsumed[key] = true;
+  return true;
+}
+function resetChartAnim() { Object.keys(_animConsumed).forEach(k => delete _animConsumed[k]); }
+
 // ===== ECharts 全局主题色 =====
 const C = {
   bg: 'transparent',
@@ -153,6 +205,12 @@ function switchView(view) {
     if (prevView !== view && currentSymbol) {
       analyze(currentSymbol);
     }
+  }
+  // FX标准/炫酷档：视图切换 crossfade（仅 opacity）
+  if (fxEnabled()) {
+    const vis = view === 'minute' ? [mc, mv] : [kc, vc];
+    vis.forEach(el => { el.style.transition = 'opacity .15s'; el.style.opacity = '0'; });
+    requestAnimationFrame(() => requestAnimationFrame(() => vis.forEach(el => { el.style.opacity = '1'; })));
   }
 }
 
@@ -315,7 +373,7 @@ function renderKline(klines, signal) {
 
   klineChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('kline'),
     xAxis: {
       type: 'category', data: dates,
       axisLine: { lineStyle: { color: C.axis } },
@@ -395,7 +453,7 @@ function renderKline(klines, signal) {
   // 成交量
   volumeChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('volume'),
     xAxis: { type: 'category', data: dates, show: false },
     yAxis: { type: 'value', axisLabel: { color: C.textDim, fontSize: 9 }, splitLine: { lineStyle: { color: C.grid } } },
     grid: { left: 60, right: 50, top: 5, bottom: 5 },
@@ -914,7 +972,7 @@ function renderMinute(data, chanlunData) {
 
   minuteChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('minute'),
     xAxis: {
       type: 'category', data: times,
       axisLine: { lineStyle: { color: C.axis } },
@@ -976,7 +1034,7 @@ function renderMinute(data, chanlunData) {
   });
   minuteVolChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('minuteVol'),
     xAxis: { type: 'category', data: times, show: false },
     yAxis: { type: 'value', axisLabel: { color: C.textDim, fontSize: 9 }, splitLine: { lineStyle: { color: C.grid } } },
     grid: { left: 70, right: 60, top: 5, bottom: 5 },
@@ -1015,7 +1073,7 @@ function _renderDailyFlow(flows) {
 
   flowChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('flowDaily'),
     legend: { data: ['主力净流入', '超大单'], textStyle: { color: C.textDim, fontSize: 10 }, top: 2, itemWidth: 12, itemHeight: 8 },
     xAxis: { type: 'category', data: dates, axisLabel: { color: C.textDim, fontSize: 9 }, axisLine: { lineStyle: { color: C.axis } } },
     yAxis: { type: 'value', axisLabel: { color: C.textDim, fontSize: 9 }, splitLine: { lineStyle: { color: C.grid } } },
@@ -1077,7 +1135,7 @@ function renderRealtimeFlow(data) {
 
   flowChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim('flowRt'),
     legend: { data: ['主力净流入(累计)', '超大单(累计)'], textStyle: { color: C.textDim, fontSize: 10 }, top: 2, itemWidth: 12, itemHeight: 8 },
     xAxis: { type: 'category', data: times, axisLabel: { color: C.textDim, fontSize: 9, interval: 29 }, axisLine: { lineStyle: { color: C.axis } } },
     yAxis: { type: 'value', axisLabel: { color: C.textDim, fontSize: 9 }, splitLine: { lineStyle: { color: C.grid } } },
@@ -1092,6 +1150,231 @@ function renderRealtimeFlow(data) {
       return html;
     }},
   }, true);
+}
+
+// ==================== 小白模式增强（frontend-ux-v42 R1） ====================
+// 风险解读字典：codes 匹配结构化风险码优先，kws 匹配文案关键词兜底
+const RISK_EXPLAIN = [
+  { codes: ['price_below_ma20'], kws: ['跌破MA20'],
+    text: '股价跌破20日均线（MA20）：短期趋势生命线失守，趋势转弱。',
+    advice: '不宜急于买入，等待收盘价重新站回MA20再关注。' },
+  { codes: ['price_down_volume_up'], kws: ['价跌量增'],
+    text: '价跌量增：下跌同时成交量放大，像恐慌抛售，抛压比较重。',
+    advice: '不要急着抄底，等量能萎缩、价格企稳后再看。' },
+  { codes: ['obv_down'], kws: ['OBV下降', 'OBV走低', 'OBV下行'],
+    text: 'OBV能量潮下降：资金在悄悄撤退，上涨缺乏"弹药"支撑。',
+    advice: '对买入信号多一分警惕，优先等资金回流迹象。' },
+  { codes: ['ma20_down'], kws: ['MA20向下', 'MA20下行'],
+    text: '20日均线方向向下：短期趋势整体朝下。',
+    advice: '顺势而为，把反弹当减仓机会而不是加仓机会。' },
+  { codes: ['price_below_ma60'], kws: ['受压60日', '60日决策线'],
+    text: '股价运行在60日决策线下方：上方存在中期套牢压力，反弹空间受限。',
+    advice: '降低盈利预期，有效突破季线之前不重仓。' },
+  { kwGroup: true, kws: ['市场环境偏空', '大盘偏空', '大盘环境偏空'],
+    text: '大盘环境偏空：多数股票在跌，逆势操作胜率低。',
+    advice: '控制总仓位，轻仓或空仓等大盘转暖。' },
+  { kwGroup: true, kws: ['倒挂'],
+    text: '盈亏比倒挂：可能赚的空间还不如可能亏的多，这笔买卖不划算。',
+    advice: '放弃本次入场，等待更低的买点或更高的目标价。' },
+  { kwGroup: true, kws: ['偏低'],
+    text: '盈亏比偏低：收益空间相对止损距离优势不足。',
+    advice: '可等价格更接近止损位时再考虑，提高盈亏比。' },
+];
+
+function _lastMA(period) {
+  try {
+    if (!_klineData || _klineData.length < period) return null;
+    const arr = calcMA(_klineData, period);
+    const v = arr && arr.length ? arr[arr.length - 1] : null;
+    return (v == null || isNaN(v)) ? null : v;
+  } catch (e) { return null; }
+}
+
+// 汇总当前信号的风险并翻译成大白话。返回 [{key,text,advice,raw}]
+function explainRisks(signal) {
+  const out = [];
+  const seen = {};
+  const sources = []
+    .concat(signal.risk_warnings || [])
+    .concat(signal.risk_notes || [])
+    .concat(signal.veto_reason ? [signal.veto_reason] : []);
+  const codes = signal.risk_codes || [];
+  for (const item of sources) {
+    if (!item) continue;
+    let hit = null;
+    for (const r of RISK_EXPLAIN) {
+      if (!hit && r.codes && r.codes.some(c => codes.includes(c))) hit = r;
+      if (!hit && item && r.kws && r.kws.some(k => String(item).includes(k))) hit = r;
+    }
+    const key = hit ? hit.text : String(item);
+    if (seen[key]) continue;
+    seen[key] = 1;
+    out.push(hit
+      ? { text: glossarize(hit.text), advice: hit.advice }
+      : { text: glossarize(String(item)), advice: '结合仓位管理谨慎对待该信号。' });
+  }
+  // M分偏空即使没进 risk_warnings 也补一条（小白最该知道的大盘环境）
+  const m = signal.momentum || {};
+  if (m.m_score != null && m.m_score < 30 && !seen['市场环境偏空']) {
+    seen['市场环境偏空'] = 1;
+    const r = RISK_EXPLAIN.find(x => x.kws && x.kws.includes('市场环境偏空'));
+    out.push({ text: glossarize(r.text), advice: r.advice });
+  }
+  return out;
+}
+
+function riskBannerHtml(risks) {
+  if (!risks || !risks.length) return '';
+  const rows = risks.map(r =>
+    `<div class="rb-item"><div class="rb-text">• ${r.text}</div><div class="rb-advice">建议：${escHtml(r.advice)}</div></div>`
+  ).join('');
+  return `
+    <div class="risk-banner">
+      <div class="rb-head">⚠ 有 ${risks.length} 条风险需要注意</div>
+      ${rows}
+      <div class="rb-foot">以上为规则解读，仅供参考，非投资建议。</div>
+    </div>`;
+}
+
+// 三段式小白结论：📌现状 / ⚠️风险与机会 / ✅现在该做什么
+function buildBeginnerSegments(signal) {
+  const tr = signal.trend || {};
+  const vp = signal.volume_price || {};
+  const mo = signal.momentum || {};
+  const plan = signal.trade_plan || {};
+  const action = signal.action || '';
+
+  // —— 现状 ——
+  const seg1 = `目前处于<b>${escHtml(tr.direction || '中性')}趋势</b>` +
+    (tr.strength ? `（强度${tr.strength}分）` : '') +
+    (vp.pattern ? `，量价形态「${glossarize(vp.pattern)}」` : '') +
+    (mo.m_score != null ? `，大盘M分 ${mo.m_score}${mo.m_score < 30 ? '（偏空）' : ''}` : '') + '。';
+
+  // —— 风险与机会 ——
+  const buyN = (signal.buy_signals || []).length;
+  const sellN = (signal.sell_signals || []).length;
+  const seg2Parts = [];
+  if (signal.risk_level) seg2Parts.push(`风险等级「${signal.risk_level}」`);
+  if (buyN) seg2Parts.push(`${buyN} 条偏多信号`);
+  if (sellN) seg2Parts.push(`${sellN} 条偏空信号`);
+  const seg2 = seg2Parts.length ? `${seg2Parts.join('，')}。` : '暂无明显的机会或风险信号。';
+
+  // —— 现在该做什么 ——
+  let seg3;
+  const isBuyAct = action.includes('买入');
+  if (action === '观望' || action === '卖出') {
+    let cond = '耐心等待综合评分回到 60 分以上再考虑。';
+    const ma20 = _lastMA(20);
+    if ((tr.direction === '下降' || (signal.risk_codes || []).includes('price_below_ma20')) && ma20) {
+      cond = `等待收盘价重新站回 MA20（${ma20.toFixed(2)} 元）之上，再重新关注。`;
+    }
+    seg3 = `<b>${escHtml(action === '观望' ? '先不动，保持观察' : '注意离场/回避')}</b>。${cond}` +
+      (signal.position_advice ? ` 当前参考：${escHtml(signal.position_advice)}。` : '');
+  } else {
+    const entry = plan.entry_price || 0, stop = plan.stop_loss || 0, target = plan.target_price || 0;
+    seg3 = `<b>可以考虑${escHtml(action)}</b>。建议仓位：<b>${escHtml(signal.position_advice || plan.position_size || '轻仓试探')}</b>` +
+      (entry ? `，参考买入价 ${(+entry).toFixed(2)}` : '') +
+      (stop ? `，跌破 <b>${(+stop).toFixed(2)}</b> 无条件止损` : '') +
+      (target ? `，目标看 ${(+target).toFixed(2)}` : '') +
+      (plan.risk_reward_ratio ? `（盈亏比 ${glossarize(String(plan.risk_reward_ratio))}）` : '') +
+      '。首次建仓建议只用计划仓位的一半试错。';
+  }
+
+  const disclaimer = '<div class="seg-disclaimer">以上由规则自动生成，仅供参考，非投资建议。</div>';
+  return `
+    <div class="seg-card seg-now"><div class="seg-title">📌 现状</div><div class="seg-body">${seg1}</div></div>
+    <div class="seg-card seg-risk"><div class="seg-title">⚠️ 风险与机会</div><div class="seg-body">${glossarize(seg2)}</div></div>
+    <div class="seg-card seg-do"><div class="seg-title">✅ 现在该做什么</div><div class="seg-body">${glossarize(seg3)}</div>${disclaimer}</div>`;
+}
+
+// 术语即点即译：把词典命中的词包成 chip（仅小白模式生效）
+function glossarize(text) {
+  const safe = escHtml(text == null ? '' : String(text));
+  if (_mode !== 'simple' || !window.GLOSSARY_TERMS) return safe;
+  let s = safe;
+  for (const t of window.GLOSSARY_TERMS) {
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'g');
+    s = s.replace(re, '<span class="gl-chip" data-term="' + t + '">$1</span>');
+  }
+  return s;
+}
+
+// 术语气泡：同一时刻最多一个，点空白关闭
+document.addEventListener('click', function (e) {
+  const chip = e.target.closest && e.target.closest('.gl-chip');
+  const pop = document.getElementById('glossary-pop');
+  if (!pop) return;
+  if (chip) {
+    e.stopPropagation();
+    const g = window.GLOSSARY && window.GLOSSARY[chip.dataset.term];
+    if (!g) return;
+    pop.innerHTML =
+      `<div class="gp-term">${escHtml(chip.dataset.term)}<span class="gp-full">${escHtml(g.full)}</span></div>` +
+      `<div class="gp-plain">${escHtml(g.plain)}</div>` +
+      `<div class="gp-ex">例：${escHtml(g.example)}</div>`;
+    pop.style.display = 'block';
+    const r = chip.getBoundingClientRect();
+    let left = Math.min(r.left, window.innerWidth - 310);
+    let top = r.bottom + 8;
+    pop.style.left = '0px'; pop.style.top = '0px';
+    if (top + pop.offsetHeight > window.innerHeight) top = Math.max(8, r.top - pop.offsetHeight - 8);
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.style.top = top + 'px';
+    return;
+  }
+  if (!pop.contains(e.target)) pop.style.display = 'none';
+});
+
+// 信号"为什么"解释
+function whyTextFor(sigText) {
+  const s = String(sigText || '');
+  if (/趋势强势|趋势上升/.test(s)) return '均线呈多头排列、价格在上升通道内，说明买方掌握主动权。';
+  if (/持仓\(N=|系统/.test(s)) return '唐奇安通道突破系统：价格创出N日新高后持有，跌破对应止损位才离场。';
+  if (/空头平仓/.test(s)) return '前期做空/避险的资金开始回补买入，通常会推动价格上行。';
+  if (/净流入/.test(s)) return '主力资金当天是净买入的，有真金白银在推升股价。';
+  if (/流出/.test(s)) return '主力资金当天净卖出，短期要提防回落风险。';
+  if (/头肩底/.test(s)) return '经典底部反转形态，突破颈线后的理论涨幅约等于头部到颈线的高度。';
+  if (/量价/.test(s)) return '价格上涨伴随成交量放大，量价配合健康，涨得"有底气"。';
+  if (/M\(|大盘|市场/.test(s)) return '来自市场环境评估模块：反映整个A股大盘的方向和强弱。';
+  return '由五模块规则引擎在满足特定指标条件时触发，仅供参考。';
+}
+function toggleWhy(el) {
+  const body = el.parentElement.querySelector('.sig-why-body');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  el.textContent = open ? '为什么？' : '收起';
+}
+
+// 分数数字滚动（标准/炫酷档）
+function countUpScore(target) {
+  const el = document.getElementById('sum-score');
+  if (!el) return;
+  if (!fxEnabled() || document.hidden) { el.textContent = target + '分'; return; }
+  const t0 = performance.now(), dur = 600;
+  function step(t) {
+    const p = Math.min(1, (t - t0) / dur);
+    el.textContent = Math.round(target * p) + '分';
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// 右侧卡片依次淡入上滑（标准/炫酷档）
+function fxCardStagger() {
+  if (_fxLevel === 'off') return;
+  const cards = document.querySelectorAll('.right-panel > div');
+  let i = 0;
+  cards.forEach(c => {
+    if (c.offsetParent === null) return; // display:none 跳过
+    c.classList.remove('fx-enter');
+    void c.offsetWidth; // 强制重置动画
+    c.style.animationDelay = (i * 60) + 'ms';
+    c.classList.add('fx-enter');
+    const delay = i;
+    setTimeout(() => { c.classList.remove('fx-enter'); c.style.animationDelay = ''; }, 1000 + delay * 60);
+    i++;
+  });
 }
 
 // ===== 一句话总结（小白第一眼看的） =====
@@ -1115,6 +1398,11 @@ function renderSummary(signal) {
   const scoreColor = isBuy ? C.up : isSell ? C.down : '#ffc107';
 
   let summary = signal.plain_summary || '';
+  const isSimpleMode = _mode === 'simple';
+  const risks = explainRisks(signal);
+  if (isSimpleMode) {
+    summary = buildBeginnerSegments(signal);   // 三段式（内部已做术语chip）
+  }
 
   // 优化信号信息
   const origAction = signal.original_action || '';
@@ -1154,10 +1442,11 @@ function renderSummary(signal) {
   }
 
   el.innerHTML = `
+    ${isSimpleMode ? riskBannerHtml(risks) : ''}
     <div class="sum-action-row">
       <span class="sum-badge ${badgeClass}">${badgeText}</span>
       ${sText ? `<span class="sum-strength ${sClass}">${sText}</span>` : ''}
-      <span class="sum-score-big" style="color:${scoreColor}">${score}分</span>
+      <span class="sum-score-big" id="sum-score" style="color:${scoreColor}">${score}分</span>
     </div>
     <div class="sum-text">${summary}</div>
     ${optimizeHtml}
@@ -1169,6 +1458,7 @@ function renderSummary(signal) {
       <span style="color:#555;margin-left:auto">置信度 ${signal.confidence||0}%</span>
     </div>
   `;
+  if (fxEnabled()) countUpScore(score);
 }
 
 // ===== 数据元数据 =====
@@ -1308,11 +1598,14 @@ function renderSignal(signal) {
     return weight(a.text) - weight(b.text);
   });
   // 标记前2条为核心信号
+  const simpleSig = _mode === 'simple';
   sl.innerHTML = allSigs.map((s, idx) => {
     const isCore = idx < 2 && allSigs.length > 2;
     const coreTag = isCore ? '<span class="sig-core-tag">核心</span>' : '';
-    if (s.type === 'buy') return `<div class="sig-item sig-buy">▲ ${s.text}${coreTag}</div>`;
-    else return `<div class="sig-item sig-sell">▼ ${s.text}${coreTag}</div>`;
+    const body = simpleSig ? glossarize(s.text) : escHtml(s.text);
+    const why = simpleSig ? `<span class="sig-why" onclick="toggleWhy(this)">为什么？</span><span class="sig-why-body" style="display:none">${escHtml(whyTextFor(s.text))}</span>` : '';
+    if (s.type === 'buy') return `<div class="sig-item sig-buy">▲ ${body}${coreTag}${why}</div>`;
+    else return `<div class="sig-item sig-sell">▼ ${body}${coreTag}${why}</div>`;
   }).join('') || '<div style="color:#555;font-size:12px;padding:8px">暂无信号</div>';
 
   // 风险
@@ -1627,7 +1920,9 @@ async function analyze(symbol) {
       _wl[_wi].action = _sAction;
       _wl[_wi].score = _sScore;
       _wl[_wi].name = _sName;
+      _wl[_wi].price = _sPrice || _wl[_wi].price;
       saveWatchlist(_wl);
+      renderSidebar();
     }
 
     // 信号变更检测 & Toast提醒
@@ -1661,6 +1956,7 @@ async function analyze(symbol) {
     }
 
     if (currentView === 'minute') loadMinute(symbol);
+    fxCardStagger();   // 右侧卡片依次淡入（FX标准/炫酷档）
     _refreshTimer = setInterval(() => refreshQuote(symbol), 2000);
   } catch(e) {
     _markAnalyzeFail(symbol);
@@ -1709,6 +2005,7 @@ function refreshKlineLastCandle(q) {
   const ma60 = calcMA(_klineData, 60);
 
   klineChart.setOption({
+    animation: false,   // 轮询刷新永远无动画（护栏）
     series: [
       { name: 'K线', data: _klineData.map(k => [k.open, k.close, k.low, k.high]) },
       { name: 'MA5', data: ma5 },
@@ -1719,6 +2016,7 @@ function refreshKlineLastCandle(q) {
   }, false);
 
   volumeChart.setOption({
+    animation: false,   // 轮询刷新永远无动画（护栏）
     series: [{
       data: _klineData.map(k => ({
         value: k.volume,
@@ -1779,6 +2077,7 @@ async function refreshMinuteLight(symbol) {
 
     // 用setOption只更新series数据，不重算Y轴
     minuteChart.setOption({
+      animation: false,   // 轮询增量更新永远无动画（护栏）
       series: [
         { name: '价格', data: data.prices, lineStyle: { color: pColor, width: 1.5 } },
         { name: '均价', data: data.avg_prices },
@@ -1791,6 +2090,7 @@ async function refreshMinuteLight(symbol) {
       return { value: v, itemStyle: { color: p >= pre ? C.up + '66' : C.down + '66' } };
     });
     minuteVolChart.setOption({
+      animation: false,   // 轮询增量更新永远无动画（护栏）
       series: [{ data: vc }],
     });
   } catch(e) {}
@@ -1803,12 +2103,84 @@ const MAX_HISTORY = 30;
 let _currentTab = 'watch';
 let _panelOpen = false;
 
-// --- localStorage 读写 ---
-function getWatchlist() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_WATCH) || '[]'); } catch(e) { return []; }
+// --- localStorage 读写（frontend-ux-v42 R2：分组模型；旧键只读不删） ---
+const GKEY_GROUPS = 'qs_watch_groups';
+const GKEY_STOCKS = 'qs_watch_stocks';
+
+function _lsGet(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
+  catch (e) { return fallback; }
 }
+function _lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { return false; }
+}
+
+function getGroups() { return _lsGet(GKEY_GROUPS, [{ id: 'default', name: '我的自选', order: 0, collapsed: false, codes: [] }]); }
+function saveGroups(g) { _lsSet(GKEY_GROUPS, g); renderSidebar(); updateBadges(); }
+function getStockMap() { return _lsGet(GKEY_STOCKS, {}); }
+function saveStockMap(m) { _lsSet(GKEY_STOCKS, m); }
+
+// 旧版平铺 qs_watchlist 自动迁移（一次性；迁移失败保留原键不动）
+function migrateWatchlist() {
+  let raw = null;
+  try { raw = localStorage.getItem(STORAGE_WATCH); } catch (e) {}
+  if (!raw || localStorage.getItem(GKEY_GROUPS)) return;
+  let old = null;
+  try { old = JSON.parse(raw); } catch (e) { console.warn('[watch-migrate] 旧自选解析失败，保留原键不迁移'); return; }
+  if (!Array.isArray(old)) return;
+  const stocks = {}; const codes = [];
+  for (const s of old) {
+    if (!s || !s.code) continue;
+    codes.push(String(s.code));
+    stocks[s.code] = { name: s.name || s.code, action: s.action || '', score: s.score || 0, addedAt: s.addedAt || Date.now(), pinned: false };
+  }
+  if (!_lsSet(GKEY_STOCKS, stocks)) return;
+  if (!_lsSet(GKEY_GROUPS, [{ id: 'default', name: '我的自选', order: 0, collapsed: false, codes: codes }])) {
+    try { localStorage.removeItem(GKEY_STOCKS); } catch (e) {}   // 写组失败则回滚
+    return;
+  }
+  console.log('[watch-migrate] 已迁移', codes.length, '只自选到「我的自选」分组');
+}
+
+// 派生平铺列表：让老代码（wp面板/多股一览/updateBadges）无感继续工作
+function getWatchlist() {
+  const stocks = getStockMap();
+  const out = []; const seen = {};
+  for (const g of getGroups()) for (const c of (g.codes || [])) {
+    if (seen[c]) continue; seen[c] = 1;
+    const st = stocks[c];
+    if (st) out.push({ code: c, name: st.name, action: st.action || '', score: st.score || 0, addedAt: st.addedAt, price: st.price, pct: st.pct });
+  }
+  return out;
+}
+// 老代码写入路径：字段同步进股票详情表（不再写旧键）
 function saveWatchlist(list) {
-  localStorage.setItem(STORAGE_WATCH, JSON.stringify(list));
+  const m = getStockMap(); let dirty = false;
+  for (const s of (list || [])) {
+    if (s && s.code && m[s.code]) {
+      for (const k of ['name', 'action', 'score', 'price', 'pct']) if (s[k] !== undefined && s[k] !== null) m[s.code][k] = s[k];
+      dirty = true;
+    }
+  }
+  if (dirty) saveStockMap(m);
+}
+
+function addToGroup(code, name, gid) {
+  const groups = getGroups();
+  const g = groups.find(x => x.id === gid) || groups[0];
+  if (!g) return;
+  const m = getStockMap();
+  if (!m[code]) m[code] = { name: name || code, action: '', score: 0, addedAt: Date.now(), pinned: false };
+  else if (name) m[code].name = name;
+  saveStockMap(m);
+  if (!g.codes.includes(code)) { g.codes.unshift(code); saveGroups(groups); }
+  updateStarButton(currentSymbol); renderWatchlist(); renderSidebar(); updateBadges();
+}
+function removeStockEverywhere(code) {
+  const groups = getGroups(); let changed = false;
+  for (const g of groups) { const i = g.codes.indexOf(code); if (i >= 0) { g.codes.splice(i, 1); changed = true; } }
+  if (changed) saveGroups(groups);
+  const m = getStockMap(); if (m[code]) { delete m[code]; saveStockMap(m); }
 }
 function getHistory() {
   try { return JSON.parse(localStorage.getItem(STORAGE_HISTORY) || '[]'); } catch(e) { return []; }
@@ -1820,15 +2192,18 @@ function saveHistory(list) {
 // --- 自选股操作 ---
 function toggleStar() {
   if (!currentSymbol) return;
-  const list = getWatchlist();
-  const idx = list.findIndex(s => s.code === currentSymbol);
-  if (idx >= 0) {
-    list.splice(idx, 1);
+  const inWatch = getWatchlist().some(s => s.code === currentSymbol);
+  const btn = document.getElementById('star-btn');
+  if (inWatch) {
+    removeFromWatchlist(currentSymbol);
   } else {
-    const name = _currentStockName || currentSymbol;
-    list.unshift({ code: currentSymbol, name: name, addedAt: Date.now() });
+    addToGroup(currentSymbol, _currentStockName || currentSymbol, _sbActiveGroup || 'default');
+    if (btn && fxEnabled()) { btn.classList.remove('fx-pop'); void btn.offsetWidth; btn.classList.add('fx-pop'); }
   }
-  saveWatchlist(list);
+}
+
+function removeFromWatchlist(code) {
+  removeStockEverywhere(code);
   updateStarButton(currentSymbol);
   renderWatchlist();
   updateBadges();
@@ -2042,11 +2417,338 @@ updateQuote = function(q) {
   if (q && q.name) _currentStockName = q.name;
 };
 
+// ==================== 自选股侧边栏（frontend-ux-v42 R2） ====================
+let _sbOpen = true;
+let _sbActiveGroup = 'default';
+let _sbTimer = null;
+
+function isMarketOpen() {
+  const d = new Date(); const wd = d.getDay();
+  if (wd === 0 || wd === 6) return false;
+  const m = d.getHours() * 60 + d.getMinutes();
+  return (m >= 555 && m <= 695) || (m >= 775 && m <= 905); // 9:15-11:35 / 12:55-15:05
+}
+function sidebarLoadState() {
+  try { const v = localStorage.getItem('qs_sidebar_open'); _sbOpen = (v == null) ? true : v === '1'; } catch (e) {}
+}
+function toggleSidebar() { _sbOpen = !_sbOpen; applySidebar(); try { localStorage.setItem('qs_sidebar_open', _sbOpen ? '1' : '0'); } catch (e) {} }
+function resizeAllChartsSafe() {
+  [klineChart, volumeChart, flowChart, minuteChart, minuteVolChart, indicatorChart].forEach(c => { try { c && c.resize(); } catch (e) {} });
+}
+function applySidebar() {
+  const sb = document.getElementById('sidebar'); const t = document.getElementById('sb-toggle');
+  if (sb) sb.classList.toggle('open', _sbOpen);
+  document.body.classList.toggle('sb-open', _sbOpen);
+  if (t) t.textContent = _sbOpen ? '◀' : '▶';
+  setTimeout(resizeAllChartsSafe, (_fxLevel === 'max') ? 220 : 0);
+}
+
+function sbBadge(action) {
+  if (!action) return '';
+  const cls = action.includes('买') ? 'b' : action.includes('卖') ? 's' : 'w';
+  const txt = action.replace('强烈', '').replace('谨慎', '');
+  return `<span class="sb-badge ${cls}">${escHtml(txt)}</span>`;
+}
+
+function renderSidebar() {
+  const wrap = document.getElementById('sb-groups'); if (!wrap) return;
+  const groups = getGroups().slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const stocks = getStockMap();
+  const frag = document.createDocumentFragment();   // 护栏：DocumentFragment 渲染
+  let totalCodes = 0;
+
+  groups.forEach(g => {
+    const box = document.createElement('div');
+    box.className = 'sb-group' + (g.id === _sbActiveGroup ? ' active' : '');
+    box.dataset.gid = g.id;
+    totalCodes += g.codes.length;
+
+    // —— 组头 ——
+    let up = 0, down = 0;
+    g.codes.forEach(c => { const st = stocks[c]; if (st && st.pct != null) { if (st.pct > 0) up++; else if (st.pct < 0) down++; } });
+    const h = document.createElement('div');
+    h.className = 'sb-ghead'; h.draggable = true; h.dataset.gid = g.id;
+    h.innerHTML =
+      `<span class="sb-arrow" onclick="event.stopPropagation();sbToggleCollapse('${g.id}')">${g.collapsed ? '▸' : '▾'}</span>` +
+      `<span class="sb-gname" title="双击重命名" ondblclick="renameGroupInline(this,'${g.id}')">${escHtml(g.name)}</span>` +
+      `<span class="sb-gstat">${g.codes.length}只${(up + down) ? ` · ${up}涨${down}跌` : ''}</span>`;
+    h.addEventListener('contextmenu', ev => { ev.preventDefault(); showCtxMenu(ev, 'group', g.id); });
+    h.addEventListener('dragover', ev => ev.preventDefault());
+    h.addEventListener('drop', ev => {   // 拖拽股票到组头 = 跨组移动
+      ev.preventDefault();
+      const code = ev.dataTransfer.getData('text/plain'); if (!code) return;
+      const gs = getGroups(); const src = gs.find(x => x.codes.includes(code));
+      if (!src || src.id === g.id) return;
+      src.codes.splice(src.codes.indexOf(code), 1);
+      if (!g.codes.includes(code)) g.codes.push(code);
+      saveGroups(gs); hideCtxMenu();
+    });
+    box.appendChild(h);
+
+    // —— 股票行 ——
+    const list = document.createElement('div');
+    list.className = 'sb-rows';
+    list.style.display = g.collapsed ? 'none' : 'block';
+    g.codes.forEach(code => {
+      const st = stocks[code]; if (!st) return;
+      const row = document.createElement('div');
+      row.className = 'sb-row'; row.draggable = true; row.dataset.code = code; row.dataset.gid = g.id;
+      const pct = (st.pct != null && !isNaN(st.pct)) ? st.pct : null;
+      const cls = pct == null ? '' : pct > 0 ? 'up' : pct < 0 ? 'down' : '';
+      row.innerHTML =
+        `<span class="sb-rmain"><span class="sb-rname">${escHtml(st.name)}</span><span class="sb-rcode">${escHtml(code)}</span></span>` +
+        `<span class="sb-rnum ${cls}">${st.price != null ? (+st.price).toFixed(2) : '--'}</span>` +
+        `<span class="sb-rpct ${cls}">${pct != null ? ((pct > 0 ? '+' : '') + (+pct).toFixed(2) + '%') : '--'}</span>` +
+        sbBadge(st.action);
+      row.addEventListener('click', () => analyze(code));   // 单击切换标的，侧边栏保持打开
+      row.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); showCtxMenu(ev, 'stock', code, g.id); });
+      row.addEventListener('dragstart', ev => { ev.dataTransfer.setData('text/plain', code); row.classList.add('dragging'); });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', ev => ev.preventDefault());
+      row.addEventListener('drop', ev => {   // 组内排序
+        ev.preventDefault(); ev.stopPropagation();
+        const dragged = ev.dataTransfer.getData('text/plain');
+        if (!dragged || dragged === code) return;
+        const gs = getGroups(); const tg = gs.find(x => x.id === g.id); if (!tg) return;
+        const from = tg.codes.indexOf(dragged);
+        if (from >= 0) tg.codes.splice(from, 1);
+        tg.codes.splice(tg.codes.indexOf(code), 0, dragged);
+        saveGroups(gs);
+      });
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    frag.appendChild(box);
+  });
+
+  wrap.innerHTML = '';
+  if (!totalCodes) {
+    const empty = document.createElement('div');
+    empty.className = 'sb-empty';
+    empty.innerHTML = '☆ 还没有自选股<br>分析股票后点击 ☆ 添加';
+    frag.appendChild(empty);
+  }
+  wrap.appendChild(frag);
+
+  // 收起态图标栏：显示总数量
+  const badge = document.querySelector('.sb-collapsed-badge');
+  if (badge) badge.textContent = totalCodes || '';
+}
+
+// ---- 分组操作 ----
+function sbToggleCollapse(gid) {
+  const gs = getGroups(); const g = gs.find(x => x.id === gid); if (!g) return;
+  g.collapsed = !g.collapsed; saveGroups(gs);
+}
+function sbSelectGroup(gid) { _sbActiveGroup = gid; renderSidebar(); }
+function createGroup(n) {
+  const gs = getGroups();
+  if (gs.some(g => g.name === n)) { showToastMsg('同名分组已存在'); return; }
+  const maxOrder = gs.reduce((m, g) => Math.max(m, g.order || 0), 0);
+  gs.push({ id: 'g' + Date.now(), name: n, order: maxOrder + 1, collapsed: false, codes: [] });
+  saveGroups(gs); showToastMsg(`分组「${n}」已创建`);
+}
+function addGroupInline() {
+  const f = document.querySelector('.sb-footer'); if (!f || f.querySelector('input')) return;
+  const inp = document.createElement('input');
+  inp.className = 'sb-new-input'; inp.placeholder = '分组名称，回车确认';
+  f.appendChild(inp); inp.focus();
+  inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { const n = inp.value.trim(); inp.remove(); if (n) createGroup(n); }
+    else if (ev.key === 'Escape') { inp.remove(); }
+  });
+  inp.addEventListener('blur', () => inp.remove());
+}
+function renameGroupInline(el, gid) {
+  const g = getGroups().find(x => x.id === gid); if (!g) return;
+  if (gid === 'default') { showToastMsg('默认分组不可重命名'); return; }
+  const inp = document.createElement('input');
+  inp.className = 'sb-rename-input'; inp.value = g.name;
+  el.replaceWith(inp); inp.focus(); inp.select();
+  const done = () => {
+    const n = inp.value.trim();
+    if (n && n !== g.name) {
+      const gs = getGroups(); const t = gs.find(x => x.id === gid);
+      if (t) { t.name = n; saveGroups(gs); } else renderSidebar();
+    } else renderSidebar();
+  };
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') done(); });
+  inp.addEventListener('blur', done);
+}
+function renameGroupInlineById(gid) {
+  const el = document.querySelector(`.sb-ghead[data-gid="${gid}"] .sb-gname`);
+  if (el) renameGroupInline(el, gid); else renderSidebar();
+}
+function deleteGroup(gid) {
+  if (gid === 'default') { showToastMsg('默认分组不可删除'); return; }
+  const gs = getGroups(); const g = gs.find(x => x.id === gid); if (!g) return;
+  if (!confirm(`删除分组「${g.name}」？其 ${g.codes.length} 只成员将移入"我的自选"。`)) return;
+  const def = gs.find(x => x.id === 'default');
+  g.codes.forEach(c => { if (!def.codes.includes(c)) def.codes.push(c); });
+  saveGroups(gs.filter(x => x.id !== gid));
+  showToastMsg('分组已删除，成员已回落默认分组');
+}
+function moveStock(code, gid) {
+  const gs = getGroups();
+  for (const g of gs) { const i = g.codes.indexOf(code); if (i >= 0) { g.codes.splice(i, 1); break; } }
+  const t = gs.find(x => x.id === gid);
+  if (t && !t.codes.includes(code)) t.codes.unshift(code);
+  saveGroups(gs); hideCtxMenu();
+}
+function pinStock(code, gid) {
+  const gs = getGroups(); const g = gs.find(x => x.id === gid); if (!g) { hideCtxMenu(); return; }
+  const i = g.codes.indexOf(code);
+  if (i >= 0) g.codes.splice(i, 1);
+  g.codes.unshift(code);
+  const m = getStockMap(); if (m[code]) { m[code].pinned = true; saveStockMap(m); }
+  saveGroups(gs); hideCtxMenu();
+}
+
+// ---- 右键菜单 ----
+function showCtxMenu(ev, type, id, gid) {
+  const menu = document.getElementById('ctx-menu'); if (!menu) return;
+  let html = '';
+  if (type === 'stock') {
+    html = '<div class="ctx-title">移动到分组</div>' +
+      getGroups().map(g => `<div class="ctx-item${g.id === gid ? ' cur' : ''}" onclick="moveStock('${id}','${g.id}')">${g.id === gid ? '✓ ' : ''}${escHtml(g.name)}</div>`).join('') +
+      `<div class="ctx-sep"></div>` +
+      `<div class="ctx-item" onclick="pinStock('${id}','${gid}')">置顶</div>` +
+      `<div class="ctx-item danger" onclick="hideCtxMenu();removeFromWatchlist('${id}')">删除</div>`;
+  } else {
+    html = `<div class="ctx-item" onclick="hideCtxMenu();renameGroupInlineById('${id}')">重命名</div>` +
+           `<div class="ctx-item" onclick="hideCtxMenu();sbToggleCollapse('${id}')">折叠/展开</div>`;
+    if (id !== 'default') html += `<div class="ctx-item danger" onclick="hideCtxMenu();deleteGroup('${id}')">删除分组</div>`;
+  }
+  menu.innerHTML = html;
+  menu.style.display = 'block';
+  menu.style.left = Math.min(ev.clientX, window.innerWidth - menu.offsetWidth - 8) + 'px';
+  menu.style.top = Math.min(ev.clientY, window.innerHeight - menu.offsetHeight - 8) + 'px';
+}
+function hideCtxMenu() { const m = document.getElementById('ctx-menu'); if (m) m.style.display = 'none'; }
+document.addEventListener('click', e => { if (!(e.target.closest && e.target.closest('#ctx-menu'))) hideCtxMenu(); });
+
+// ---- 行情轮询：盘中5s / 盘后60s / 页签隐藏暂停（A8/A85-A87） ----
+async function sbRefreshQuotes() {
+  if (document.hidden) return;
+  const codes = [...new Set(getWatchlist().map(s => s.code))];
+  if (!codes.length) return;
+  let quotes = null;
+  try {   // P3：优先批量接口
+    const r = await fetch(`${API}/api/quotes?codes=${encodeURIComponent(codes.join(','))}`);
+    const j = await r.json();
+    if (j && j.quotes) quotes = j.quotes;
+  } catch (e) {}
+  if (!quotes) {   // 兜底：并行逐只拉取
+    quotes = {};
+    await Promise.all(codes.map(async c => {
+      try { const r = await fetch(`${API}/api/quote?symbol=${c}`); const q = await r.json(); if (!q.error) quotes[c] = q; } catch (e) {}
+    }));
+  }
+  const m = getStockMap();
+  const changedRows = [];
+  for (const c of codes) {
+    const q = quotes[c]; if (!q || !m[c]) continue;
+    const prevAct = m[c].action, prevPct = m[c].pct;
+    m[c].price = q.price; m[c].pct = q.pct;
+    if (q.name) m[c].name = q.name;
+    if (q.action != null && q.action !== '') m[c].action = q.action;   // 批量接口可带信号字段
+    if (prevAct !== m[c].action || prevPct !== m[c].pct) changedRows.push(c);
+  }
+  saveStockMap(m);
+  renderSidebar();
+  // 炫酷档：信号变更的行角标扩散一次
+  if (_fxLevel === 'max') changedRows.forEach(code => {
+    const el = document.querySelector(`.sb-row[data-code="${code}"] .sb-badge`);
+    if (el) { el.classList.add('fx-ring'); setTimeout(() => el.classList.remove('fx-ring'), 1400); }
+  });
+}
+function sbSchedulePolling() {
+  if (_sbTimer) clearInterval(_sbTimer);
+  _sbTimer = setInterval(sbRefreshQuotes, isMarketOpen() ? 5000 : 60000);
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { sbSchedulePolling(); sbRefreshQuotes(); }
+});
+
+// ---- 设置弹层 / 导出导入 ----
+function toggleSettings() {
+  const o = document.getElementById('settings-overlay');
+  if (!o) return;
+  o.style.display = (o.style.display === 'flex') ? 'none' : 'flex';
+  applyFx();
+}
+function closeSettings(ev) {
+  if (ev && ev.target !== ev.currentTarget) return;
+  const o = document.getElementById('settings-overlay'); if (o) o.style.display = 'none';
+}
+function closeSettingsForce() { const o = document.getElementById('settings-overlay'); if (o) o.style.display = 'none'; }
+
+function exportWatchlist() {
+  const data = { version: 1, exportedAt: new Date().toISOString(), groups: getGroups(), stocks: getStockMap() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'watchlist-backup-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  showToastMsg('自选股已导出');
+}
+function importWatchlist(input) {
+  const f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let j = null;
+    try { j = JSON.parse(rd.result); } catch (e) { showToastMsg('导入失败：不是合法 JSON 文件'); return; }
+    if (!j || j.version !== 1 || !Array.isArray(j.groups) || typeof j.stocks !== 'object' || j.stocks === null) {
+      showToastMsg('导入失败：文件结构不符合备份格式'); return;
+    }
+    const gs = getGroups(); const m = getStockMap(); let cnt = 0;
+    for (const g of j.groups) {
+      if (!g || !g.name || !Array.isArray(g.codes)) continue;
+      let t = gs.find(x => x.name === g.name);   // 同名分组保留现名
+      if (!t) { t = { id: 'g' + Date.now() + Math.random().toString(36).slice(2, 6), name: String(g.name), order: gs.length, collapsed: false, codes: [] }; gs.push(t); }
+      for (const c of g.codes) {
+        if (typeof c !== 'string') continue;
+        if (!t.codes.includes(c)) t.codes.push(c);
+      }
+    }
+    for (const key of Object.keys(j.stocks)) {
+      const s = j.stocks[key];
+      if (!s || typeof s !== 'object') continue;
+      const cur = m[key];
+      if (!cur || !(cur.addedAt > (s.addedAt || 0))) {   // 按 code 去重，保留较新 addedAt
+        m[key] = { name: s.name || key, action: s.action || '', score: s.score || 0, addedAt: s.addedAt || Date.now(), pinned: false, price: s.price, pct: s.pct };
+        if (!cur) cnt++;
+      }
+    }
+    saveStockMap(m); saveGroups(gs);
+    renderSidebar(); renderWatchlist(); updateBadges(); updateStarButton(currentSymbol);
+    showToastMsg(`导入完成，新增 ${cnt} 只自选`);
+  };
+  rd.readAsText(f, 'utf-8');
+}
+
+// 轻量消息 Toast（复用现有 toast 样式容器）
+function showToastMsg(msg) {
+  const c = document.getElementById('toast-container'); if (!c) return;
+  const d = document.createElement('div');
+  d.className = 'toast msg-toast'; d.textContent = msg;
+  c.appendChild(d);
+  setTimeout(() => { d.classList.add('removing'); setTimeout(() => d.remove(), 350); }, 2200);
+}
+
 // ===== 启动 =====
+applyFx();                 // FX 档位（body class + 设置面板状态）
+sidebarLoadState();        // 侧边栏开合记忆
+migrateWatchlist();        // 旧自选一次性迁移（在首次渲染前执行）
 initCharts();
 updateBadges();
-// 加载模式设置
 loadMode();
+applySidebar();
+renderSidebar();
+sbSchedulePolling();
+sbRefreshQuotes();         // 启动即刷一轮自选行情
 // 自动加载上次分析的股票（没有则默认茅台）
 const _hist = getHistory();
 const _lastSymbol = (_hist.length > 0) ? _hist[0].code : '600519';
@@ -2061,18 +2763,19 @@ function setMode(mode) {
   _mode = mode;
   try { localStorage.setItem('qs_mode', mode); } catch(e) {}
   applyMode();
-  // 小白模式：折叠部分卡片
+  // 小白模式：折叠部分卡片（风险卡不折叠——小白必须看到风险，frontend-ux-v42 A18）
   if (mode === 'simple') {
     collapseCard('momentum', true);
     collapseCard('levels', true);
     collapseCard('chanlun-daily', true);
     collapseCard('chanlun-minute', true);
     collapseCard('accuracy', true);
-    collapseCard('risk', true);
   } else {
     // 专业模式：全部展开
     document.querySelectorAll('.signal-card.collapsed, .chanlun-card.collapsed').forEach(c => c.classList.remove('collapsed'));
   }
+  // 模式切换即时生效：用缓存的上次信号数据重渲染结论与信号列表（无需重新请求）
+  if (_lastSignalData) { renderSummary(_lastSignalData); }
 }
 function applyMode() {
   document.body.classList.remove('mode-pro', 'mode-simple');
@@ -2204,7 +2907,7 @@ function renderIndicator(ind) {
 
   indicatorChart.setOption({
     backgroundColor: C.bg,
-    animation: false,
+    animation: chartAnim(),   // 用户主动切换副图：max档允许动画（非轮询路径）
     legend: { data: legend, textStyle: { color: C.textDim, fontSize: 10 }, top: 2, itemWidth: 12, itemHeight: 8 },
     xAxis: { type: 'category', data: dates, show: false },
     yAxis: {

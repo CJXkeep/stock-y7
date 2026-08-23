@@ -24,7 +24,9 @@ if ROOT not in sys.path:
 from backtest import pool as P
 
 APP_SOURCE = open(os.path.join(ROOT, "app.py"), "r", encoding="utf-8").read()
-HTML_SOURCE = open(os.path.join(ROOT, "dashboard", "index.html"), "r", encoding="utf-8").read()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _frontend_source import read_frontend_source
+HTML_SOURCE = read_frontend_source()
 
 
 def _tmpfile():

@@ -46,9 +46,10 @@ def test_momentum_renamed_in_outputs():
     data = signal_to_dict(result)
     assert data["momentum"]["display_name"] == "动量/资金/市场环境综合分"
 
-    html_path = os.path.join(ROOT, "dashboard", "index.html")
-    with open(html_path, "r", encoding="utf-8") as f:
-        html = f.read()
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    from _frontend_source import read_frontend_source
+    html = read_frontend_source()
     assert "CANSLIM" not in html
     assert "CAN SLIM" not in html
     assert "momentum" in html

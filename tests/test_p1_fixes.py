@@ -273,9 +273,10 @@ def test_soft_veto_driven_by_risk_code_not_text():
 
 
 def test_frontend_accuracy_renamed_and_disclosed():
-    html_path = os.path.join(ROOT, "dashboard", "index.html")
-    with open(html_path, "r", encoding="utf-8") as f:
-        html = f.read()
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    from _frontend_source import read_frontend_source
+    html = read_frontend_source()
     assert "相邻查看方向一致率" in html
     assert "非策略胜率/回测准确率" in html
     assert "信号准确率" not in html

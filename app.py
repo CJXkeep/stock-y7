@@ -778,6 +778,32 @@ def handle_quote(params: dict) -> dict:
     return quote_to_dict(q) if q else {"error": "获取行情失败"}
 
 
+def handle_quotes(params: dict) -> dict:
+    """批量行情（frontend-ux-v42 P3）：GET /api/quotes?codes=600519,000001
+    复用 fetch_quote 的既有 host 池/缓存，线程池并行，最多50只。"""
+    codes_raw = params.get("codes", [""])[0]
+    codes = []
+    for c in codes_raw.split(","):
+        c = c.strip().zfill(6)
+        if c and c not in codes:
+            codes.append(c)
+    codes = codes[:50]
+    if not codes:
+        return {"error": "缺少codes参数"}
+    out = {c: None for c in codes}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(codes))) as ex:
+        futs = {ex.submit(fetch_quote, c): c for c in codes}
+        for f in concurrent.futures.as_completed(futs):
+            c = futs[f]
+            try:
+                q = f.result()
+                if q:
+                    out[c] = quote_to_dict(q)
+            except Exception:
+                out[c] = None
+    return {"quotes": out}
+
+
 def handle_search(params: dict) -> dict:
     keyword = params.get("keyword", [""])[0].strip()
     if not keyword:
@@ -1194,6 +1220,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(handle_analyze(params))
                 elif path == "/api/quote":
                     self._json(handle_quote(params))
+                elif path == "/api/quotes":
+                    self._json(handle_quotes(params))
                 elif path == "/api/search":
                     self._json(handle_search(params))
                 elif path == "/api/kline":

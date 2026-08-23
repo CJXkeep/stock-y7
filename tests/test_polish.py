@@ -16,7 +16,9 @@ from backtest import config
 from backtest import pool as P
 
 APP_SOURCE = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
-HTML = open(os.path.join(ROOT, "dashboard", "index.html"), encoding="utf-8").read()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _frontend_source import read_frontend_source
+HTML = read_frontend_source()
 
 
 def test_pool_max_items_single_source():

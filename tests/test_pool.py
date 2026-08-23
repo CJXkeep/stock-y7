@@ -161,7 +161,10 @@ def test_app_routes_and_dashboard_wiring():
     import app as app_module
     assert callable(app_module.handle_pool_get) and callable(app_module.handle_pool_post)
     # dashboard 结构
-    html = open(os.path.join(ROOT, "dashboard", "index.html"), encoding="utf-8").read()
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _frontend_source import read_frontend_source
+    html = read_frontend_source()
     assert 'data-tab="pool"' in html
     assert 'id="wp-content-pool"' in html
     for marker in ("loadPool(", "poolPost(", "poolAdd(", "poolRemove(", "poolNote(", "poolMove("):
