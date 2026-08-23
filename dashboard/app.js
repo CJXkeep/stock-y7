@@ -2543,21 +2543,38 @@ function sbToggleCollapse(gid) {
 function sbSelectGroup(gid) { _sbActiveGroup = gid; renderSidebar(); }
 function createGroup(n) {
   const gs = getGroups();
-  if (gs.some(g => g.name === n)) { showToastMsg('同名分组已存在'); return; }
+  if (gs.some(g => g.name === n)) { showToastMsg('同名分组已存在'); return false; }
   const maxOrder = gs.reduce((m, g) => Math.max(m, g.order || 0), 0);
   gs.push({ id: 'g' + Date.now(), name: n, order: maxOrder + 1, collapsed: false, codes: [] });
-  saveGroups(gs); showToastMsg(`分组「${n}」已创建`);
+  if (!_lsSet(GKEY_GROUPS, gs)) { showToastMsg('创建失败：浏览器存储不可用'); return false; }
+  renderSidebar(); updateBadges();
+  showToastMsg(`分组「${n}」已创建`);
+  return true;
 }
+// 中文输入法守卫：合成中的回车/按键（确认候选词）不当作最终确认
+function _imeComposing(ev) { return ev.isComposing === true || ev.keyCode === 229; }
 function addGroupInline() {
-  const f = document.querySelector('.sb-footer'); if (!f || f.querySelector('input')) return;
-  const inp = document.createElement('input');
-  inp.className = 'sb-new-input'; inp.placeholder = '分组名称，回车确认';
+  // 收起态先展开，否则输入框在屏幕外看不见
+  if (!_sbOpen) toggleSidebar();
+  const f = document.querySelector('.sb-footer'); if (!f) return;
+  let inp = f.querySelector('.sb-new-input');
+  if (inp) { inp.focus(); return; }   // 已在输入中：聚焦而不是忽略
+  inp = document.createElement('input');
+  inp.className = 'sb-new-input'; inp.placeholder = '输入分组名，回车保存';
   f.appendChild(inp); inp.focus();
   inp.addEventListener('keydown', ev => {
-    if (ev.key === 'Enter') { const n = inp.value.trim(); inp.remove(); if (n) createGroup(n); }
-    else if (ev.key === 'Escape') { inp.remove(); }
+    if (_imeComposing(ev)) return;   // 关键：输入法合成中的 Enter 不处理
+    if (ev.key === 'Enter') { ev.preventDefault(); _finishNewGroup(inp); }
+    else if (ev.key === 'Escape') { inp.value = ''; _finishNewGroup(inp); }
   });
-  inp.addEventListener('blur', () => inp.remove());
+  // 点别处：有内容就保存（防误丢），空则取消；延迟一拍避开与按钮点击的竞争
+  inp.addEventListener('blur', () => setTimeout(() => { if (document.body.contains(inp)) _finishNewGroup(inp); }, 120));
+}
+function _finishNewGroup(inp) {
+  const n = (inp.value || '').trim();
+  inp.remove();
+  if (!n) return;   // 空名静默取消
+  createGroup(n);
 }
 function renameGroupInline(el, gid) {
   const g = getGroups().find(x => x.id === gid); if (!g) return;
@@ -2566,14 +2583,21 @@ function renameGroupInline(el, gid) {
   inp.className = 'sb-rename-input'; inp.value = g.name;
   el.replaceWith(inp); inp.focus(); inp.select();
   const done = () => {
+    if (!document.body.contains(inp)) return;   // 防重复触发
     const n = inp.value.trim();
+    inp.remove();
     if (n && n !== g.name) {
       const gs = getGroups(); const t = gs.find(x => x.id === gid);
-      if (t) { t.name = n; saveGroups(gs); } else renderSidebar();
+      if (t && !gs.some(x => x.id !== gid && x.name === n)) { t.name = n; saveGroups(gs); }
+      else { showToastMsg('重命名失败：名称为空或与现有分组重名'); renderSidebar(); }
     } else renderSidebar();
   };
-  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') done(); });
-  inp.addEventListener('blur', done);
+  inp.addEventListener('keydown', ev => {
+    if (_imeComposing(ev)) return;   // 中文输入法合成中的 Enter 不确认
+    if (ev.key === 'Enter') { ev.preventDefault(); done(); }
+    else if (ev.key === 'Escape') { inp.value = g.name; done(); }   // Esc 还原
+  });
+  inp.addEventListener('blur', () => setTimeout(done, 120));
 }
 function renameGroupInlineById(gid) {
   const el = document.querySelector(`.sb-ghead[data-gid="${gid}"] .sb-gname`);
