@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="sb-section-watch">
 
 <div class="topbar">
   <div class="logo">趋势分析</div>
@@ -30,8 +30,8 @@
   </div>
   <div class="watch-wrap">
     <button class="wc-btn wc-star" id="star-btn" title="加入/移除自选" onclick="toggleStar()">☆</button>
-    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="openSbSection('watch')">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
-    <button class="wc-btn" id="history-btn" onclick="openSbSection('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
+    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="toggleSbSection('watch')">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
+    <button class="wc-btn" id="history-btn" onclick="toggleSbSection('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
   </div>
   <div class="quote-bar" id="quote-bar">
     <span class="qb-name flat">输入代码开始分析</span>

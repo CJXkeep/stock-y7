@@ -2486,7 +2486,7 @@ const SB_SECTIONS = { watch: '自选股', history: '历史记录', overview: '�
 function loadSbSection() {
   try { const v = localStorage.getItem('qs_sb_section'); if (v && SB_SECTIONS[v]) _sbSection = v; } catch (e) {}
 }
-// 切换分区（顶栏按钮/侧栏tab/面板内tab统一入口）
+// 切换分区（侧栏tab/面板内tab统一入口，不做收起）
 function openSbSection(sec) {
   if (!SB_SECTIONS[sec]) return;
   _sbSection = sec;
@@ -2494,6 +2494,11 @@ function openSbSection(sec) {
   if (!_sbOpen) _sbOpen = true;
   applySidebar();
   renderSbSection();
+}
+// 顶栏入口：同区且已展开 → 收起；否则切到该区并展开
+function toggleSbSection(sec) {
+  if (SB_SECTIONS[sec] && _sbSection === sec && _sbOpen) { toggleSidebar(); return; }
+  openSbSection(sec);
 }
 function renderSbSection() {
   document.querySelectorAll('.sb-tab').forEach(t => t.classList.toggle('active', t.dataset.sb === _sbSection));
@@ -2644,12 +2649,14 @@ function createGroup(n) {
 }
 // 中文输入法守卫：合成中的回车/按键（确认候选词）不当作最终确认
 function _imeComposing(ev) { return ev.isComposing === true || ev.keyCode === 229; }
+let _sbNewGroupClosedAt = 0;   // 刚保存/取消后的短守卫：避免 blur 保存与按钮 click 竞争再弹空框
 function addGroupInline() {
   // 收起态先展开，否则输入框在屏幕外看不见
   if (!_sbOpen) toggleSidebar();
   const f = document.querySelector('.sb-footer'); if (!f) return;
   let inp = f.querySelector('.sb-new-input');
   if (inp) { inp.focus(); return; }   // 已在输入中：聚焦而不是忽略
+  if (Date.now() - _sbNewGroupClosedAt < 300) return;   // 刚由 blur 完成保存，忽略这次点击
   inp = document.createElement('input');
   inp.className = 'sb-new-input'; inp.placeholder = '输入分组名，回车保存';
   f.appendChild(inp); inp.focus();
@@ -2664,6 +2671,7 @@ function addGroupInline() {
 function _finishNewGroup(inp) {
   const n = (inp.value || '').trim();
   inp.remove();
+  _sbNewGroupClosedAt = Date.now();
   if (!n) return;   // 空名静默取消
   createGroup(n);
 }
