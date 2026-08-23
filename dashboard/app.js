@@ -1349,21 +1349,29 @@ function buildBeginnerSegments(signal) {
 
   const disclaimer = '<div class="seg-disclaimer">以上由规则自动生成，仅供参考，非投资建议。</div>';
   return `
-    <div class="seg-card seg-now"><div class="seg-title">📌 现状</div><div class="seg-body">${seg1}</div></div>
-    <div class="seg-card seg-risk"><div class="seg-title">⚠️ 风险与机会</div><div class="seg-body">${glossarize(seg2)}</div></div>
-    <div class="seg-card seg-do"><div class="seg-title">✅ 现在该做什么</div><div class="seg-body">${glossarize(seg3)}</div>${disclaimer}</div>`;
+    <div class="seg-card seg-now"><div class="seg-title">📌 现状</div><div class="seg-body">${_applyTermChips(seg1)}</div></div>
+    <div class="seg-card seg-risk"><div class="seg-title">⚠️ 风险与机会</div><div class="seg-body">${_applyTermChips(seg2)}</div></div>
+    <div class="seg-card seg-do"><div class="seg-title">✅ 现在该做什么</div><div class="seg-body">${_applyTermChips(seg3)}</div>${disclaimer}</div>`;
 }
 
-// 术语即点即译：把词典命中的词包成 chip（仅小白模式生效）
+// 术语即点即译：把词典命中的词包成 chip。
+// glossarize(纯文本)：先 HTML 转义再加 chip；
+// _applyTermChips(已构建的HTML片段)：跳过标签只处理文本节点——否则片段内的 <b> 会被转义成可见文字（bug修复）
+function _applyTermChips(safeHtml) {
+  if (_mode !== 'simple' || !window.GLOSSARY_TERMS) return safeHtml;
+  return safeHtml.split(/(<[^>]+>)/g).map(part => {
+    if (!part || part.startsWith('<')) return part;   // 标签原样保留
+    let s = part;
+    for (const t of window.GLOSSARY_TERMS) {
+      const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'g');
+      s = s.replace(re, '<span class="gl-chip" data-term="' + t + '">$1</span>');
+    }
+    return s;
+  }).join('');
+}
 function glossarize(text) {
   const safe = escHtml(text == null ? '' : String(text));
-  if (_mode !== 'simple' || !window.GLOSSARY_TERMS) return safe;
-  let s = safe;
-  for (const t of window.GLOSSARY_TERMS) {
-    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'g');
-    s = s.replace(re, '<span class="gl-chip" data-term="' + t + '">$1</span>');
-  }
-  return s;
+  return _applyTermChips(safe);
 }
 
 // 术语气泡：同一时刻最多一个，点空白关闭
