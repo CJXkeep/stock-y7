@@ -833,3 +833,22 @@ body.fx-max .sum-badge { animation: breathe 3s ease-in-out infinite; }
   background: rgba(255,152,0,0.10);
   border: 1px solid rgba(255,152,0,0.65);
 }
+
+/* ===== 扫描历史归档 ===== */
+.scan-btn-ghost { background: #141414 !important; border: 1px solid #333; color: #999; }
+.scan-btn-ghost:hover { color: #ff9800; border-color: #ff9800; }
+.scan-archived-tag {
+  font-size: 11px; color: #00b35c; border: 1px solid #00b35c44;
+  padding: 1px 6px; border-radius: 8px;
+}
+.scan-hist-list { border: 1px solid #1e1e1e; border-radius: 6px; overflow: hidden; }
+.scan-hist-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px; font-size: 13px; border-bottom: 1px solid #161616;
+}
+.scan-hist-row:last-child { border-bottom: none; }
+.scan-hist-row:hover { background: #121212; }
+.scan-hist-time { color: #ddd; min-width: 110px; }
+.scan-hist-meta { color: #888; font-size: 12px; flex: 1; }
+.scan-hist-ops { display: flex; gap: 6px; }
+.scan-del-btn:hover { color: #ff4d4d !important; border-color: #ff4d4d !important; }

@@ -3693,6 +3693,53 @@ function clearWatchChangeBadge() {
 // ===== 扫描功能 =====
 let _scanTimer = null;
 
+// ---- 扫描结果归档（frontend迭代：本地留存最近30次，供回看/导出） ----
+const STORAGE_SCAN_ARCHIVE = 'qs_scan_archive';
+const MAX_SCAN_ARCHIVE = 30;
+
+function getScanArchive() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_SCAN_ARCHIVE)) || []; } catch (e) { return []; }
+}
+function saveScanArchive(list) {
+  try { localStorage.setItem(STORAGE_SCAN_ARCHIVE, JSON.stringify(list)); return true; }
+  catch (e) { showToastMsg('归档失败：浏览器存储空间不足'); return false; }
+}
+// 幂等签名：同一次运行结果重复渲染（关弹窗后重开）不会重复归档
+function _scanRunSig(results, elapsed) {
+  const f = results[0] || {}, l = results[results.length - 1] || {};
+  return `${results.length}|${elapsed}|${f.symbol || ''}|${l.symbol || ''}`;
+}
+function archiveScanRun(data) {
+  const results = data.results || [];
+  const elapsed = data.elapsed || 0;
+  const sig = _scanRunSig(results, elapsed);
+  const list = getScanArchive();
+  const now = Date.now();
+  const newest = list[0];
+  // 10分钟内同签名的视为同一轮结果，跳过
+  if (newest && newest.sig === sig && (now - newest.finishedAt) < 10 * 60 * 1000) return newest;
+  const run = {
+    id: 's' + now,
+    finishedAt: now,
+    elapsed: elapsed,
+    scannedTotal: data.scanned || null,
+    marketTotal: data.total || null,
+    sig: sig,
+    count: results.length,
+    items: results.map(r => ({
+      symbol: r.symbol, name: r.name, price: r.price, daily_pct: r.daily_pct,
+      daily_action: r.daily_action, daily_score: r.daily_score,
+      weekly_action: r.weekly_action, weekly_score: r.weekly_score,
+      combined_score: r.combined_score, position_advice: r.position_advice,
+      risk_reward: r.risk_reward,
+    })),
+  };
+  list.unshift(run);
+  while (list.length > MAX_SCAN_ARCHIVE) list.pop();
+  saveScanArchive(list);
+  return run;
+}
+
 function openScan() {
   document.getElementById('scan-overlay').classList.add('show');
   // 先拉一次状态，再决定是显示进度还是启动新扫描
@@ -3783,12 +3830,16 @@ function renderScanProgress(data) {
 function renderScanResults(data) {
   const results = data.results || [];
   const elapsed = data.elapsed || 0;
+  const archivedRun = archiveScanRun(data);   // 自动归档（幂等）
   if (!results.length) {
     document.getElementById('scan-content').innerHTML = `
       <div class="scan-empty">
         <div style="margin-bottom:12px;color:#aaa">扫描完成，未发现双周期买入信号</div>
         <div style="color:#666;font-size:13px">当前市场可能处于调整期，可稍后再试</div>
-        <div style="margin-top:16px"><button class="scan-btn" onclick="renderScanIdle()">重新扫描</button></div>
+        <div style="margin-top:16px">
+          <button class="scan-btn" onclick="renderScanIdle()">重新扫描</button>
+          ${archivedRun ? `<button class="scan-btn scan-btn-ghost" onclick="renderScanArchiveList()">历史归档 (${getScanArchive().length})</button>` : ''}
+        </div>
       </div>`;
     return;
   }
@@ -3796,8 +3847,18 @@ function renderScanResults(data) {
     <div class="scan-stats" style="margin-bottom:12px">
       <span>扫描完成，耗时 <b style="color:#ddd">${elapsed}s</b></span>
       <span>双周期买入: <b style="color:#ff9800">${results.length}</b> 只</span>
+      <span class="scan-archived-tag" title="结果已自动归档到本地，可在历史归档中回看">已归档✓</span>
+      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="renderScanArchiveList()">历史归档 (${getScanArchive().length})</button>
       <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="renderScanIdle()">重新扫描</button>
     </div>
+    ${_scanTableHtml(results)}
+    <div style="margin-top:10px;color:#666;font-size:11px">本次结果已自动归档，关闭弹窗后仍可在「历史归档」中回看与导出。</div>`;
+  document.getElementById('scan-content').innerHTML = html;
+}
+
+// 结果表格（实时结果与归档详情共用）
+function _scanTableHtml(results) {
+  let html = `
     <table class="scan-table">
       <thead><tr>
         <th>#</th><th>代码</th><th>名称</th><th>现价</th>
@@ -3828,7 +3889,91 @@ function renderScanResults(data) {
     </tr>`;
   });
   html += '</tbody></table>';
-  document.getElementById('scan-content').innerHTML = html;
+  return html;
+}
+
+// ---- 历史归档视图 ----
+function _fmtScanTime(ts) {
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderScanArchiveList() {
+  const list = getScanArchive();
+  let rows;
+  if (!list.length) {
+    rows = `<div class="scan-empty">暂无归档。每次扫描完成后会自动留档（保留最近 ${MAX_SCAN_ARCHIVE} 次）。</div>`;
+  } else {
+    rows = list.map(run => `
+      <div class="scan-hist-row">
+        <span class="scan-hist-time">${_fmtScanTime(run.finishedAt)}</span>
+        <span class="scan-hist-meta">命中 <b style="color:${run.count ? '#ff9800' : '#666'}">${run.count}</b> 只 · 耗时 ${run.elapsed}s${run.scannedTotal ? ` · 扫描 ${run.scannedTotal} 只` : ''}</span>
+        <span class="scan-hist-ops">
+          <button class="scan-analyze-btn" onclick="renderArchivedRun('${run.id}')">查看</button>
+          <button class="scan-analyze-btn" onclick="exportScanCsv('${run.id}')">CSV</button>
+          <button class="scan-analyze-btn scan-del-btn" onclick="deleteScanRun('${run.id}')">删除</button>
+        </span>
+      </div>`).join('');
+    rows = `<div class="scan-hist-list">${rows}</div>`;
+  }
+  document.getElementById('scan-content').innerHTML = `
+    <div class="scan-stats" style="margin-bottom:12px">
+      <span>扫描历史归档 <b style="color:#ddd">${list.length}</b> / ${MAX_SCAN_ARCHIVE} 次</span>
+      ${list.length ? `<button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="clearScanArchive()">清空全部</button>` : ''}
+      <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="openScan()">返回</button>
+    </div>
+    ${rows}`;
+}
+
+function renderArchivedRun(id) {
+  const run = getScanArchive().find(r => r.id === id);
+  if (!run) { renderScanArchiveList(); return; }
+  document.getElementById('scan-content').innerHTML = `
+    <div class="scan-stats" style="margin-bottom:12px">
+      <span>归档 ${_fmtScanTime(run.finishedAt)}</span>
+      <span>命中 <b style="color:#ff9800">${run.count}</b> 只 · 耗时 ${run.elapsed}s</span>
+      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="exportScanCsv('${run.id}')">导出 CSV</button>
+      <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="renderScanArchiveList()">返回列表</button>
+    </div>
+    ${run.count ? _scanTableHtml(run.items) : '<div class="scan-empty">该次扫描未发现双周期买入信号</div>'}
+    <div style="margin-top:10px;color:#888;font-size:11px">⚠ 归档为扫描当时快照：价格/涨跌幅为当时数据，「分析」按最新行情重新计算。</div>`;
+}
+
+function exportScanCsv(id) {
+  const run = getScanArchive().find(r => r.id === id);
+  if (!run) return;
+  const head = '代码,名称,现价,涨跌%,日K信号,日K分,周K信号,周K分,综合分,仓位建议,盈亏比';
+  const lines = run.items.map(r => [
+    r.symbol, `"${String(r.name || '').replace(/"/g, '""')}"`,
+    r.price != null ? r.price : '', r.daily_pct != null ? r.daily_pct : '',
+    r.daily_action || '', r.daily_score != null ? r.daily_score : '',
+    r.weekly_action || '', r.weekly_score != null ? r.weekly_score : '',
+    r.combined_score != null ? r.combined_score : '',
+    `"${String(r.position_advice || '').replace(/"/g, '""')}"`,
+    r.risk_reward != null ? r.risk_reward : '',
+  ].join(','));
+  const csv = '\uFEFF' + head + '\n' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date(run.finishedAt);
+  const p = n => String(n).padStart(2, '0');
+  a.download = `scan-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+  showToastMsg('扫描归档已导出 CSV');
+}
+
+function deleteScanRun(id) {
+  if (!confirm('删除这条扫描归档？')) return;
+  saveScanArchive(getScanArchive().filter(r => r.id !== id));
+  renderScanArchiveList();
+}
+
+function clearScanArchive() {
+  if (!confirm(`清空全部 ${getScanArchive().length} 条扫描归档？此操作不可恢复。`)) return;
+  saveScanArchive([]);
+  renderScanArchiveList();
 }
 
 function formatScanAction(act) {
