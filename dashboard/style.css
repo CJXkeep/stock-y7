@@ -173,23 +173,6 @@ body {
   font-weight: 600; letter-spacing: 0.5px;
 }
 
-/* 主信号 */
-.signal-main { padding: 14px; text-align: center; }
-.sm-action { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
-.sm-score { font-size: 48px; font-weight: bold; line-height: 1; }
-.sm-desc { font-size: 12px; color: #777; margin-top: 6px; }
-.sm-bg-buy { background: linear-gradient(180deg, #1a0808, #0a0a0a); }
-.sm-bg-sell { background: linear-gradient(180deg, #081a0c, #0a0a0a); }
-.sm-bg-watch { background: linear-gradient(180deg, #1a1a00, #0a0a0a); }
-
-/* 操作建议 */
-.trade-advice {
-  padding: 10px 12px; font-size: 13px; line-height: 1.8;
-}
-.ta-row { display: flex; justify-content: space-between; padding: 2px 0; }
-.ta-label { color: #666; }
-.ta-val { font-weight: bold; }
-
 /* 模块评分 */
 .module-list { padding: 8px 12px; }
 .ml-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -543,7 +526,6 @@ body {
 .it-btn.active { color: #ff9800; border-color: #ff9800; background: #1a1200; }
 
 /* ===== 多股一览 ===== */
-.wp-overview { padding: 4px; }
 .wp-ov-item {
   display: grid; grid-template-columns: 50px 1fr 44px 44px 36px;
   gap: 4px; align-items: center;
@@ -654,11 +636,12 @@ body.fx-max .sidebar { transition: transform 0.2s ease; }
 .sb-rcode { color: #555; font-size: 9px; }
 .sb-rnum, .sb-rpct { font-size: 11px; color: #888; text-align: right; white-space: nowrap; }
 .sb-rpct { width: 52px; }
-.up { color: #ff2d2d !important; }
-.down { color: #00b35c !important; }
+/* 涨跌着色：作用域化以稳定胜过上方基础色（审查P2-2 合并重复 .up/.down） */
+.sb-rnum.up, .sb-rpct.up { color: #ff2d2d; }
+.sb-rnum.down, .sb-rpct.down { color: #00b35c; }
 .sb-badge {
   font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: bold;
-  flex-shrink: 0; position: relative;
+  flex-shrink: 0; position: relative; overflow: visible;
 }
 .sb-badge.b { background: #2a0a0a; color: #ff4d4d; border: 1px solid #ff2d2d44; }
 .sb-badge.s { background: #0a1f14; color: #00c96e; border: 1px solid #00b35c44; }
@@ -768,11 +751,11 @@ body:not(.sb-open) .main { margin-left: 48px; }
   font-size: 10px; color: #9fd8fb; line-height: 1.6; border-radius: 0 4px 4px 0;
 }
 
-/* ===== FX：骨架屏（标准/炫酷档替代spinner；关档回退spinner文案） ===== */
-#loading .spinner { display: none; }
-#skeleton-wrap { padding: 14px; }
-body.fx-off #loading .spinner { display: block; }
+/* ===== FX：骨架屏（标准/炫酷档）；关档回退 spinner 文案（审查P1-1修复） ===== */
+.spinner-wrap { display: none; flex-direction: column; align-items: center; gap: 10px; }
+body.fx-off .spinner-wrap { display: flex; }
 body.fx-off #skeleton-wrap { display: none; }
+#skeleton-wrap { padding: 14px; }
 .sk {
   background: linear-gradient(90deg, #161616 25%, #222 50%, #161616 75%);
   background-size: 400px 100%; border-radius: 4px; margin-bottom: 10px;
@@ -798,7 +781,6 @@ body.fx-off #skeleton-wrap { display: none; }
 .fx-pop { animation: fxPop 0.35s ease; display: inline-block; }
 
 /* 信号变更扩散 ring：::after 缩放实现，纯 transform/opacity */
-.sb-badge { overflow: visible; }
 .fx-ring::after {
   content: ''; position: absolute; inset: -2px; border-radius: 4px;
   border: 2px solid #ff9800;
@@ -880,3 +862,17 @@ body.fx-max .sum-badge { animation: breathe 3s ease-in-out infinite; }
 }
 #sb-pane-modules .wp-tabs { flex-shrink: 0; }
 #sb-pane-modules .wp-list { flex: 1; }
+
+/* ===== 存量动画门控补齐（审查P2-1）：FX=关 时 toast/角标不再动效 ===== */
+body.fx-off .toast,
+body.fx-off .toast.removing { animation: none !important; opacity: 1 !important; transform: none !important; }
+body.fx-off .toast.removing { visibility: hidden; }
+body.fx-off .wc-change-badge { animation: none !important; }
+/* 系统减动效偏好：全局兜底（覆盖一切存量/新增动画与过渡） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

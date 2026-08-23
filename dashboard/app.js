@@ -2176,7 +2176,6 @@ const STORAGE_WATCH = 'qs_watchlist';
 const STORAGE_HISTORY = 'qs_history';
 const MAX_HISTORY = 30;
 let _currentTab = 'watch';
-let _panelOpen = false;
 
 // --- localStorage 读写（frontend-ux-v42 R2：分组模型；旧键只读不删） ---
 const GKEY_GROUPS = 'qs_watch_groups';
@@ -2311,7 +2310,7 @@ function addHistory(code, name, action, score) {
   // 限制数量
   if (list.length > MAX_HISTORY) list = list.slice(0, MAX_HISTORY);
   saveHistory(list);
-  if (_panelOpen && _currentTab === 'history') renderHistory();
+  if (_sbSection === 'history') renderHistory();   // 历史分区打开时实时刷新
   updateBadges();
 }
 
@@ -2337,7 +2336,7 @@ function renderHistory() {
   el.innerHTML = list.map(s => {
     const tag = sigTag(s.action, s.score);
     const t = fmtTime(s.time);
-    return `<div class="wp-item" onclick="analyze('${s.code}');closePanel()">
+    return `<div class="wp-item" onclick="analyze('${s.code}')">
       <span class="code">${s.code}</span>
       <span class="name">${escHtml(s.name)}</span>
       ${tag}
@@ -2373,26 +2372,8 @@ function escHtml(s) {
 }
 
 // --- 面板控制 ---
-// wp-panel 已常驻左侧工作台，不再有"弹出层关闭"语义；保留函数为空操作，
-// 兼容历史/一览/档案/核心池条目 onclick 里的历史调用。
-function closePanel() {}
-
-function togglePanel(tab) {
-  _currentTab = tab;
-  const panel = document.getElementById('wp-panel');
-  if (_panelOpen && panel.classList.contains('show')) {
-    // 已打开，切换tab
-    if (_currentTab === tab) {
-      // 同一按钮再次点击=关闭
-      closePanel();
-      return;
-    }
-  } else {
-    panel.classList.add('show');
-    _panelOpen = true;
-  }
-  switchTab(tab);
-}
+// （审查P2-4）面板常驻左侧工作台后，旧的弹出层开合空壳已随本次清理移除；
+// 模板中的条目点击只保留 analyze 跳转。
 
 function switchTab(tab) {
   // wp-panel 已迁入左侧工作台：自选股 tab 回路由到自选分区
@@ -2458,12 +2439,6 @@ function updateBadges() {
   if (ov) ov.textContent = wl > 0 ? `(${wl})` : '';
 }
 
-// 点击面板外部关闭
-document.addEventListener('click', e => {
-  if (_panelOpen && !e.target.closest('.watch-wrap')) {
-    closePanel();
-  }
-});
 
 // 阻止面板内点击冒泡导致关闭
 document.getElementById('wp-panel').addEventListener('click', e => e.stopPropagation());
@@ -3223,7 +3198,7 @@ async function loadOverview() {
     const sigTag = s.action ? `<span class="wp-ov-sig-tag ${s.action === '买入' ? 'buy' : s.action === '卖出' ? 'sell' : 'watch'}">${s.action}</span>` : '<span class="wp-ov-sig-tag none">--</span>';
     const scoreStr = s.score ? s.score : '--';
     const scoreColor = s.score >= 60 ? C.up : s.score >= 40 ? '#ffc107' : s.score > 0 ? C.down : '#666';
-    return `<div class="wp-ov-item" onclick="analyze('${s.code}');closePanel()">
+    return `<div class="wp-ov-item" onclick="analyze('${s.code}')">
       <span class="wp-ov-code">${s.code}</span>
       <span class="wp-ov-name">${escHtml(s.name)}</span>
       <span class="wp-ov-pct ${pctCls}">${pctStr}</span>
@@ -3341,7 +3316,7 @@ async function loadJournal() {
     const nm = _knownName(rec.symbol);
     return `<tr>
       <td>${rec.trigger_date || ''}</td>
-      <td><a href="#" onclick="analyze('${rec.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a>${nm ? `<div style="color:#888;font-size:10px;margin-top:1px">${escHtml(nm)}</div>` : ''}</td>
+      <td><a href="#" onclick="analyze('${rec.symbol}');return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a>${nm ? `<div style="color:#888;font-size:10px;margin-top:1px">${escHtml(nm)}</div>` : ''}</td>
       <td>${_journalTypeNames[rec.signal_type] || rec.signal_type}${dupTag}</td>
       <td>${rec.snapshot_close != null ? rec.snapshot_close : '--'}</td>
       <td>${cell(f[5] && f[5].return_pct)}</td>
@@ -3501,7 +3476,7 @@ function renderPoolPanel() {
   const rows = visible.map((it, i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #1c1c1c;font-size:12px">
       <span style="color:#666;width:18px">${i + 1}</span>
-      <a href="#" onclick="analyze('${it.symbol}');closePanel();return false" style="color:#ff9800;text-decoration:none;min-width:52px">${it.symbol}</a>
+      <a href="#" onclick="analyze('${it.symbol}');return false" style="color:#ff9800;text-decoration:none;min-width:52px">${it.symbol}</a>
       <span style="min-width:80px;color:#ddd" title="${escHtml(it.industry || '')}">${escHtml(it.name || '--')}</span>
       ${it.industry ? `<span style="color:#666;font-size:10px;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.industry)}</span>` : ''}
       <input value="${escHtml(it.note || '')}" placeholder="备注" style="flex:1;background:#111;border:1px solid #2a2a2a;color:#bbb;font-size:11px;padding:2px 6px"
