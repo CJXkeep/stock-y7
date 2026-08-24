@@ -1,0 +1,15 @@
+# 构建上下文排除项（运行镜像瘦身 + 敏感/临时文件不入镜像）
+.git
+.comet
+docs
+tests
+__pycache__
+*.py[cod]
+logs
+.worktrees
+
+# 运行数据（由卷持久化，不入镜像）
+data/journal
+data/pool.json
+data/results
+data/digest
