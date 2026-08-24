@@ -18,6 +18,7 @@ data/snapshots/**
 data/journal/
 data/pool.json
 data/results/
+data/digest/
 
 # 工作区与日志
 .worktrees/

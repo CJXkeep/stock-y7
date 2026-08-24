@@ -1,0 +1,1074 @@
+schema: comet.native.v4
+name: daily-digest
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: daily-digest
+    operation: create
+    source: specs/daily-digest/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：无缓存时 GET /api/digest 返回 status=idle 且 digest 为空；action=refresh
+      返回启动成功，随后轮询可见 stage/progress 推进，最终 status=done 且带 generated_at 与四块内容。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：块1 按 trigger_date 分组正确输出记录字段（信号日/代码/名称/类型/动作/信号价），默认仅最近 1 个信号日、可选 3/5
+      日回看；空日志渲染空态文案而非报错。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：块2 到期筛选（最近 7 自然日窗口）正确；总览数字与 journal.summarize 口径一致。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：块3 输出覆盖核心池全部股票，买侧排前；注入单股异常时其余照常输出；断言生成过程未向 journal.jsonl 追加任何新行。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：块4 从临时 results.csv 重算的 r20 胜率/均值与 stats 口径一致，n<10 标注样本不足；无 results
+      目录时显示引导文案。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：任一数据源抛错时对应块显示错误占位，接口整体仍返回 200 且其余块完整。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：生成进行中再次 action=refresh 被忽略（仍返回 running，不启动第二个线程）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：成功生成后存在合法 `data/digest/latest.json`；模拟重启后（从文件加载）GET /api/digest 直接回填
+      done 与原 generated_at。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: A9：`python run_all_tests.py` 全量回归通过（含新增 `tests/test_digest_builder.py`）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A10
+    source: specs/daily-digest/spec.md
+    text: 在看板工作台新增「每日速递」页签：手动一键生成当日速报，聚合大盘环境、最近新增信号、历史战绩回顾、核心池全量扫描与历史统计摘要五个部分；结果持久化，重启服务后仍可回看最近一期。生成过程后台执行、可轮询进度，单块数据源异常不拖垮整体。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A11
+    source: specs/daily-digest/spec.md
+    text: 用户希望"每日有一个默认入口说明项目的结果"。v5 已具备四类素材：信号档案（journal.jsonl，含 followup
+      补记）、核心池（pool.json）、分析引擎（run_analysis + app 后处理）、历史统计管线（backtest
+      snapshot/replay/stats → results.csv）。本能力把这些素材聚合为一个手动触发的看板视图；定时/推送明确排除在范围外。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A12
+    source: specs/daily-digest/spec.md
+    text: 新增 `digest/__init__.py` 与 `digest/builder.py`；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A13
+    source: specs/daily-digest/spec.md
+    text: '`build_digest(ctx, progress=None) -> dict`：返回 `{"meta": {...}, "market":
+      {...}, "recent_signals": {...}, "performance": {...}, "pool_scan": {...},
+      "stats_summary": {...}}`；'
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A14
+    source: specs/daily-digest/spec.md
+    text: ctx 注入项（builder 不得反向 import app）：
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A15
+    source: specs/daily-digest/spec.md
+    text: "`scan_one(symbol) -> dict | None`：单股只读分析（app 复用 `_scan_one_stock`
+      同款逻辑：kline250+quote+flows30 → run_analysis → signal_to_dict → 后处理优化，**不经
+      journal 钩子**）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A16
+    source: specs/daily-digest/spec.md
+    text: "`run_backfill() -> None`：followup 补记（app 复用 `_run_journal_backfill`
+      同款逻辑）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A17
+    source: specs/daily-digest/spec.md
+    text: "`load_pool() -> dict`、`load_journal() -> (records,
+      skipped)`、`find_latest_results() -> (snapshot_id, csv_path) | None`；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A18
+    source: specs/daily-digest/spec.md
+    text: "`fetch_index_kline(symbol, count)`、`fetch_market_breadth()`；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A19
+    source: specs/daily-digest/spec.md
+    text: "`now_fn() -> datetime`（测试注入）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A20
+    source: specs/daily-digest/spec.md
+    text: "`progress(stage_text, percent)` 回调供 app 层更新状态；四个块各自 try/except，失败写入该块的
+      `error` 字段，不影响其余块与整体返回。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A21
+    source: specs/daily-digest/spec.md
+    text: 上证指数：最新收盘、当日涨跌幅、20 日累计涨跌幅；市场宽度：上涨/下跌家数与上涨占比；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A22
+    source: specs/daily-digest/spec.md
+    text: 任一抓取失败→`market.error`，页眉显示"大盘环境暂不可用"。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A23
+    source: specs/daily-digest/spec.md
+    text: 数据源 journal.jsonl，过滤 `deduped=true` 的记录（口径与档案默认一致）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A24
+    source: specs/daily-digest/spec.md
+    text: 取记录集中最大的 `trigger_date` 为「最近信号日」；`days` 参数 ∈ {1,3,5}（默认 1）：取最近 N 个不同
+      trigger_date 的全部记录；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A25
+    source: specs/daily-digest/spec.md
+    text: 输出按 trigger_date 倒序、组内按 created_at 升序；字段：signal_day / symbol / name(前端补齐)
+      / signal_type / action / snapshot_close / notes；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A26
+    source: specs/daily-digest/spec.md
+    text: 空日志或窗口内无记录→空态文案"最近没有新增信号"，不是错误。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A27
+    source: specs/daily-digest/spec.md
+    text: 生成前先调用 `ctx.run_backfill()`（同步、异常吞掉并记入块 error），保证 followup 最新；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A28
+    source: specs/daily-digest/spec.md
+    text: 「最近到期」= 记录的 followups 中 `asof` 落在 [今天-7 自然日, 今天] 的条目；输出字段：symbol /
+      signal_type / action / horizon(5/10/20/60) / asof / return_pct；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A29
+    source: specs/daily-digest/spec.md
+    text: 总览行复用 `journal.summarize()` 口径：总信号数、买侧样本数、买侧 20 日胜率、买侧 20 日平均收益。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A30
+    source: specs/daily-digest/spec.md
+    text: 对 `load_pool().items` 全量执行
+      `ctx.scan_one`；`ThreadPoolExecutor(max_workers=min(10, len(items)))`；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A31
+    source: specs/daily-digest/spec.md
+    text: 结果分两组排序：买侧（强烈买入/买入/谨慎买入）按 score 降序在前，其余（观望/卖出类）按 score 降序在后；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A32
+    source: specs/daily-digest/spec.md
+    text: 字段：symbol / name / price / action / score / confidence / m_score /
+      position_advice / risk_reward / veto_reason；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A33
+    source: specs/daily-digest/spec.md
+    text: 单股异常或返回 None→计入 `failed_count`（附 symbol 列表，截断展示前 10 个）；空池→空态文案；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A34
+    source: specs/daily-digest/spec.md
+    text: "**不变量：整个过程不得向 journal.jsonl 追加任何行**（验收断言）。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A35
+    source: specs/daily-digest/spec.md
+    text: "`find_latest_results()` 返回最新 snapshot 目录（名称倒序取首个含 results.csv 者）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A36
+    source: specs/daily-digest/spec.md
+    text: 用 csv 模块解析 results.csv（utf-8-sig），对参与统计的行重算总体与按 action 分组的
+      r5/r10/r20/r60：n / win_rate / avg_return；分组 n<10 标注
+      `insufficient_sample=true`（同 config.SAMPLE_MIN 口径）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A37
+    source: specs/daily-digest/spec.md
+    text: 附 snapshot_id 与 report.md 相对路径文本；目录不存在或无合法 CSV→引导文案"先运行 python -m backtest
+      snapshot / replay <id> / stats <id>"。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A38
+    source: specs/daily-digest/spec.md
+    text: '`generated_at`（本地时间 "%Y-%m-%d %H:%M:%S"）、`elapsed_sec`、各块耗时；速递标题日期 =
+      now_fn 当天。'
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A39
+    source: specs/daily-digest/spec.md
+    text: "`GET /api/digest` → `{status, stage, progress, generated_at, elapsed,
+      error, digest}`；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A40
+    source: specs/daily-digest/spec.md
+    text: status ∈ idle | running | done | error；无缓存且从未生成 → idle 且 digest=null；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A41
+    source: specs/daily-digest/spec.md
+    text: "`GET /api/digest?action=refresh`："
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A42
+    source: specs/daily-digest/spec.md
+    text: running 中→忽略并直接返回当前状态（不启动第二个线程）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A43
+    source: specs/daily-digest/spec.md
+    text: 否则重置状态、启动 daemon 后台线程执行 build_digest，立即返回 `{status:"started"}`；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A44
+    source: specs/daily-digest/spec.md
+    text: 进度模型：大盘环境→补记→新增信号→战绩回顾→核心池扫描（i/N 推进）→统计摘要→完成；进度值单调不减；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A45
+    source: specs/daily-digest/spec.md
+    text: 重启回填：模块状态初始化时若 `data/digest/latest.json` 存在且 schema 合法→status=done 并回填
+      generated_at/digest（文件损坏则回退 idle + 告警日志）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A46
+    source: specs/daily-digest/spec.md
+    text: 路由挂在既有 `/api/` GET 分支；do_POST 不改动。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A47
+    source: specs/daily-digest/spec.md
+    text: 成功生成后原子写：`{schema:"v5.digest.v1", status:"done", generated_at, elapsed,
+      digest:{...}}`（tmp + os.replace）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A48
+    source: specs/daily-digest/spec.md
+    text: "`.gitignore` 增加 `data/digest/`；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A49
+    source: specs/daily-digest/spec.md
+    text: 写盘失败仅告警，不影响接口返回结果本身。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A50
+    source: specs/daily-digest/spec.md
+    text: 入口：sb-tabs 增加「速递」按钮（data-sb="digest"）、wp-tabs
+      增加「每日速递」（data-tab="digest"）、容器 wp-content-digest；SB_SECTIONS 增加 digest
+      映射，switchTab/renderSbSection 接入；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A51
+    source: specs/daily-digest/spec.md
+    text: 操作行：「生成今日速递」按钮（running 时禁用并显示阶段+进度条）、生成时间、耗时；打开页签默认加载缓存结果，不自动重新生成；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A52
+    source: specs/daily-digest/spec.md
+    text: 渲染：页眉大盘行情行；块1–块4 四个卡片（带序号标题与口径说明行）；表格样式对齐「信号档案」页签；收益红涨绿跌复用
+      C.up/C.down；动作徽章复用 sbBadge 配色；股票代码可点击跳转 analyze()；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A53
+    source: specs/daily-digest/spec.md
+    text: 名称补齐复用 `_resolveSymbolNames`；块1 提供交易日范围下拉（1/3/5，默认 1，纯前端用已返回数据切换——后端一次返回最近
+      5 个信号日集合，前端裁剪展示）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A54
+    source: specs/daily-digest/spec.md
+    text: running 时进入页签自动接续 2s 轮询（镜像扫描弹窗逻辑），done/error 停止轮询。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A55
+    source: specs/daily-digest/spec.md
+    text: 触发方式 = 手动触发；查看方式 = 仅看板页签；内容 = 四块全选（2026-08-24）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A56
+    source: specs/daily-digest/spec.md
+    text: 扫描周期 = 仅日线（2026-08-24）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A57
+    source: specs/daily-digest/spec.md
+    text: 新增信号默认范围 = 最近 1 个有信号的交易日，提供 3/5 日回看切换（2026-08-24）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A58
+    source: specs/daily-digest/spec.md
+    text: 池扫描只读不落档；统计摘要以 results.csv 重算；refresh 内同步补记一次；持久化 latest.json。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A59
+    source: specs/daily-digest/spec.md
+    text: A1：无缓存时 `GET /api/digest` 返回 status=idle 且 digest=null；action=refresh
+      返回启动成功，轮询可见 stage/progress 推进，最终 status=done 且带 generated_at 与五个部分内容。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A60
+    source: specs/daily-digest/spec.md
+    text: A2：块1 按 trigger_date 分组正确（信号日/代码/类型/动作/信号价），默认仅最近 1 个信号日，days=3/5 时取最近 N
+      个不同信号日；空日志渲染空态文案而非报错。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A61
+    source: specs/daily-digest/spec.md
+    text: A3：块2 到期筛选（7 自然日窗口）正确；总览数字与 journal.summarize 一致。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A62
+    source: specs/daily-digest/spec.md
+    text: A4：块3 覆盖核心池全部股票且买侧排前；注入单股异常时其余照常输出；断言生成前后 journal.jsonl 行数不变。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A63
+    source: specs/daily-digest/spec.md
+    text: A5：块4 从临时 results.csv 重算的 r20 胜率/均值与 stats 口径一致，n<10 标注样本不足；无 results
+      目录时显示引导文案。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A64
+    source: specs/daily-digest/spec.md
+    text: A6：任一数据源抛错时对应块携带 error 占位，build_digest 整体正常返回、接口 200。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A65
+    source: specs/daily-digest/spec.md
+    text: A7：生成进行中再次 action=refresh 被忽略（返回 running，线程数不增加）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A66
+    source: specs/daily-digest/spec.md
+    text: A8：成功生成后存在合法 latest.json；模拟重启（清空内存状态、从文件加载）后 GET /api/digest 直接回填 done 与原
+      generated_at。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A67
+    source: specs/daily-digest/spec.md
+    text: A9：`python run_all_tests.py` 全量回归通过（含新增 tests/test_digest_builder.py）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A68
+    source: specs/daily-digest/spec.md
+    text: 仅 Python 标准库；latest.json 原子写；`.gitignore` 忽略 data/digest/；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A69
+    source: specs/daily-digest/spec.md
+    text: digest 包禁止反向 import app；ctx 注入一切外部依赖；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A70
+    source: specs/daily-digest/spec.md
+    text: 池扫描并发 ≤15 线程；指数/宽度共享数据只取一次；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A71
+    source: specs/daily-digest/spec.md
+    text: 各块标注口径来源（最终 action vs 原始统计口径不可混用）；自用参考、非投资建议文案保留在页签脚注。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A72
+    source: specs/daily-digest/spec.md
+    text: "`tests/test_digest_builder.py`（fake ctx + tempfile 隔离）覆盖 A2–A6、A8；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A73
+    source: specs/daily-digest/spec.md
+    text: app 层 handle_digest 冒烟：idle→refresh→running→done 状态机、并发忽略、latest.json
+      回填与损坏容错；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A74
+    source: specs/daily-digest/spec.md
+    text: 看板静态核验：页签按钮/容器/SB_SECTIONS/请求路径存在；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+  - id: A75
+    source: specs/daily-digest/spec.md
+    text: run_all_tests.py 全量复核。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。"
+      truncated: false
+builder_handoff:
+  candidate_id: 147c6f93-e87a-406b-89d5-fb3eafd32ac6
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:daf7eb10-4661-4101-b957-84467d2b4e84
+  iteration: 1
+  summary:
+    text: 实现「每日速递」：新增 digest/ 包（build_digest 经 ctx
+      注入五块：大盘环境/最近新增信号/历史战绩回顾/核心池全量扫描/历史统计摘要，块级错误隔离）；app.py 新增 handle_digest +
+      /api/digest 路由（GET 状态、?action=refresh 后台线程、生成中重复点击忽略、latest.json
+      原子持久化与重启回填）；看板新增「速递」页签（wp-panel 内，操作行/进度轮询/四卡片/名称补齐/1-3-5 信号日切换）；README 与
+      .gitignore 更新；tests/test_digest_builder.py 9 项全过，run_all_tests.py 全量 15/15
+      通过。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A59
+    - A60
+    - A61
+    - A62
+    - A63
+    - A64
+    - A65
+    - A66
+    - A67
+  checks:
+    - name:
+        text: python tests/test_digest_builder.py
+        truncated: false
+      result: passed
+      note:
+        text: 9/9 PASS（A2-A6/A8 及 app 层 A1/A7 状态机与并发忽略）
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 15/15 测试文件通过（含新增 test_digest_builder.py）
+        truncated: false
+    - name:
+        text: node --check dashboard/app.js
+        truncated: false
+      result: passed
+      note:
+        text: 前端 JS 语法校验通过
+        truncated: false
+    - name:
+        text: python -c ast.parse(app.py)
+        truncated: false
+      result: passed
+      note:
+        text: app.py AST 校验通过
+        truncated: false
+    - name:
+        text: 路由与前端标识符静态核验
+        truncated: false
+      result: passed
+      note:
+        text: /api/digest 路由、data-sb/data-tab/wp-content-digest 均存在
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 未做真实行情端到端联网验证：本迭代未启动完整服务抓取实盘（依赖 fetch_index_kline/_scan_one_stock
+        等既有网络函数，其自身已有既有测试覆盖）；Verifier 可复跑离线单测与静态核验。
+      truncated: false
+    - text: latest.json 采用首次访问懒加载回填，而非进程启动时预热（行为与规格一致，仅时序差异）。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-24T14:14:17.689Z
+blockers: []
+verification:
+  candidate_id: 147c6f93-e87a-406b-89d5-fb3eafd32ac6
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:1203be1f-f4f9-4f57-82f1-4f33e54d563a
+  iteration: 1
+  attempt: 1
+  assurance: user-confirmed-degraded
+  verdict: pass
+  checks:
+    - id: digest-builder-tests
+      name:
+        text: digest builder unit tests
+        truncated: false
+      argv_display:
+        - text: tests/test_digest_builder.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 312
+    - id: full-regression
+      name:
+        text: full regression suite
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 5569
+    - id: appjs-syntax
+      name:
+        text: dashboard app.js syntax
+        truncated: false
+      argv_display:
+        - text: --check
+          truncated: false
+        - text: dashboard/app.js
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 99
+    - id: apppy-ast
+      name:
+        text: app.py AST parse
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: import ast; ast.parse(open('app.py', encoding='utf-8').read())
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 78
+  summary:
+    text: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+      subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+      15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。
+    truncated: false
+  risks:
+    - text: No independent semantic Verifier execution was available; Runtime checks
+        alone do not cover acceptance semantics.
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-24T14:32:07.486Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A2
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+      - A9
+      - A10
+      - A11
+      - A12
+      - A13
+      - A14
+      - A15
+      - A16
+      - A17
+      - A18
+      - A19
+      - A20
+      - A21
+      - A22
+      - A23
+      - A24
+      - A25
+      - A26
+      - A27
+      - A28
+      - A29
+      - A30
+      - A31
+      - A32
+      - A33
+      - A34
+      - A35
+      - A36
+      - A37
+      - A38
+      - A39
+      - A40
+      - A41
+      - A42
+      - A43
+      - A44
+      - A45
+      - A46
+      - A47
+      - A48
+      - A49
+      - A50
+      - A51
+      - A52
+      - A53
+      - A54
+      - A55
+      - A56
+      - A57
+      - A58
+      - A59
+      - A60
+      - A61
+      - A62
+      - A63
+      - A64
+      - A65
+      - A66
+      - A67
+      - A68
+      - A69
+      - A70
+      - A71
+      - A72
+      - A73
+      - A74
+      - A75
+    summary:
+      text: 独立语义 Verifier 无法启动：本环境 subagent 通道返回 "subagent run failed"（重试 2
+        次）、dev_mode_subagent 与 workflow 单 agent 通道均失败/返回空，无法执行只读语义验收。适用检查已全部列明且
+        Runtime 4 项全部通过（digest 单测 9 PASS、全量回归 15/15、app.js 语法、app.py AST）。
+      truncated: false
+    completed_at: 2026-08-24T14:25:25.413Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/workflow/独立通道均不可用无法启动；Runtime 4 项检查全部通过（digest 单测 9 PASS、全量回归
+        15/15、app.js 语法、app.py AST）。按检查通过推进 Archive。
+      truncated: false
+    completed_at: 2026-08-24T14:32:07.486Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-24T11:35:04.156Z

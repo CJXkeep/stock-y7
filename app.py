@@ -43,6 +43,7 @@ from backtest.journal import (
     load_records as journal_load_records,
     save_records as journal_save_records,
 )
+from digest import builder as digest_builder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("trend_app")
@@ -693,10 +694,13 @@ def handle_analyze(params: dict) -> dict:
     period = params.get("period", ["day"])[0].strip()
     log.info(f"开始分析 {symbol} (period={period})")
 
-    # 获取数据
-    klines = fetch_kline(symbol, count=250, period=period)
-    if len(klines) < 30:
-        return {"error": f"K线数据不足: {len(klines)}条"}
+    # 获取数据：拉取 HISTORY_BARS（约3年/750根）供图表展示
+    all_klines = fetch_kline(symbol, count=journal_config.HISTORY_BARS, period=period)
+    if len(all_klines) < 30:
+        return {"error": f"K线数据不足: {len(all_klines)}条"}
+
+    # 分析窗口：最近 REPLAY_WINDOW（250）根，与回测/档案口径完全一致
+    klines = all_klines[-journal_config.REPLAY_WINDOW:]
 
     quote = fetch_quote(symbol)
     is_week = period == "week"
@@ -761,7 +765,7 @@ def handle_analyze(params: dict) -> dict:
         "name": quote.name if quote else "",
         "quote": quote_to_dict(quote) if quote else None,
         "signal": signal_data,
-        "klines": [kline_to_dict(k) for k in klines[-120:]],  # 返回最近120条K线
+        "klines": [kline_to_dict(k) for k in all_klines],  # 返回全部（≤HISTORY_BARS≈750根）K线供图表
         "flows": [{"date": f.date, "main_net": f.main_net, "super_large_net": f.super_large_net,
                     "large_net": f.large_net, "main_pct": f.main_pct} for f in flows] if flows else [],
         "market_env": market_env,  # 大盘环境摘要
@@ -1177,6 +1181,177 @@ def handle_scan(params: dict) -> dict:
     }
 
 
+# ---- 每日速递（daily-digest：手动生成后台线程 + latest.json 持久化） ----
+_digest_lock = threading.Lock()
+_digest_loaded = False  # 首次 GET 时从 latest.json 回填最近一期
+_digest_state = {
+    "status": "idle",        # idle | running | done | error
+    "stage": "",
+    "progress": 0,
+    "generated_at": None,
+    "elapsed": 0,
+    "error": "",
+    "digest": None,
+}
+_DIGEST_FILE = os.path.join(ROOT, "data", "digest", "latest.json")
+
+
+def _digest_find_latest_results():
+    """最新历史统计结果目录（名称倒序取首个含 results.csv 者）；无则 None。"""
+    import re as _re
+    root = journal_config.RESULTS_DIR
+    try:
+        candidates = sorted(
+            (name for name in os.listdir(root)
+             if _re.match(r"\d{8}T\d{6}Z", name)
+             and os.path.isdir(os.path.join(root, name))),
+            reverse=True)
+    except OSError:
+        candidates = []
+    for name in candidates:
+        csv_path = os.path.join(root, name, "results.csv")
+        if os.path.isfile(csv_path):
+            return name, csv_path
+    return None
+
+
+def _digest_make_ctx() -> dict:
+    """构造 build_digest 所需 ctx：指数/宽度预取一次共享给扫描，单股只读复用 _scan_one_stock。"""
+    index_klines = None
+    breadth = None
+    try:
+        index_klines = fetch_index_kline("000001", count=60)
+    except Exception as exc:
+        log.warning("速递指数预取失败: %s", exc)
+    try:
+        breadth = fetch_market_breadth()
+    except Exception as exc:
+        log.warning("速递宽度预取失败: %s", exc)
+
+    def scan_one(symbol: str):
+        return _scan_one_stock(symbol, "day", index_klines, breadth)
+
+    def fetch_index(symbol: str, count: int = 60):
+        if index_klines is not None:
+            return index_klines
+        return fetch_index_kline(symbol, count)
+
+    def fetch_breadth():
+        if breadth is not None:
+            return breadth
+        return fetch_market_breadth()
+
+    return {
+        "scan_one": scan_one,
+        "run_backfill": _run_journal_backfill,
+        "load_pool": stock_pool.load,
+        "load_journal": journal_load_records,
+        "find_latest_results": _digest_find_latest_results,
+        "fetch_index_kline": fetch_index,
+        "fetch_market_breadth": fetch_breadth,
+        "now_fn": datetime.datetime.now,
+        "project_root": ROOT,
+    }
+
+
+def _digest_persist(digest: dict) -> None:
+    """成功生成后原子写 data/digest/latest.json；失败仅告警不影响展示。"""
+    try:
+        os.makedirs(os.path.dirname(_DIGEST_FILE), exist_ok=True)
+        tmp = _DIGEST_FILE + ".tmp"
+        payload = {
+            "schema": digest_builder.DIGEST_SCHEMA,
+            "status": "done",
+            "generated_at": digest["meta"]["generated_at"],
+            "date": digest["meta"]["date"],
+            "elapsed": digest["meta"]["elapsed_sec"],
+            "digest": digest,
+        }
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, _DIGEST_FILE)
+        log.info("每日速递已持久化到 %s", _DIGEST_FILE)
+    except Exception as exc:
+        log.warning("每日速递持久化失败（不影响展示）: %s", exc)
+
+
+def _digest_load_cached():
+    """读取最近一期缓存；缺失/损坏返回 None 并告警。"""
+    try:
+        with open(_DIGEST_FILE, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if payload.get("schema") != digest_builder.DIGEST_SCHEMA \
+                or not isinstance(payload.get("digest"), dict):
+            raise ValueError("digest schema 或结构非法")
+        return payload
+    except (OSError, ValueError) as exc:
+        log.warning("每日速递缓存读取失败（回退 idle）: %s", exc)
+        return None
+
+
+def _run_digest_build() -> None:
+    """后台生成速递：构建 → 更新状态 → 持久化。"""
+    started = time.time()
+    with _digest_lock:
+        _digest_state.update({
+            "status": "running", "stage": "准备数据源...", "progress": 5,
+            "error": "", "digest": None, "generated_at": None, "elapsed": 0,
+        })
+
+    def progress(stage: str, pct: int) -> None:
+        with _digest_lock:
+            if _digest_state["status"] == "running":
+                _digest_state["stage"] = stage
+                _digest_state["progress"] = max(_digest_state["progress"], pct)
+
+    try:
+        digest = digest_builder.build_digest(_digest_make_ctx(), progress=progress)
+        elapsed = round(time.time() - started, 1)
+        with _digest_lock:
+            _digest_state.update({
+                "status": "done", "stage": "完成", "progress": 100,
+                "digest": digest,
+                "generated_at": digest["meta"]["generated_at"],
+                "elapsed": elapsed,
+            })
+        _digest_persist(digest)
+    except Exception as exc:
+        log.error("每日速递生成失败: %s", exc, exc_info=True)
+        with _digest_lock:
+            _digest_state.update({"status": "error", "stage": "生成失败", "error": str(exc)})
+
+
+def handle_digest(params: dict) -> dict:
+    """每日速递接口：GET /api/digest（状态+结果）；?action=refresh 触发后台生成。"""
+    global _digest_loaded
+    if not _digest_loaded:
+        cached = _digest_load_cached()
+        if cached:
+            with _digest_lock:
+                _digest_state.update({
+                    "status": "done", "stage": "完成（上次生成）", "progress": 100,
+                    "digest": cached.get("digest"),
+                    "generated_at": cached.get("generated_at"),
+                    "elapsed": cached.get("elapsed", 0),
+                })
+        _digest_loaded = True
+
+    action = params.get("action", [""])[0]
+    if action == "refresh":
+        with _digest_lock:
+            if _digest_state["status"] == "running":
+                state = dict(_digest_state)
+                state["message"] = "生成进行中，请稍候"
+                return state
+        t = threading.Thread(target=_run_digest_build, daemon=True)
+        t.start()
+        return {"status": "started", "message": "速递生成已启动"}
+    with _digest_lock:
+        state = dict(_digest_state)
+    return state
+
+
 # ---- HTTP Handler ----
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -1242,6 +1417,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(handle_snapshot_info(params))
                 elif path == "/api/scan":
                     self._json(handle_scan(params))
+                elif path == "/api/digest":
+                    self._json(handle_digest(params))
                 else:
                     self._json({"error": "未知API"}, 404)
             except Exception as e:

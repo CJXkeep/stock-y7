@@ -1,0 +1,992 @@
+schema: comet.native.v4
+name: kline-range-years
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: kline-range-years
+    operation: create
+    source: specs/kline-range-years/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：`/api/analyze?symbol=xxx` 响应 `klines` 数量为拉取到的最近 ≤750 根（当前为
+      120，扩容后可观察数量明显增大）；最新一根的日期与容量校验前后一致；不足 30 根时仍返回「K线数据不足」错误而非崩溃。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：信号与分析档案口径不变——`handle_analyze` 中 `run_analysis`/信号优化/journal
+      钩子使用的窗口固定为最近 `REPLAY_WINDOW`（250）根；同一份 750 根数据下「用最近 250 根计算」与「扩容前 250
+      根计算」的输出（action/score/breakouts）完全一致（源码级断言实现；测试用假数据比对）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：`dashboard/index.html` 时间档包含「2年」(data-range=500)
+      与「3年」(data-range=750)，顺序位于「1年」与「全部」之间。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：前端 `syncRangeBtns` 在 `_klineData.length=750` 下：点「3年」→ 保持高亮；点「2年」→
+      仅「2年」高亮；全视图时仅一个档位高亮（最大匹配档，无匹配才「全部」），不会出现双键同亮（源码级断言 + node 语法校验）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：`period=week` 时同样返回最近 ≤750 根周 K，接口不报错。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：`python tests/test_kline_range_years.py` 通过；`python run_all_tests.py`
+      全量回归通过。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A7
+    source: specs/kline-range-years/spec.md
+    text: Capability：`kline-range-years`
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A8
+    source: specs/kline-range-years/spec.md
+    text: Operation：`create`
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A9
+    source: specs/kline-range-years/spec.md
+    text: 关联模块：`app.py`（`handle_analyze`）、`dashboard/index.html`、`dashboard/app.js`、`tests/test_kline_range_years.py`
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A10
+    source: specs/kline-range-years/spec.md
+    text: 看板主图的「时间范围」档位（1月/3月/半年/1年/全部）此前受限于 `handle_analyze` 只回传最近 120 根 K
+      线（约半年），导致：
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A11
+    source: specs/kline-range-years/spec.md
+    text: 「1年」（250）与「全部」在 120 根数据下行为等价；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A12
+    source: specs/kline-range-years/spec.md
+    text: 点击「1年」时 `syncRangeBtns` 因可见根数（120）≠ 250 立即取消高亮，表现为「选不了」；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A13
+    source: specs/kline-range-years/spec.md
+    text: 图表无法查看超过半年的历史。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A14
+    source: specs/kline-range-years/spec.md
+    text: 本能力将图表数据扩容到最近约 750 根（≈3 年，与 `backtest.config.HISTORY_BARS`
+      一致），新增「2年」「3年」档位，同时**不改变信号计算口径**（仍基于最近 250 根，保持与回测
+      `REPLAY_WINDOW`、档案统计一致），并修复档位高亮逻辑。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A15
+    source: specs/kline-range-years/spec.md
+    text: 数据获取（日/周通用）：
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A16
+    source: specs/kline-range-years/spec.md
+    text: "`all_klines = fetch_kline(symbol, count=journal_config.HISTORY_BARS,
+      period=period)`，约 750 根。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A17
+    source: specs/kline-range-years/spec.md
+    text: '`len(all_klines) < 30` 时返回 `{"error": "K线数据不足: N条"}`，行为不变。'
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A18
+    source: specs/kline-range-years/spec.md
+    text: 分析窗口：
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A19
+    source: specs/kline-range-years/spec.md
+    text: "`klines = all_klines[-journal_config.REPLAY_WINDOW:]`（最近 250 根）。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A20
+    source: specs/kline-range-years/spec.md
+    text: "`run_analysis(...)`、`_apply_signal_optimization(...)`、`_journal_main_cha\
+      in(...)`、`data_meta`（最新一根 source/adjust/date）全部使用该
+      `klines`——**信号、日志、档案口径与扩容前逐字节一致**。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A21
+    source: specs/kline-range-years/spec.md
+    text: 响应：
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A22
+    source: specs/kline-range-years/spec.md
+    text: '`"klines": [kline_to_dict(k) for k in all_klines]`：返回全部拉取到的 K 线（约 750
+      条），替代原「最近 120 条」硬切片。'
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A23
+    source: specs/kline-range-years/spec.md
+    text: 其余字段（quote/signal/flows/market_env/breadth/data_meta）不变。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A24
+    source: specs/kline-range-years/spec.md
+    text: 幂等性：同一股票同一时刻，扩容后响应中**最近 250 根**与扩容前 `klines` 完全一致；`signal` 字段保持一致。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A25
+    source: specs/kline-range-years/spec.md
+    text: 档位顺序固定为：`1月(20)`、`3月(60)`、`半年(120)`、`1年(250)`、**`2年(500)`**、**`3年(750)`**、`全部(0)`。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A26
+    source: specs/kline-range-years/spec.md
+    text: 「2年」：`<button class="tb-btn" data-range="500">2年</button>`
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A27
+    source: specs/kline-range-years/spec.md
+    text: 「3年」：`<button class="tb-btn" data-range="750">3年</button>`
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A28
+    source: specs/kline-range-years/spec.md
+    text: 均挂在既有 `document.querySelectorAll('.tb-btn[data-range]')` 事件绑定下，无需额外监听。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A29
+    source: specs/kline-range-years/spec.md
+    text: "`applyRange(days)`（无需改）："
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A30
+    source: specs/kline-range-years/spec.md
+    text: "`days === 0 || days >= total` → 全视图（`s=0, e=100`）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A31
+    source: specs/kline-range-years/spec.md
+    text: 否则 `s = (1 - days/total)*100, e=100`。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A32
+    source: specs/kline-range-years/spec.md
+    text: 750 根下：1月→86.7%，3月→60%，半年→40%，1年→16.7%，2年→6.7%（约），3年→全视图。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A33
+    source: specs/kline-range-years/spec.md
+    text: "`syncRangeBtns(start, end)`（修改）实现「单一高亮」："
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A34
+    source: specs/kline-range-years/spec.md
+    text: 计算可见根数 `days = round((end-start)/100 * total)`；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A35
+    source: specs/kline-range-years/spec.md
+    text: 收集所有正向档位（`r>0`）中满足 `end > 99 && |days - r| < 5` 的**最大值** `best`；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A36
+    source: specs/kline-range-years/spec.md
+    text: 正向档位仅当其 `r === best` 时高亮；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A37
+    source: specs/kline-range-years/spec.md
+    text: 「全部」（`r === 0`）仅在 `start === 0 && end === 100 && best === 0` 时高亮。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A38
+    source: specs/kline-range-years/spec.md
+    text: 效果：点「3年」→ 保持高亮；点「2年」→ 仅 2 年高亮；任何时刻时间档至多一个高亮；数据不足任一档位（如新股仅 120
+      根）时全视图由「半年」代替「全部」高亮，不再双键同亮。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A39
+    source: specs/kline-range-years/spec.md
+    text: 历史不足 250/750 根（次新股）：`all_klines[-250:]` 自然退化为全部；响应返回其全部根数；分析仍要求 ≥30 根，否则报错。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A40
+    source: specs/kline-range-years/spec.md
+    text: "`period=week`：同样拉取 ≤750 根周 K、最近 250 周用于分析，行为与日线一致，不引入额外错误路径。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A41
+    source: specs/kline-range-years/spec.md
+    text: 周线视图下 `flows` 为空数组的既有逻辑不变。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A42
+    source: specs/kline-range-years/spec.md
+    text: 无新增运行时文件；无状态变更。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A43
+    source: specs/kline-range-years/spec.md
+    text: 常量复用 `backtest.config.HISTORY_BARS`（750）与 `REPLAY_WINDOW`（250），不重复定义魔数。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A44
+    source: specs/kline-range-years/spec.md
+    text: D1 隔离：当前目录（用户确认）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A45
+    source: specs/kline-range-years/spec.md
+    text: D2 历史长度：750 根 ≈ 3 年（用户确认），与 backtest 快照口径一致。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A46
+    source: specs/kline-range-years/spec.md
+    text: D3 信号口径：保持最近 250 根（用户确认）——拉 750、算 250。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A47
+    source: specs/kline-range-years/spec.md
+    text: D4 响应返回全部 K 线，前端自行计算 MA 等指标（现有 `renderKline` 已支持任意长度）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A48
+    source: specs/kline-range-years/spec.md
+    text: D5 档位高亮：最大匹配档优先，消除多键同亮。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A49
+    source: specs/kline-range-years/spec.md
+    text: A1：`/api/analyze` 响应 `klines` 长度为拉取到的 ≤750 根；最新日期与扩容校验前后一致；`<30` 根报错不崩溃。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A50
+    source: specs/kline-range-years/spec.md
+    text: A2：`run_analysis`/优化/journal 钩子使用最近 `REPLAY_WINDOW`(250) 根；同一数据「最近 250
+      根」计算输出与扩容前一致（源码断言 + 假数据比对）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A51
+    source: specs/kline-range-years/spec.md
+    text: A3：`index.html` 含「2年」(500)「3年」(750)，顺序在「1年」与「全部」之间。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A52
+    source: specs/kline-range-years/spec.md
+    text: A4：`syncRangeBtns` 单一高亮逻辑成立；`node --check`、相关源码断言通过。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A53
+    source: specs/kline-range-years/spec.md
+    text: A5：`period=week` 响应 ≤750 根周 K 不报错。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A54
+    source: specs/kline-range-years/spec.md
+    text: A6：`tests/test_kline_range_years.py` 与 `run_all_tests.py` 全量通过。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A55
+    source: specs/kline-range-years/spec.md
+    text: 不改动 `run_analysis`、`journal`、`backtest`、`digest` 等模块；不改信号输出。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A56
+    source: specs/kline-range-years/spec.md
+    text: 不新增 5 年及以上档位；不引入分页/懒加载；不调整回放窗口。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A57
+    source: specs/kline-range-years/spec.md
+    text: 不改变分时、指标、缠论、自选股、每日速递等交互。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A58
+    source: specs/kline-range-years/spec.md
+    text: 开发期检查：`python tests/test_kline_range_years.py`、`python
+      run_all_tests.py`、`node --check dashboard/app.js`、`python -m py_compile
+      app.py`。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A59
+    source: specs/kline-range-years/spec.md
+    text: 对运行中服务 `GET /api/analyze?symbol=600519` 抽查 `klines` 数量与最新日期。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+  - id: A60
+    source: specs/kline-range-years/spec.md
+    text: 由只读 Verifier 按 A1–A6 逐项表决。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。"
+      truncated: false
+builder_handoff:
+  candidate_id: fce3801f-d177-4d42-bd41-6f1e6cb8f938
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:b5ea828b-8327-4c21-919d-658da4ced213
+  iteration: 1
+  summary:
+    text: 看板K线时间范围扩展到2年/3年：后端 handle_analyze 改为拉取
+      journal_config.HISTORY_BARS(750)根展示、分析窗口固定为最近
+      REPLAY_WINDOW(250)根（信号/档案口径不变），响应 klines
+      由最近120条改为返回全部(≤750)；前端时间档新增2年(500)/3年(750)并重构 syncRangeBtns
+      为单一高亮（最大匹配档优先，全部仅无匹配时高亮）。新增 tests/test_kline_range_years.py 7项通过；服务已重启实测
+      /api/analyze 返回751根(2023-07-20~2026-08-24)、首页含新档位、digest 正常。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+    - A47
+    - A48
+    - A49
+    - A50
+    - A51
+    - A52
+    - A53
+    - A54
+    - A55
+    - A56
+    - A57
+    - A58
+    - A59
+    - A60
+  checks:
+    - name:
+        text: python tests/test_kline_range_years.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7 PASS（A1-A5 后端扩容/窗口一致/前端档位/单一高亮 + spec 同步）
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 16/16 测试文件通过（含新增 test_kline_range_years.py）
+        truncated: false
+    - name:
+        text: node --check dashboard/app.js
+        truncated: false
+      result: passed
+      note:
+        text: 前端 JS 语法校验通过
+        truncated: false
+    - name:
+        text: python -m py_compile app.py
+        truncated: false
+      result: passed
+      note:
+        text: app.py 编译通过
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 未做真实浏览器逐点击验证：前端高亮行为以源码级断言覆盖（A4），node 语法校验通过。
+      truncated: false
+    - text: 信号 250 窗口口径一致性以源码切片 + 假数据比对验证（A2），未跑实盘前后对照（同一逻辑复用）。
+      truncated: false
+    - text: 运行中服务已重启并实测：/api/analyze klines=751、最新日期 2026-08-24、index 含
+        data-range=500/750、/api/digest=done。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-24T14:54:21.180Z
+blockers: []
+verification:
+  candidate_id: fce3801f-d177-4d42-bd41-6f1e6cb8f938
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:974c9c17-362a-4434-afe3-a740108bf4a9
+  iteration: 1
+  attempt: 1
+  assurance: user-confirmed-degraded
+  verdict: pass
+  checks:
+    - id: kline-range-tests
+      name:
+        text: kline range tests
+        truncated: false
+      argv_display:
+        - text: tests/test_kline_range_years.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 141
+    - id: full-regression
+      name:
+        text: full regression suite
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 5732
+    - id: appjs-syntax
+      name:
+        text: dashboard app.js syntax
+        truncated: false
+      argv_display:
+        - text: --check
+          truncated: false
+        - text: dashboard/app.js
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 101
+    - id: apppy-ast
+      name:
+        text: app.py AST parse
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: import ast; ast.parse(open('app.py', encoding='utf-8').read())
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 74
+  summary:
+    text: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+      subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+      16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+      档位。按检查通过推进 Archive。
+    truncated: false
+  risks:
+    - text: No independent semantic Verifier execution was available; Runtime checks
+        alone do not cover acceptance semantics.
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-24T15:02:00.675Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A2
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+      - A9
+      - A10
+      - A11
+      - A12
+      - A13
+      - A14
+      - A15
+      - A16
+      - A17
+      - A18
+      - A19
+      - A20
+      - A21
+      - A22
+      - A23
+      - A24
+      - A25
+      - A26
+      - A27
+      - A28
+      - A29
+      - A30
+      - A31
+      - A32
+      - A33
+      - A34
+      - A35
+      - A36
+      - A37
+      - A38
+      - A39
+      - A40
+      - A41
+      - A42
+      - A43
+      - A44
+      - A45
+      - A46
+      - A47
+      - A48
+      - A49
+      - A50
+      - A51
+      - A52
+      - A53
+      - A54
+      - A55
+      - A56
+      - A57
+      - A58
+      - A59
+      - A60
+    summary:
+      text: 独立语义 Verifier 无法启动：本环境 subagent 通道返回 "subagent run
+        failed"（重试第2次）、dev_mode_subagent 独立任务通道亦返回空，无法执行只读语义验收。适用检查已列明且 Runtime
+        4 项全部通过（kline-range 单测 7 PASS、全量回归 16/16、app.js 语法、app.py AST）；实测服务
+        /api/analyze 返回 751 根（2023-07-20~2026-08-24）、首页含 2年/3年 档位。
+      truncated: false
+    completed_at: 2026-08-24T14:57:24.505Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 用户确认接受 verifier-unavailable 降级验收并继续归档：独立语义 Verifier 因本环境
+        subagent/独立任务通道均不可用无法启动；Runtime 4 项检查全部通过（kline-range 单测 7 PASS、全量回归
+        16/16、app.js 语法、app.py AST），实测服务 /api/analyze 返回 751 根、首页含 2年/3年
+        档位。按检查通过推进 Archive。
+      truncated: false
+    completed_at: 2026-08-24T15:02:00.675Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-24T14:46:27.088Z
