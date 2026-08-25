@@ -6,12 +6,17 @@ services:
     image: qushi:latest
     container_name: qushi
     ports:
-      - "8795:8795"
+      - "127.0.0.1:8795:8795"
     environment:
       TZ: Asia/Shanghai
       PYTHONIOENCODING: utf-8
-      # 简单登录鉴权（web-auth）：设置后整个看板与 API 需要密码登录；不设置则保持全公开
-      # AUTH_PASSWORD: "换成你的强密码"
+      BIND_HOST: "0.0.0.0"
+      # 简单登录鉴权（web-auth）：通过 .env 中的 AUTH_PASSWORD 设置
+      AUTH_PASSWORD: "${AUTH_PASSWORD:-}"
+      # 2C2G 小机器资源优化：限制并发与缓存，避免和服务器现有服务抢资源
+      BREADTH_MAX_WORKERS: "${BREADTH_MAX_WORKERS:-4}"
+      DIGEST_SCAN_MAX_WORKERS: "${DIGEST_SCAN_MAX_WORKERS:-4}"
+      KLINE_CACHE_MAX: "${KLINE_CACHE_MAX:-1000}"
     volumes:
       # 持久化运行数据（journal/pool/results/digest）。
       # data/ 是 Python 包（含 kline_fetcher.py），必须绑定挂载整个目录，
@@ -21,8 +26,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1.5G
-          cpus: "2"
+          memory: 512M
+          cpus: "1.0"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=3)"]
       interval: 30s

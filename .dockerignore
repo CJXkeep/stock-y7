@@ -7,6 +7,15 @@ __pycache__
 *.py[cod]
 logs
 .worktrees
+.env
+.env.*
+
+# 部署/接入敏感文档（不入镜像）
+server-connect-guide-for-new-device.md
+DEPLOY_NOTES.md
+
+# 许可证（机器绑定，敏感，不入镜像）
+data/license.dat
 
 # 运行数据（由卷持久化，不入镜像）
 data/journal

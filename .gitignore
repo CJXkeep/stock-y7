@@ -23,3 +23,14 @@ data/digest/
 # 工作区与日志
 .worktrees/
 logs/
+
+# 本地部署凭据（不入库）
+.env
+.env.*
+
+# 部署/接入敏感文档（不入库）
+server-connect-guide-for-new-device.md
+DEPLOY_NOTES.md
+
+# 许可证（机器绑定，敏感，不入库）
+data/license.dat

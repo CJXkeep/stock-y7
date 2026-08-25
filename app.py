@@ -51,6 +51,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("trend_app")
 
 PORT = int(os.environ.get("PORT", "8795"))  # 端口可经环境变量覆盖（Docker 映射或测试随机端口）
+HOST = os.environ.get("BIND_HOST", "127.0.0.1")  # 监听地址；容器内设为 0.0.0.0 才能被端口映射访问
 DASHBOARD_DIR = os.path.join(ROOT, "dashboard")
 
 # ---- 简单登录鉴权（web-auth）：设置 AUTH_PASSWORD 后启用，未设置保持全公开 ----
@@ -1658,7 +1659,7 @@ def main():
     # 启动即触发一次信号日志补记（后台线程，不阻塞服务启动）
     _kick_journal_backfill(min_interval_sec=0.0)
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
     log.info(f"趋势分析实时买卖点工具启动 → http://127.0.0.1:{PORT}")
     log.info(f"API: /api/analyze?symbol=600000")
