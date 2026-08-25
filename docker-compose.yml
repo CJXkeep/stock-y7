@@ -10,9 +10,27 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONIOENCODING: utf-8
+      # 简单登录鉴权（web-auth）：设置后整个看板与 API 需要密码登录；不设置则保持全公开
+      # AUTH_PASSWORD: "换成你的强密码"
     volumes:
       # 持久化运行数据（journal/pool/results/digest）。
       # data/ 是 Python 包（含 kline_fetcher.py），必须绑定挂载整个目录，
       # 不能挂独立数据卷覆盖 /app/data，否则会遮蔽镜像内的代码模块。
       - ./data:/app/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: "2"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

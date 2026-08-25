@@ -11,6 +11,34 @@ let _minuteData = null;      // 缓存分时数据
 let _minuteChanlun = null;   // 缓存缠论分时分析结果
 let _minuteYRange = null;    // 固定Y轴范围
 let _dailyChanlun = null;    // 缓存缠论日线分析结果
+
+// ---- 简单鉴权（web-auth）：AUTH_PASSWORD 启用后，任意受保护请求 401 → 跳登录页 ----
+(function () {
+  const _orig = window.fetch;
+  window.fetch = function (input, init) {
+    return _orig.apply(this, arguments).then(function (res) {
+      if (res.status === 401 && !location.pathname.endsWith('/login.html')) {
+        location.href = '/login.html';
+      }
+      return res;
+    });
+  };
+})();
+
+// 鉴权启用时显示「退出」；未登录则跳登录页
+async function _initAuth() {
+  try {
+    const s = await (await fetch('/api/auth/status')).json();
+    const btn = document.getElementById('btn-logout');
+    if (btn && s && s.enabled) btn.style.display = '';
+    if (s && s.enabled && !s.authed) location.href = '/login.html';
+  } catch (e) { /* 离线/异常时静默 */ }
+}
+
+function doLogout() {
+  fetch('/api/auth/logout', { method: 'POST' }).catch(function () {})
+    .finally(function () { location.href = '/login.html'; });
+}
 let _flowMode = 'realtime';  // 资金流模式：'realtime'=今日实时, 'daily'=近30日
 let _dailyFlows = null;      // 缓存日级资金流数据（analyze返回）
 let _signalLines = [];       // K线水平线信息（止损/入场/目标），供鼠标悬浮解释
@@ -146,6 +174,8 @@ function initCharts() {
       applyRange(parseInt(btn.dataset.range));
     };
   });
+
+  _initAuth();  // web-auth：显示退出入口 / 未登录跳登录页
 
   bindChartTooltip();
 }

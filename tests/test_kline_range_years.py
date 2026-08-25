@@ -28,6 +28,15 @@ INDEX_SOURCE = open(os.path.join(ROOT, "dashboard", "index.html"), "r", encoding
 JS_SOURCE = open(os.path.join(ROOT, "dashboard", "app.js"), "r", encoding="utf-8").read()
 
 
+def _spec_text(cap="kline-range-years") -> str:
+    """正式规格路径：归档后在 docs/comet/specs，归档前在 changes 目录，二者兜底。"""
+    for p in (os.path.join(ROOT, "docs", "comet", "specs", cap, "spec.md"),
+              os.path.join(ROOT, "docs", "comet", "changes", cap, "specs", cap, "spec.md")):
+        if os.path.isfile(p):
+            return open(p, "r", encoding="utf-8").read()
+    raise FileNotFoundError(f"未找到 {cap} 的正式规格")
+
+
 class _K:
     def __init__(self, date, close):
         self.date = date
@@ -35,10 +44,8 @@ class _K:
 
 
 def _assert_in_specs(text, label=""):
-    """关键结构与 brief/spec 保持一致（防止实现与正式产物脱节）。"""
-    spec_path = os.path.join(BASE, "specs", "kline-range-years", "spec.md")
-    spec = open(spec_path, "r", encoding="utf-8").read()
-    assert text in spec, f"spec 缺少: {text!r}{label}"
+    """关键结构与正式规格保持一致（防止实现与正式产物脱节）。"""
+    assert text in _spec_text(), f"spec 缺少: {text!r}{label}"
 
 
 def test_config_constants_present():

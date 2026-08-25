@@ -37,8 +37,8 @@ _log = logging.getLogger("digest.builder")
 RECENT_WINDOW_DAYS = 7
 # 块1 后端一次返回的最大不同信号日数（前端可 1/3/5 裁剪展示）
 MAX_LOOKBACK_DATES = 5
-# 池扫描并发上限（量级与 /api/scan 一致）
-SCAN_MAX_WORKERS = 15
+# 池扫描并发上限（2C2G 默认 8；环境变量 DIGEST_SCAN_MAX_WORKERS 可调）
+SCAN_MAX_WORKERS = int(os.environ.get("DIGEST_SCAN_MAX_WORKERS", "8"))
 # 买侧动作（排序优先级，与 backtest.config.BUY_SIDE_TYPES 同源但含全部买侧展示）
 BUY_ACTIONS = ("强烈买入", "买入", "谨慎买入")
 # 池扫描输出字段（精简载荷）

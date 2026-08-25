@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · 趋势分析工具</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Microsoft YaHei', system-ui, sans-serif;
+    background: #0e1220; color: #cdd6e4;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  }
+  .card {
+    width: 320px; background: #161b2b; border: 1px solid #2a3350;
+    border-radius: 12px; padding: 28px 24px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  h1 { font-size: 18px; margin-bottom: 6px; color: #fff; }
+  .sub { font-size: 12px; color: #8b93a8; margin-bottom: 20px; }
+  label { display: block; font-size: 12px; color: #9aa3ba; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #2c3550; background: #101526; color: #e6ecf7;
+    font-size: 14px; margin-bottom: 16px; outline: none;
+  }
+  input:focus { border-color: #4f6bff; }
+  button {
+    width: 100%; padding: 11px; border: 0; border-radius: 8px;
+    background: linear-gradient(135deg, #4f6bff, #7a4fff); color: #fff;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  .err { display: none; margin-top: 12px; font-size: 12px; color: #ff6b6b; }
+  .hint { margin-top: 14px; font-size: 11px; color: #6b7388; text-align: center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>趋势分析实时买卖点工具</h1>
+  <div class="sub">请输入访问密码登录</div>
+  <form id="login-form">
+    <label for="password">访问密码</label>
+    <input type="password" id="password" autocomplete="current-password" autofocus required>
+    <button type="submit" id="submit-btn">登 录</button>
+  </form>
+  <div class="err" id="err"></div>
+  <div class="hint">自用参考，非投资建议</div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('login-form');
+  var err = document.getElementById('err');
+  var btn = document.getElementById('submit-btn');
+  var pwd = document.getElementById('password');
+
+  // 已登录则直接进入看板
+  fetch('/api/auth/status').then(function (r) { return r.json(); })
+    .then(function (s) {
+      if (s && s.enabled && s.authed) { window.location.href = '/'; }
+    }).catch(function () {});
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    err.style.display = 'none';
+    btn.disabled = true;
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd.value })
+    }).then(function (r) {
+      if (r.status === 200) { window.location.href = '/'; return; }
+      return r.json().then(function (d) {
+        err.textContent = (d && d.error) || '登录失败';
+        err.style.display = 'block';
+      });
+    }).catch(function () {
+      err.textContent = '网络异常，请重试';
+      err.style.display = 'block';
+    }).finally(function () { btn.disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>

@@ -80,6 +80,16 @@ _ua_idx = 0
 
 _cache: Dict[str, Tuple[Any, float]] = {}
 _CACHE_TTL = 15
+# 2C2G 防内存膨胀：内存缓存条数上限（环境变量 KLINE_CACHE_MAX 可调），超限清理最旧 25%
+_CACHE_MAX = int(os.environ.get("KLINE_CACHE_MAX", "1500"))
+
+
+def _prune_cache() -> None:
+    """缓存超上限时，丢弃最旧的 25% 条目（TTL 语义不变）。"""
+    if len(_cache) > _CACHE_MAX:
+        keep = _CACHE_MAX * 3 // 4
+        for k in list(_cache.keys())[: max(0, len(_cache) - keep)]:
+            _cache.pop(k, None)
 
 
 def _get_session() -> requests.Session:
@@ -114,6 +124,7 @@ def _cached(key: str) -> Optional[Any]:
 
 def _set_cache(key: str, val: Any) -> None:
     _cache[key] = (val, time.time())
+    _prune_cache()
 
 
 def _cache_get(key: str, ttl: float) -> Optional[Any]:
@@ -126,6 +137,7 @@ def _cache_get(key: str, ttl: float) -> Optional[Any]:
 
 def _cache_set(key: str, val: Any) -> None:
     _cache[key] = (val, time.time())
+    _prune_cache()
 
 
 def _to_float(v: Any) -> Optional[float]:
@@ -1040,7 +1052,8 @@ def fetch_market_breadth() -> Optional[dict]:
             down += 1
 
     if total_pages > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        _breadth_workers = int(os.environ.get("BREADTH_MAX_WORKERS", "6"))  # 2C2G 默认 6
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_breadth_workers) as executor:
             futures = [executor.submit(_fetch_page, pn) for pn in range(2, total_pages + 1)]
             for f in concurrent.futures.as_completed(futures):
                 diff = f.result()

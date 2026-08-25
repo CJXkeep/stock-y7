@@ -19,6 +19,8 @@ import threading
 import time
 import datetime
 import concurrent.futures
+import hmac
+import secrets
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -48,8 +50,23 @@ from digest import builder as digest_builder
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("trend_app")
 
-PORT = 8795
+PORT = int(os.environ.get("PORT", "8795"))  # 端口可经环境变量覆盖（Docker 映射或测试随机端口）
 DASHBOARD_DIR = os.path.join(ROOT, "dashboard")
+
+# ---- 简单登录鉴权（web-auth）：设置 AUTH_PASSWORD 后启用，未设置保持全公开 ----
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "") or ""
+AUTH_ENABLED = bool(AUTH_PASSWORD)
+_COOKIE_NAME = "qushi_session"
+_SESSION_TTL = 7 * 24 * 3600          # 7 天
+_SESSIONS: dict = {}                  # token -> expiry_ts（进程内存，重启失效）
+_SESSIONS_LOCK = threading.Lock()
+
+
+def _prune_sessions_locked() -> None:
+    """仅持有 _SESSIONS_LOCK 时调用：清理已过期会话。"""
+    now = time.time()
+    for t in [t for t, e in _SESSIONS.items() if e <= now]:
+        _SESSIONS.pop(t, None)
 # count 参数安全解析上限，防止非法输入导致 500 或超大值放大网络请求
 MAX_KLINE_COUNT = 10000
 MAX_CHANLUN_COUNT = 10000
@@ -1363,11 +1380,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
 
-    def _json(self, data: dict, status: int = 200):
+    def _json(self, data: dict, status: int = 200, extra_headers=None):
         body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        for k, v in (extra_headers or []):
+            self.send_header(k, v)
         self._send_no_cache_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -1381,6 +1400,63 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    # ---- 简单鉴权辅助（web-auth） ----
+    def _cookie_token(self) -> str:
+        raw = self.headers.get("Cookie", "")
+        for part in raw.split(";"):
+            part = part.strip()
+            if part.startswith(_COOKIE_NAME + "="):
+                return part[len(_COOKIE_NAME) + 1:]
+        return ""
+
+    def _is_authed(self) -> bool:
+        if not AUTH_ENABLED:
+            return True
+        tok = self._cookie_token()
+        if not tok:
+            return False
+        with _SESSIONS_LOCK:
+            exp = _SESSIONS.get(tok)
+            if exp is None:
+                return False
+            if time.time() > exp:
+                _SESSIONS.pop(tok, None)
+                return False
+        return True
+
+    def _handle_auth_login(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length <= 0 or length > 65536:
+                raise ValueError("length")
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError("json body")
+            pwd = str(body.get("password", "") or "")
+        except Exception:
+            self._json({"ok": False, "error": "请求体无效"}, 400)
+            return
+        if not AUTH_ENABLED:
+            self._json({"ok": False, "error": "鉴权未启用"})
+            return
+        if not hmac.compare_digest(pwd.encode("utf-8"), AUTH_PASSWORD.encode("utf-8")):
+            self._json({"ok": False, "error": "密码错误"}, 401)
+            return
+        token = secrets.token_hex(16)
+        with _SESSIONS_LOCK:
+            _prune_sessions_locked()
+            _SESSIONS[token] = time.time() + _SESSION_TTL
+        cookie = f"{_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={_SESSION_TTL}"
+        self._json({"ok": True}, 200, extra_headers=[("Set-Cookie", cookie)])
+
+    def _handle_auth_logout(self) -> None:
+        tok = self._cookie_token()
+        if tok:
+            with _SESSIONS_LOCK:
+                _SESSIONS.pop(tok, None)
+        cookie = f"{_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+        self._json({"ok": True}, 200, extra_headers=[("Set-Cookie", cookie)])
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -1388,10 +1464,18 @@ class Handler(BaseHTTPRequestHandler):
 
         # API路由
         if path.startswith("/api/"):
+            # web-auth 白名单：状态探针与健康检查无需登录
+            if path == "/api/auth/status":
+                self._json({"enabled": AUTH_ENABLED, "authed": self._is_authed()})
+                return
+            if path == "/api/health":
+                self._json({"status": "ok", "time": time.strftime("%H:%M:%S")})
+                return
+            if AUTH_ENABLED and not self._is_authed():
+                self._json({"error": "未授权"}, 401)
+                return
             try:
-                if path == "/api/health":
-                    self._json({"status": "ok", "time": time.strftime("%H:%M:%S")})
-                elif path == "/api/analyze":
+                if path == "/api/analyze":
                     self._json(handle_analyze(params))
                 elif path == "/api/quote":
                     self._json(handle_quote(params))
@@ -1426,7 +1510,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
-        # 静态文件（看板）
+        # 静态文件（看板）——web-auth：除 /login.html 外需登录，未登录返回 401（前端跳登录页）
+        if AUTH_ENABLED and path != "/login.html" and not self._is_authed():
+            self._json({"error": "未授权"}, 401)
+            return
+
         if path == "/" or path == "/index.html":
             filepath = os.path.join(DASHBOARD_DIR, "index.html")
         else:
@@ -1457,9 +1545,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        """核心池变更入口（I7.3）。仅开放 /api/pool。"""
+        """鉴权登录/退出 + 核心池变更入口。"""
         parsed = urlparse(self.path)
-        if parsed.path != "/api/pool":
+        path = parsed.path
+        if path == "/api/auth/login":
+            self._handle_auth_login()
+            return
+        if path == "/api/auth/logout":
+            self._handle_auth_logout()
+            return
+        if AUTH_ENABLED and not self._is_authed():
+            self._json({"error": "未授权"}, 401)
+            return
+        if path != "/api/pool":
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
