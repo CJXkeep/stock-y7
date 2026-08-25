@@ -1065,7 +1065,7 @@ def _run_scan(max_stocks: int = 1000):
             filtered.append(s)
 
         # 只扫成交额前 N（默认 1000，与前端「成交额前1000只活跃A股」口径一致）
-        limit = max_stocks if max_stocks and max_stocks > 0 else 1000
+        limit = len(filtered) if max_stocks <= 0 else max_stocks
         filtered.sort(key=lambda s: s.get("amount", 0) or 0, reverse=True)
         filtered = filtered[:limit]
 
@@ -1199,6 +1199,13 @@ def handle_scan(params: dict) -> dict:
     """扫描API：启动扫描或返回进度/结果。"""
     action = params.get("action", ["status"])[0]
     max_stocks = 1000  # 默认只扫成交额前1000只活跃A股（与前端文案一致）
+    try:
+        _raw = params.get("max_stocks", ["1000"])[0]
+        max_stocks = int(_raw)
+        if max_stocks < 0:
+            max_stocks = 1000
+    except (ValueError, TypeError):
+        max_stocks = 1000
 
     if action == "start":
         with _scan_lock:

@@ -4196,9 +4196,17 @@ function renderScanIdle() {
   document.getElementById('scan-content').innerHTML = `
     <div class="scan-empty">
       <div style="margin-bottom:16px;font-size:15px;color:#aaa">扫描全A股，找出日K和周K同时符合买入信号的股票</div>
-      <div style="margin-bottom:8px;color:#666;font-size:13px">扫描范围：成交额前1000只活跃A股</div>
       <div style="margin-bottom:8px;color:#666;font-size:13px">筛选条件：日K买入 + 周K买入（双周期共振）</div>
-      <div style="margin-bottom:20px;color:#666;font-size:13px">预计耗时：2-4分钟</div>
+      <div style="margin-bottom:12px;color:#ccc;font-size:13px">
+        <label for="scan-topn" style="color:#888;margin-right:6px">扫描范围</label>
+        <select id="scan-topn" style="background:#111;border:1px solid #333;color:#ddd;font-size:13px;padding:4px 8px;border-radius:4px">
+          <option value="500">成交额前 500</option>
+          <option value="1000" selected>成交额前 1000</option>
+          <option value="2000">成交额前 2000</option>
+          <option value="0">全A股（较慢）</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px;color:#666;font-size:13px">预计耗时：2-4分钟（全量更久）</div>
       <button class="scan-btn" style="font-size:15px;padding:8px 28px" onclick="startScan()">开始扫描</button>
     </div>`;
 }
@@ -4209,7 +4217,8 @@ function startScan() {
       <div class="scan-stage">正在启动扫描...</div>
       <div class="scan-bar-bg"><div class="scan-bar-fill" style="width:0%"></div></div>
     </div>`;
-  fetch('/api/scan?action=start').then(r => r.json()).then(data => {
+  const topn = (document.getElementById('scan-topn') ? document.getElementById('scan-topn').value : '1000');
+  fetch('/api/scan?action=start&max_stocks=' + encodeURIComponent(topn)).then(r => r.json()).then(data => {
     if (data.status === 'started' || data.status === 'running') {
       startScanPolling();
     }

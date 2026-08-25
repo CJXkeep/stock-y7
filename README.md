@@ -46,7 +46,7 @@ python -m backtest stats <snapshot_id>      # 统计报告（--simulate --capita
 - 当前扫描、每日速递的进度与结果保存在**单进程内存**中（`app.py` 的 `_scan_state` / `_digest_state`）。
 - 请用**单进程**方式运行（`python app.py` / `启动.bat`）；若用 gunicorn/uwsgi，必须 `--workers 1`（可配 `--threads N`），不能用多副本共享负载。
 - 使用 Docker 多副本或进程重启时，扫描进度/结果会丢失或互相不可见，属已知限制。
-- 扫描范围默认取**成交额前 1000** 只活跃 A 股（日K + 周K 双周期买入筛选），与前端文案一致。
+- 扫描范围默认取**成交额前 1000** 只活跃 A 股，扫描弹窗里可手动选择 **500 / 1000 / 2000 / 全A股**（日K + 周K 双周期买入筛选）。
 - Docker Compose 按 2C2G 配置（`memory: 1.5G`、`cpus: "2"`）；扫描并发可用环境变量调整：`SCAN_DAILY_MAX_WORKERS`（默认 20）、`SCAN_WEEKLY_MAX_WORKERS`（默认 15）。
 
 ## 测试
