@@ -16,6 +16,8 @@ services:
       # 2C2G 小机器资源优化：限制并发与缓存，避免和服务器现有服务抢资源
       BREADTH_MAX_WORKERS: "${BREADTH_MAX_WORKERS:-4}"
       DIGEST_SCAN_MAX_WORKERS: "${DIGEST_SCAN_MAX_WORKERS:-4}"
+      SCAN_DAILY_MAX_WORKERS: "${SCAN_DAILY_MAX_WORKERS:-20}"
+      SCAN_WEEKLY_MAX_WORKERS: "${SCAN_WEEKLY_MAX_WORKERS:-15}"
       KLINE_CACHE_MAX: "${KLINE_CACHE_MAX:-1000}"
     volumes:
       # 持久化运行数据（journal/pool/results/digest）。
@@ -26,8 +28,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1.0"
+          memory: 1.5G
+          cpus: "2"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=3)"]
       interval: 30s

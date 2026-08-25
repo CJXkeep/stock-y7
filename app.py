@@ -1064,8 +1064,13 @@ def _run_scan(max_stocks: int = 1000):
                 continue
             filtered.append(s)
 
+        # 只扫成交额前 N（默认 1000，与前端「成交额前1000只活跃A股」口径一致）
+        limit = max_stocks if max_stocks and max_stocks > 0 else 1000
+        filtered.sort(key=lambda s: s.get("amount", 0) or 0, reverse=True)
+        filtered = filtered[:limit]
+
         total_stage1 = len(filtered)
-        log.info(f"扫描开始: 全A股{len(all_stocks)}只 → 过滤后{total_stage1}只（排除ST/退市）")
+        log.info(f"扫描开始: 全A股{len(all_stocks)}只 → 过滤后{total_stage1}只（排除ST/退市，取成交额前{limit}）")
 
         with _scan_lock:
             _scan_state["total"] = total_stage1
@@ -1102,7 +1107,7 @@ def _run_scan(max_stocks: int = 1000):
                 return r
             return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get("SCAN_DAILY_MAX_WORKERS", "20"))) as executor:
             futures = {executor.submit(scan_daily, s): s for s in filtered}
             for f in concurrent.futures.as_completed(futures):
                 try:
@@ -1137,7 +1142,7 @@ def _run_scan(max_stocks: int = 1000):
                 return r
             return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get("SCAN_WEEKLY_MAX_WORKERS", "15"))) as executor:
             futures = {executor.submit(scan_weekly, s): s for s in daily_buy}
             for f in concurrent.futures.as_completed(futures):
                 try:
@@ -1193,7 +1198,7 @@ def _run_scan(max_stocks: int = 1000):
 def handle_scan(params: dict) -> dict:
     """扫描API：启动扫描或返回进度/结果。"""
     action = params.get("action", ["status"])[0]
-    max_stocks = 0  # 0 = 全量扫描，不设上限
+    max_stocks = 1000  # 默认只扫成交额前1000只活跃A股（与前端文案一致）
 
     if action == "start":
         with _scan_lock:

@@ -288,14 +288,15 @@ function renderKline(klines, signal) {
           coord: [dateStr, markerY],
           symbol: 'triangle', symbolSize: 20, symbolRotate: 0,
           itemStyle: { color: C.up, borderWidth: 2, borderColor: '#fff' },
-          label: { show: true, formatter: '买入', fontSize: 11, fontWeight: 'bold', color: '#fff',
+          label: { show: true, formatter: b.system ? b.system + ' 买入' : '买入', fontSize: 11, fontWeight: 'bold', color: '#fff',
                    backgroundColor: C.up, padding: [2,4], borderRadius: 3, position: 'bottom' },
         });
+        const sysPeriodBuy = (b.system || '').match(/(\d+)日/)?.[1] || '20';
         _signalPoints.push({
           date: dateStr, price: markerY,
-          title: '买入信号（海龟法则·做多）',
-          formula: `突破${b.system || '20日'}最高点 ${b.breakout_price || b.channel_high}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场-2×N）`,
-          desc: `唐奇安通道：股价突破过去N天最高点时触发买入信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n入场后止损价=入场价-2×N，跌破止损或触及反向通道退出。`,
+          title: `${b.system ? b.system + ' ' : ''}买入信号（海龟法则·做多）`,
+          formula: `${b.system || '系统'}：突破${sysPeriodBuy}日最高点 ${b.breakout_price || b.channel_high}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场-2×N）`,
+          desc: `${b.system || '系统'}：唐奇安通道做多。当股价突破过去${sysPeriodBuy}天的最高点时，触发买入信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n入场后止损价=入场价-2×N，跌破止损或触及反向通道退出。`,
         });
       } else if (b.signal === '卖出') {
         const idx = dates.length - 1;
@@ -308,14 +309,15 @@ function renderKline(klines, signal) {
           coord: [dates[idx], markerY],
           symbol: 'triangle', symbolSize: 20, symbolRotate: 180,
           itemStyle: { color: C.down, borderWidth: 2, borderColor: '#fff' },
-          label: { show: true, formatter: '卖出', fontSize: 11, fontWeight: 'bold', color: '#fff',
+          label: { show: true, formatter: b.system ? b.system + ' 卖出' : '卖出', fontSize: 11, fontWeight: 'bold', color: '#fff',
                    backgroundColor: C.down, padding: [2,4], borderRadius: 3, position: 'top' },
         });
+        const sysPeriodSell = (b.system || '').match(/(\d+)日/)?.[1] || '20';
         _signalPoints.push({
           date: dates[idx], price: markerY,
-          title: '卖出信号（海龟法则·做空）',
-          formula: `跌破${b.system || '20日'}最低点 ${b.breakout_price || b.channel_low}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场+2×N）`,
-          desc: `唐奇安通道：股价跌破过去N天最低点时触发做空信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n做空止损价=入场价+2×N，涨到止损或触及反向通道平仓。`,
+          title: `${b.system ? b.system + ' ' : ''}卖出信号（海龟法则·做空）`,
+          formula: `${b.system || '系统'}：跌破${sysPeriodSell}日最低点 ${b.breakout_price || b.channel_low}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场+2×N）`,
+          desc: `${b.system || '系统'}：唐奇安通道做空。当股价跌破过去${sysPeriodSell}天的最低点时，触发做空信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n做空止损价=入场价+2×N，涨到止损或触及反向通道平仓。`,
         });
       }
     }
@@ -341,45 +343,51 @@ function renderKline(klines, signal) {
   _signalLines = [];
   if (signal.breakouts) {
     for (const b of signal.breakouts) {
+      const sysName = b.system || '';
+      const sysPeriod = (sysName.match(/(\d+)日/) || [null, '20'])[1] || '20';
+      const sysLabel = sysName ? sysName + ' ' : '';
       if (b.stop_loss && b.stop_loss > 0) {
         const slLabel = isBearish
-          ? `止损 ${b.stop_loss.toFixed(2)}\n涨到这里就止损`
-          : `止损 ${b.stop_loss.toFixed(2)}\n跌到这里就卖`;
+          ? `${sysLabel}止损 ${b.stop_loss.toFixed(2)}\n涨到这里就止损`
+          : `${sysLabel}止损 ${b.stop_loss.toFixed(2)}\n跌到这里就卖`;
         markLines.push({ yAxis: b.stop_loss, lineStyle: { color: C.down, type: 'dashed', width: 2 },
           label: { formatter: slLabel, color: '#fff', fontSize: 11, fontWeight: 'bold',
             backgroundColor: C.down, padding: [3,6], borderRadius: 3, position: 'insideStartTop' } });
         const nVal = b.current_n || '?';
         _signalLines.push({
           value: b.stop_loss,
-          title: isBearish ? '止损价（做空）' : '止损价（做多）',
+          title: `${sysLabel}${isBearish ? '做空止损价' : '做多止损价'}（海龟法则）`,
           formula: isBearish
-            ? `${b.entry_price} + 2 × ${nVal} = ${b.stop_loss}`
-            : `${b.entry_price} - 2 × ${nVal} = ${b.stop_loss}`,
+            ? `${sysName || '系统'}：止损 = 入场价 + 2 × N = ${b.entry_price} + 2 × ${nVal} = ${b.stop_loss}`
+            : `${sysName || '系统'}：止损 = 入场价 - 2 × N = ${b.entry_price} - 2 × ${nVal} = ${b.stop_loss}`,
           desc: isBearish
-            ? `海龟法则2N止损。N=${nVal}（ATR平均真实波幅，反映股票日均波动幅度）。\n做空止损在入场价上方：如果股价反弹到这里，说明判断错了，认亏平仓。`
-            : `海龟法则2N止损。N=${nVal}（ATR平均真实波幅，反映股票日均波动幅度）。\n做多止损在入场价下方：如果股价跌到这里，说明判断错了，认亏卖出。`,
+            ? `${sysName || '系统'}：海龟法则2N止损。N=${nVal}（ATR平均真实波幅，反映股票日均波动幅度）。\n做空止损在入场价上方：如果股价反弹到这里，说明判断错了，认亏平仓。`
+            : `${sysName || '系统'}：海龟法则2N止损。N=${nVal}（ATR平均真实波幅，反映股票日均波动幅度）。\n做多止损在入场价下方：如果股价跌到这里，说明判断错了，认亏卖出。`,
         });
       }
       // 持仓也要显示入场价，方便知道成本位置
       if (b.entry_price && b.entry_price > 0 && b.signal !== '观望') {
         const entryColor = isBearish ? C.down : C.up;
-        const entryText = isBearish ? `做空 ${b.entry_price.toFixed(2)}` : `入场 ${b.entry_price.toFixed(2)}`;
+        const entryText = isBearish
+          ? `${sysName ? sysName + '\n' : ''}做空 ${b.entry_price.toFixed(2)}`
+          : `${sysName ? sysName + '\n' : ''}入场 ${b.entry_price.toFixed(2)}`;
         markLines.push({ yAxis: b.entry_price, lineStyle: { color: entryColor, type: 'solid', width: 2 },
           label: { formatter: entryText, color: '#fff', fontSize: 11, fontWeight: 'bold',
             backgroundColor: entryColor, padding: [3,6], borderRadius: 3, position: 'insideStartTop' } });
         _signalLines.push({
           value: b.entry_price,
-          title: isBearish ? '做空入场价（海龟法则）' : '做多入场价（海龟法则）',
+          title: `${sysLabel}${isBearish ? '做空入场价' : '做多入场价'}（海龟法则）`,
           formula: isBearish
-            ? `股价跌破${b.system || '20日'}最低点 → 做空入场 ${b.entry_price}\n当时通道下轨=${b.channel_low}，上轨=${b.channel_high}`
-            : `股价突破${b.system || '20日'}最高点 → 做多入场 ${b.entry_price}\n当时通道上轨=${b.channel_high}，下轨=${b.channel_low}`,
+            ? `${sysName || '系统'}：股价跌破${sysPeriod}日最低点 → 做空入场 ${b.entry_price}\n当时通道下轨=${b.channel_low}，上轨=${b.channel_high}`
+            : `${sysName || '系统'}：股价突破${sysPeriod}日最高点 → 做多入场 ${b.entry_price}\n当时通道上轨=${b.channel_high}，下轨=${b.channel_low}`,
           desc: isBearish
-            ? `唐奇安通道做空：当股价跌破过去N天的最低点时，触发做空信号。\n入场价=突破时的通道下轨。N值=${b.current_n || '?'}。\n已持有对应天数，止损价在上方。`
-            : `唐奇安通道做多：当股价突破过去N天的最高点时，触发做多信号。\n入场价=突破时的通道上轨。N值=${b.current_n || '?'}。\n已持有对应天数，止损价在下方。`,
+            ? `${sysName || '系统'}：唐奇安通道做空。当股价跌破过去${sysPeriod}天的最低点时，触发做空信号。\n入场价=突破时的通道下轨。N值=${b.current_n || '?'}。已持有对应天数，止损价在上方。`
+            : `${sysName || '系统'}：唐奇安通道做多。当股价突破过去${sysPeriod}天的最高点时，触发做多信号。\n入场价=突破时的通道上轨。N值=${b.current_n || '?'}。已持有对应天数，止损价在下方。`,
         });
       }
     }
   }
+
   // 形态目标价
   if (signal.patterns) {
     for (const p of signal.patterns) {
@@ -1675,6 +1683,47 @@ function renderTradePlan(signal) {
 }
 
 // ===== 信号面板 =====
+// 信号文本 → 对应点位预览/点击跳转图表
+function _signalAnchorFor(text, signal) {
+  if (!text || !signal || !signal.breakouts) return null;
+  const sys = (text.match(/系统[一二]/) || [''])[0];
+  if (!sys) return null;
+  const b = signal.breakouts.find(x => x.system && x.system.indexOf(sys) === 0);
+  if (!b) return null;
+  let price = null, kind = '';
+  if (/持仓|入场|突破/.test(text)) { price = b.entry_price || b.breakout_price || b.stop_loss; kind = '入场'; }
+  else if (/空头平仓/.test(text)) { price = b.breakout_price || b.entry_price || b.stop_loss; kind = '平仓'; }
+  else if (/止损|卖出|跌到|涨到/.test(text)) { price = b.stop_loss || b.exit_price || b.entry_price; kind = '止损'; }
+  else { price = b.entry_price || b.stop_loss; kind = '价位'; }
+  if (!price || price <= 0) return null;
+  const idx = (_klineData && _klineData.length) ? findEntryIndex(_klineData, price) : -1;
+  const date = (idx >= 0 && _klineData[idx]) ? _klineData[idx].date : '';
+  return { price, kind, date, idx, system: b.system };
+}
+
+function jumpToPoint(el) {
+  if (!el) return;
+  const price = parseFloat(el.getAttribute('data-point'));
+  const date = el.getAttribute('data-date') || '';
+  if (!price || !_klineData.length) return;
+  let idx = _klineData.findIndex(k => k && k.date === date);
+  if (idx < 0) idx = findEntryIndex(_klineData, price);
+  if (idx < 0) idx = _klineData.length - 1;
+  const total = _klineData.length;
+  const half = Math.min(30, Math.floor(total / 2));
+  let s = Math.max(0, ((idx - half) / total) * 100);
+  let e = Math.min(100, ((idx + half) / total) * 100);
+  if (e - s < 2) { s = 0; e = 100; }
+  try { klineChart.dispatchAction({ type: 'dataZoom', start: s, end: e }); } catch (err) {}
+  updateZoomInfo(s, e);
+  const k = _klineData[idx];
+  const label = k && k.date ? k.date : '';
+  showToastMsg(`已定位 ${label} 点位 ${price.toFixed(2)}`);
+  const chartEl = document.getElementById('kline-chart');
+  if (chartEl && window.innerWidth <= 768) {
+    try { chartEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {}
+  }
+}
 function renderSignal(signal) {
   // 一句话总结
   renderSummary(signal);
@@ -1715,8 +1764,11 @@ function renderSignal(signal) {
     const coreTag = isCore ? '<span class="sig-core-tag">核心</span>' : '';
     const body = simpleSig ? glossarize(s.text) : escHtml(s.text);
     const why = simpleSig ? `<span class="sig-why" onclick="toggleWhy(this)">为什么？</span><span class="sig-why-body" style="display:none">${escHtml(whyTextFor(s.text))}</span>` : '';
-    if (s.type === 'buy') return `<div class="sig-item sig-buy">▲ ${body}${coreTag}${why}</div>`;
-    else return `<div class="sig-item sig-sell">▼ ${body}${coreTag}${why}</div>`;
+    const anchor = _signalAnchorFor(s.text, signal);
+    const ptHtml = anchor ? `<span class="sig-pt${anchor.kind === '止损' || anchor.kind === '卖出' ? ' sig-pt-stop' : ''}" title="${anchor.system} · ${anchor.kind}位 ${anchor.price.toFixed(2)}">点 ${anchor.price.toFixed(2)}</span>` : '';
+    const jumpAttr = anchor ? ` data-point="${anchor.price}" data-date="${anchor.date || ''}" onclick="jumpToPoint(this)"` : '';
+    if (s.type === 'buy') return `<div class="sig-item sig-buy"${jumpAttr}>▲ ${body}${ptHtml}${coreTag}${why}</div>`;
+    else return `<div class="sig-item sig-sell"${jumpAttr}>▼ ${body}${ptHtml}${coreTag}${why}</div>`;
   }).join('') || '<div style="color:#555;font-size:12px;padding:8px">暂无信号</div>';
 
   // 风险
@@ -1984,6 +2036,7 @@ function _markAnalyzeFail(symbol) {
 
 async function analyze(symbol) {
   currentSymbol = symbol;
+  try { localStorage.setItem('qs_last_symbol', symbol); } catch(e) {}
   document.getElementById('loading').style.display = 'flex';
   if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
   if (_failRetryTimer) { clearTimeout(_failRetryTimer); _failRetryTimer = null; }
@@ -2893,10 +2946,10 @@ renderSidebar();
 renderSbSection();
 sbSchedulePolling();
 sbRefreshQuotes();         // 启动即刷一轮自选行情
-// 自动加载上次分析的股票（没有则默认茅台）
-const _hist = getHistory();
-const _lastSymbol = (_hist.length > 0) ? _hist[0].code : '600519';
-analyze(_lastSymbol);
+// 启动：恢复上次选中的股票（若从未分析过则不自动加载，避免默认跳到茅台）
+let _lastSymbol = '';
+try { _lastSymbol = localStorage.getItem('qs_last_symbol') || ''; } catch(e) {}
+if (_lastSymbol) analyze(_lastSymbol);
 
 // ===== 小白/专业模式切换 =====
 function loadMode() {
@@ -4237,6 +4290,7 @@ function renderScanResults(data) {
 // 结果表格（实时结果与归档详情共用）
 function _scanTableHtml(results) {
   let html = `
+    <div class="scan-table-wrap">
     <table class="scan-table">
       <thead><tr>
         <th>#</th><th>代码</th><th>名称</th><th>现价</th>
@@ -4266,7 +4320,7 @@ function _scanTableHtml(results) {
       <td><button class="scan-analyze-btn" onclick="analyzeFromScan('${r.symbol}')">分析</button></td>
     </tr>`;
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
 
