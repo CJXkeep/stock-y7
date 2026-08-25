@@ -49,12 +49,14 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _start(port: int, password=None):
+def _start(port: int, password=None, extra_env=None):
     env = dict(os.environ)
     env["PORT"] = str(port)
     env["PYTHONIOENCODING"] = "utf-8"
     if password is not None:
         env["AUTH_PASSWORD"] = password
+    for k, v in (extra_env or {}).items():
+        env[k] = str(v)
     proc = subprocess.Popen([sys.executable, "app.py"], cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + 20
@@ -70,7 +72,7 @@ def _start(port: int, password=None):
     raise RuntimeError("服务未在预期时间内就绪")
 
 
-def _req(port, method, path, body=None, cookie=None):
+def _req(port, method, path, body=None, cookie=None, headers=None):
     url = f"http://127.0.0.1:{port}{path}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -78,6 +80,8 @@ def _req(port, method, path, body=None, cookie=None):
         req.add_header("Content-Type", "application/json")
     if cookie:
         req.add_header("Cookie", cookie)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, dict(r.headers), r.read().decode("utf-8", "replace")
@@ -222,6 +226,79 @@ def test_e2e_enabled_auth_flow():
         assert st == 200
         st, _, _ = _req(port, "GET", "/api/digest", cookie=cookie)
         assert st == 401, st
+    finally:
+        _stop(proc)
+
+
+def test_src_lockout_config_and_state():
+    # A11-A14 常量（env 可调 + 回退默认）
+    assert '_env_int("AUTH_MAX_FAILS", 5)' in APP_SOURCE
+    assert '_env_int("AUTH_BAN_SECONDS", 600)' in APP_SOURCE
+    assert '_env_int("AUTH_FAIL_TTL", 600)' in APP_SOURCE
+    assert "_MAX_LOGIN_STATE = 5000" in APP_SOURCE
+    assert "_LOGIN_STATE: dict = {}" in APP_SOURCE
+    assert "_LOGIN_STATE_LOCK = threading.Lock()" in APP_SOURCE
+    # 剪枝与来源识别
+    assert "def _prune_login_state_locked" in APP_SOURCE
+    assert APP_SOURCE.count("_prune_login_state_locked(now)") >= 2  # 写入路径 + 查询路径均触发
+    assert "def _client_ip" in APP_SOURCE
+    assert "X-Forwarded-For" in APP_SOURCE
+    # 响应语义
+    assert '"retry_after"' in APP_SOURCE
+    assert '"remaining"' in APP_SOURCE
+    assert "尝试次数过多，请稍后再试" in APP_SOURCE
+    # 封禁判定发生在密码比对之前（A18）
+    assert APP_SOURCE.index('"banned", 0) > now') < APP_SOURCE.index("hmac.compare_digest")
+    # 鉴权关闭时不触碰封禁状态：AUTH_ENABLED 判断先于来源识别
+    assert APP_SOURCE.index("if not AUTH_ENABLED:") < APP_SOURCE.index("self._client_ip()")
+    # 成功登录清零计数
+    assert "_LOGIN_STATE.pop(ip, None)" in APP_SOURCE
+
+
+def test_e2e_lockout_flow():
+    port = _free_port()
+    proc = _start(port, password="secret123",
+                  extra_env={"AUTH_MAX_FAILS": "3", "AUTH_BAN_SECONDS": "2", "AUTH_FAIL_TTL": "30"})
+    try:
+        # 连错：未打满 401 + remaining；打满 429
+        st, _, body = _req(port, "POST", "/api/auth/login", {"password": "bad"})
+        assert st == 401 and json.loads(body).get("remaining") == 2
+        st, _, body = _req(port, "POST", "/api/auth/login", {"password": "bad"})
+        assert st == 401 and json.loads(body).get("remaining") == 1
+        st, _, body = _req(port, "POST", "/api/auth/login", {"password": "bad"})
+        assert st == 429 and json.loads(body).get("retry_after") == 2
+        # 封禁期内正确密码也 429，且无 Set-Cookie（A2/A26）
+        st, hdrs, _ = _req(port, "POST", "/api/auth/login", {"password": "secret123"})
+        assert st == 429
+        assert "Set-Cookie" not in hdrs
+        # 等 BAN_SECONDS=2 后自动解封，正确密码 200 + Set-Cookie（A3）
+        time.sleep(2.5)
+        st, hdrs, _ = _req(port, "POST", "/api/auth/login", {"password": "secret123"})
+        assert st == 200 and "Set-Cookie" in hdrs
+        # 成功清零：再错 1 次 remaining 应为 2（计数从 0 重新累计，A4）
+        st, _, body = _req(port, "POST", "/api/auth/login", {"password": "bad"})
+        assert st == 401 and json.loads(body).get("remaining") == 2
+    finally:
+        _stop(proc)
+
+
+def test_e2e_lockout_per_origin():
+    port = _free_port()
+    proc = _start(port, password="secret123",
+                  extra_env={"AUTH_MAX_FAILS": "2", "AUTH_BAN_SECONDS": "60", "AUTH_FAIL_TTL": "30"})
+    try:
+        xff = "203.0.113.7"
+        hdr = {"X-Forwarded-For": xff}
+        for _ in range(2):
+            st, _, _ = _req(port, "POST", "/api/auth/login", {"password": "bad"}, headers=hdr)
+            assert st in (401, 429)
+        # 该 XFF 来源已封禁：即使正确也 429（A2/A6）
+        st, _, _ = _req(port, "POST", "/api/auth/login", {"password": "secret123"}, headers=hdr)
+        assert st == 429
+        # 其他来源不受影响，可直接登录（A6）
+        st, _, _ = _req(port, "POST", "/api/auth/login", {"password": "secret123"},
+                        headers={"X-Forwarded-For": "198.51.100.9"})
+        assert st == 200
     finally:
         _stop(proc)
 

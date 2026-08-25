@@ -1,0 +1,969 @@
+schema: comet.native.v4
+name: auth-lockout
+language: en
+phase: archive
+status: done
+state_version: 10
+brief: brief.md
+spec_changes:
+  - capability: auth-lockout
+    operation: create
+    source: specs/auth-lockout/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 计数递增：错误密码逐次累计失败计数，未达上限每次返回 401 `{ok:false}`。
+    result: passed
+    reason:
+      text: 源码：错误密码递增 count，未达上限返回 401+remaining；E2E 逐次校验 remaining 2/1
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 打满封禁：连续错误达到 `AUTH_MAX_FAILS` 后返回 429 `{ok:false}`，此后即使密码正确也返回
+      429，且**不下发** `Set-Cookie`、不建立会话。
+    result: passed
+    reason:
+      text: 源码：打满设 banned 返回 429；封禁判定先于密码比对，不下发 Set-Cookie；E2E 验证
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 自动解封：`AUTH_BAN_SECONDS` 过后封禁自动解除，正确密码可正常登录（200 + Set-Cookie）。
+    result: passed
+    reason:
+      text: AUTH_BAN_SECONDS 过期后 banned 不再>now，正确密码 200+Set-Cookie；E2E sleep 2.5 后通过
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 成功清零：未达上限期间一旦登录成功，该来源失败计数清零。
+    result: passed
+    reason:
+      text: 成功路径 _LOGIN_STATE.pop(ip) 清零；E2E 重新计数验证
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5 窗口清理：失败间隔超过 `AUTH_FAIL_TTL` 时滞旧计数清零（偶尔手滑不会被累计到封禁）。
+    result: passed
+    reason:
+      text: now-first>AUTH_FAIL_TTL 且未封禁时重置 count=0/first=now
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "A6 来源识别：携带 `X-Forwarded-For: <ip>, ...` 时按首个 IP 计数/封禁；否则按直连 IP。"
+    result: passed
+    reason:
+      text: _client_ip 取 X-Forwarded-For 首 IP 或
+        client_address[0]；test_e2e_lockout_per_origin 验证
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7 响应语义：401 响应含 `remaining`（剩余可试次数）；429 响应含 `retry_after`（剩余封禁秒数）；均为
+      `{ok:false}`。
+    result: passed
+    reason:
+      text: 401 含 remaining，429 含 retry_after，均 {ok:false}
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8 兼容性：未设 `AUTH_PASSWORD`（鉴权关闭）时封禁逻辑不生效，全部路径行为与现状一致。
+    result: passed
+    reason:
+      text: if not AUTH_ENABLED 在 _client_ip/封禁前返回；鉴权关闭不影响
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: A9 有界与并发：封禁/计数表有上限裁剪；读写受 `threading.Lock` 保护；多线程请求下不串数据。
+    result: passed
+    reason:
+      text: _MAX_LOGIN_STATE=5000 + 锁保护 + 双路径裁剪
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: A10 回归：`python tests/test_auth.py` 与 `python run_all_tests.py`
+      全量通过（新增测试纳入）。
+    result: passed
+    reason:
+      text: tests/test_auth.py 13/13、run_all_tests.py 17/17、node --check、py_compile 全过
+      truncated: false
+  - id: A11
+    source: specs/auth-lockout/spec.md
+    text: 在 `web-auth`（简单登录鉴权，已归档）之上增加**暴力破解防护**。核心行为：连续输错密码达到固定次数后，将该来源 IP
+      临时封禁；封禁期内一切登录尝试返回 429，即使密码正确也不建立会话、不下发 Cookie。鉴权关闭（未设
+      `AUTH_PASSWORD`）时全部逻辑不生效。
+    result: passed
+    reason:
+      text: 实现按来源 IP 计数/临时封禁，封禁中 429 不建会话不下 Cookie，鉴权关闭不生效
+      truncated: false
+  - id: A12
+    source: specs/auth-lockout/spec.md
+    text: "| 环境变量 | 默认值 | 含义 |"
+    result: passed
+    reason:
+      text: 配置项表格语义成立
+      truncated: false
+  - id: A13
+    source: specs/auth-lockout/spec.md
+    text: "| `AUTH_PASSWORD` | 空 | （沿用 web-auth）非空即启用鉴权；为空时本变更全部逻辑不生效 |"
+    result: passed
+    reason:
+      text: AUTH_PASSWORD env 读取，非空即 AUTH_ENABLED
+      truncated: false
+  - id: A14
+    source: specs/auth-lockout/spec.md
+    text: "| `AUTH_MAX_FAILS` | `5` | 连续失败达到该次数即封禁该来源 IP |"
+    result: passed
+    reason:
+      text: AUTH_MAX_FAILS=_env_int('AUTH_MAX_FAILS',5)
+      truncated: false
+  - id: A15
+    source: specs/auth-lockout/spec.md
+    text: "| `AUTH_BAN_SECONDS` | `600` | 封禁持续秒数 |"
+    result: passed
+    reason:
+      text: AUTH_BAN_SECONDS=_env_int('AUTH_BAN_SECONDS',600)
+      truncated: false
+  - id: A16
+    source: specs/auth-lockout/spec.md
+    text: "| `AUTH_FAIL_TTL` | `600` | 失败计数窗口：距首次失败超过该秒数则滞旧计数清零 |"
+    result: passed
+    reason:
+      text: AUTH_FAIL_TTL=_env_int('AUTH_FAIL_TTL',600)
+      truncated: false
+  - id: A17
+    source: specs/auth-lockout/spec.md
+    text: 读取处应使用 `int(os.environ.get(...))` 且解析失败回退默认值，保证非法环境变量不会导致服务启动失败。
+    result: passed
+    reason:
+      text: _env_int 用 int(os.environ.get(...,str(default))) 且异常回退默认
+      truncated: false
+  - id: A18
+    source: specs/auth-lockout/spec.md
+    text: 模块级（`app.py`）：
+    result: passed
+    reason:
+      text: 状态结构按规格实现
+      truncated: false
+  - id: A19
+    source: specs/auth-lockout/spec.md
+    text: "`_LOGIN_STATE: dict[str, dict] = {}`，键为来源 IP（str），值为："
+    result: passed
+    reason:
+      text: "_LOGIN_STATE: dict={} 存在"
+      truncated: false
+  - id: A20
+    source: specs/auth-lockout/spec.md
+    text: "`count: int`（当前窗口内失败次数）；"
+    result: passed
+    reason:
+      text: 条目含 count 字段
+      truncated: false
+  - id: A21
+    source: specs/auth-lockout/spec.md
+    text: "`first: float`（本窗口首次失败时间戳）；"
+    result: passed
+    reason:
+      text: 条目含 first 字段
+      truncated: false
+  - id: A22
+    source: specs/auth-lockout/spec.md
+    text: "`banned: float`（封禁截止时间戳，0 表示未封禁）；"
+    result: passed
+    reason:
+      text: 条目含 banned 字段，0 表未封禁
+      truncated: false
+  - id: A23
+    source: specs/auth-lockout/spec.md
+    text: "`updated: float`（最后更新时间，用于裁剪）。"
+    result: passed
+    reason:
+      text: 条目含 updated 字段
+      truncated: false
+  - id: A24
+    source: specs/auth-lockout/spec.md
+    text: "`_LOGIN_STATE_LOCK = threading.Lock()`：保护上述结构的所有读写。"
+    result: passed
+    reason:
+      text: _LOGIN_STATE_LOCK=threading.Lock() 存在
+      truncated: false
+  - id: A25
+    source: specs/auth-lockout/spec.md
+    text: "`_MAX_LOGIN_STATE = 5000`：条目上限。"
+    result: passed
+    reason:
+      text: _MAX_LOGIN_STATE=5000
+      truncated: false
+  - id: A26
+    source: specs/auth-lockout/spec.md
+    text: 辅助函数（均只应在持有锁时调用）：
+    result: passed
+    reason:
+      text: 辅助函数仅持锁调用
+      truncated: false
+  - id: A27
+    source: specs/auth-lockout/spec.md
+    text: "`_prune_login_state_locked(now)`：先清除所有（`banned` 已过且 `updated` 超过
+      `AUTH_FAIL_TTL` 的过期条目），若仍超上限，按 `updated` 升序裁剪到上限。"
+    result: passed
+    reason:
+      text: _prune_login_state_locked 先清过期再按 updated 裁剪到上限
+      truncated: false
+  - id: A28
+    source: specs/auth-lockout/spec.md
+    text: "`_handle_auth_login` 执行顺序："
+    result: passed
+    reason:
+      text: _handle_auth_login 顺序实现存在
+      truncated: false
+  - id: A29
+    source: specs/auth-lockout/spec.md
+    text: 解析 JSON 请求体（沿用 web-auth，非法体 400）。
+    result: passed
+    reason:
+      text: JSON 请求体/长度校验异常返回 400
+      truncated: false
+  - id: A30
+    source: specs/auth-lockout/spec.md
+    text: '`AUTH_ENABLED` 为假 → 返回 `200 {"ok": false, "error": "鉴权未启用"}?` —— 实际沿用
+      web-auth：鉴权未启用时不做比对，返回告知未启用。此路径与现状一致。'
+    result: passed
+    reason:
+      text: if not AUTH_ENABLED 返回鉴权未启用
+      truncated: false
+  - id: A31
+    source: specs/auth-lockout/spec.md
+    text: "`ip = _client_ip()`（见 2.4）。"
+    result: passed
+    reason:
+      text: ip=self._client_ip() 调用存在
+      truncated: false
+  - id: A32
+    source: specs/auth-lockout/spec.md
+    text: '持有 `_LOGIN_STATE_LOCK`：读取 `_LOGIN_STATE.get(ip)`；若 `banned > now` →
+      释放锁，返回 `429 {"ok": false, "error": "尝试次数过多，请稍后再试", "retry_after":
+      int(banned-now)}`，**不做密码比对、不建立会话**。'
+    result: passed
+    reason:
+      text: banned>now 时持锁读取返回 429 retry_after，不做比对不建会话
+      truncated: false
+  - id: A33
+    source: specs/auth-lockout/spec.md
+    text: 密码比对：`hmac.compare_digest(pwd, AUTH_PASSWORD)`（沿用 web-auth）。
+    result: passed
+    reason:
+      text: 密码比对用 hmac.compare_digest
+      truncated: false
+  - id: A34
+    source: specs/auth-lockout/spec.md
+    text: '**正确**：持有锁删除 `_LOGIN_STATE.pop(ip, None)`（清零计数与封禁）→ 签发会话 +
+      `Set-Cookie`（沿用 web-auth `qushi_session`）→ `200 {"ok": true}`。'
+    result: passed
+    reason:
+      text: 成功 _LOGIN_STATE.pop(ip) + 签发会话 + 200 Set-Cookie
+      truncated: false
+  - id: A35
+    source: specs/auth-lockout/spec.md
+    text: "**错误**："
+    result: passed
+    reason:
+      text: 错误分支按规格实现
+      truncated: false
+  - id: A36
+    source: specs/auth-lockout/spec.md
+    text: 持有锁读取/初始化该 IP 条目；
+    result: passed
+    reason:
+      text: 持锁读取/初始化条目 count=0,first/banned/updated
+      truncated: false
+  - id: A37
+    source: specs/auth-lockout/spec.md
+    text: 若 `now - first > AUTH_FAIL_TTL` 且未在封禁期 → 重置 `count=0, first=now`（窗口清零）；
+    result: passed
+    reason:
+      text: now-first>AUTH_FAIL_TTL 且未封禁时重置 count/first
+      truncated: false
+  - id: A38
+    source: specs/auth-lockout/spec.md
+    text: "`count += 1; updated = now`；"
+    result: passed
+    reason:
+      text: count+=1; updated=now
+      truncated: false
+  - id: A39
+    source: specs/auth-lockout/spec.md
+    text: '若 `count >= AUTH_MAX_FAILS` → `banned = now + AUTH_BAN_SECONDS; count =
+      0`；调用 `_prune_login_state_locked(now)`；返回 `429 {"ok": false, "error":
+      "尝试次数过多，请稍后再试", "retry_after": AUTH_BAN_SECONDS}`；'
+    result: passed
+    reason:
+      text: 打满 banned=now+BAN_SECONDS、count=0、prune、429 retry_after
+      truncated: false
+  - id: A40
+    source: specs/auth-lockout/spec.md
+    text: '否则返回 `401 {"ok": false, "error": "密码错误", "remaining": AUTH_MAX_FAILS -
+      count}`。'
+    result: passed
+    reason:
+      text: 未打满返回 401 remaining=MAX_FAILS-count
+      truncated: false
+  - id: A41
+    source: specs/auth-lockout/spec.md
+    text: "`_client_ip()`：优先解析 `X-Forwarded-For` 请求头的首个条目（按 `,`
+      分割、`strip`），非空则用之；否则用 `self.client_address[0]`。"
+    result: passed
+    reason:
+      text: "_client_ip: X-Forwarded-For 首 IP(strip) 否则 client_address[0]"
+      truncated: false
+  - id: A42
+    source: specs/auth-lockout/spec.md
+    text: 用于计数键与封禁键；来源 IP 仅进内存、不写日志内容（日志可记等级与 IP 已属常规，但不得记录密码）。
+    result: passed
+    reason:
+      text: 来源 IP 作计数/封禁键，不写日志密码
+      truncated: false
+  - id: A43
+    source: specs/auth-lockout/spec.md
+    text: '普通密码错误：`401 {"ok": false, "error": "密码错误", "remaining": N}`。'
+    result: passed
+    reason:
+      text: 401 含 remaining
+      truncated: false
+  - id: A44
+    source: specs/auth-lockout/spec.md
+    text: '封禁中（含打满当次）：`429 {"ok": false, "error": "尝试次数过多，请稍后再试", "retry_after":
+      N}`。'
+    result: passed
+    reason:
+      text: 429 含 retry_after
+      truncated: false
+  - id: A45
+    source: specs/auth-lockout/spec.md
+    text: '成功：`200 {"ok": true}` + `Set-Cookie`（沿用 web-auth）。'
+    result: passed
+    reason:
+      text: 成功 200 ok:true + Set-Cookie
+      truncated: false
+  - id: A46
+    source: specs/auth-lockout/spec.md
+    text: "所有失败响应均 `ok: false`；前端已有的 fetch 401 拦截只认 401，429 不触发跳转死循环，符合预期。"
+    result: passed
+    reason:
+      text: 失败均 ok:false；前端拦截仅认 401，429 不触发跳转
+      truncated: false
+  - id: A47
+    source: specs/auth-lockout/spec.md
+    text: 全部状态读写在 `_LOGIN_STATE_LOCK` 下；`ThreadingHTTPServer` 多线程并发登录安全。
+    result: passed
+    reason:
+      text: 全部状态读写均在 _LOGIN_STATE_LOCK 内
+      truncated: false
+  - id: A48
+    source: specs/auth-lockout/spec.md
+    text: "`_LOGIN_STATE` 上限 `_MAX_LOGIN_STATE=5000`，超限先清过期再按 `updated` 裁剪，防长跑内存膨胀。"
+    result: passed
+    reason:
+      text: _LOGIN_STATE 上限 5000 先清过期再 updated 裁剪
+      truncated: false
+  - id: A49
+    source: specs/auth-lockout/spec.md
+    text: "`AUTH_ENABLED=False` 时：不读取计数键、不封禁、不触碰任何状态，响应与 web-auth
+      关闭路径完全一致（保持本地开发全公开）。"
+    result: passed
+    reason:
+      text: AUTH_ENABLED=False 提前返回，不触状态
+      truncated: false
+  - id: A50
+    source: specs/auth-lockout/spec.md
+    text: "`app.py`：新增模块级状态、`_client_ip`、`_prune_login_state_locked`；改写
+      `_handle_auth_login` 错误路径。"
+    result: passed
+    reason:
+      text: app.py 新增模块状态/_client_ip/_prune 并改写错误路径
+      truncated: false
+  - id: A51
+    source: specs/auth-lockout/spec.md
+    text: "`tests/test_auth.py`：新增封禁 E2E 与源码断言。"
+    result: passed
+    reason:
+      text: tests/test_auth.py 新增封禁 E2E 与源码断言
+      truncated: false
+  - id: A52
+    source: specs/auth-lockout/spec.md
+    text: 临时封禁按默认 5 次×600 秒已足够防住常见脚本暴破；若担心误伤（家人共享 NAT），提高 `AUTH_MAX_FAILS` 即可。
+    result: passed
+    reason:
+      text: 默认 5 次×600 秒实现正确
+      truncated: false
+  - id: A53
+    source: specs/auth-lockout/spec.md
+    text: 封禁为进程内存、单实例语义：重启进程即解除，符合项目个人工具定位。
+    result: passed
+    reason:
+      text: 封禁为进程内存单实例
+      truncated: false
+  - id: A54
+    source: specs/auth-lockout/spec.md
+    text: 反代场景依赖 `X-Forwarded-For` 由可信反代注入；若直接暴露请自行用防火墙/Nginx 限流叠加。
+    result: passed
+    reason:
+      text: XFF 依赖可信反代注入，实现按规格读取
+      truncated: false
+  - id: A55
+    source: specs/auth-lockout/spec.md
+    text: 不提供验证码；如需更强防护在 Nginx 层做 `limit_req` 即可，与本次变更正交。
+    result: passed
+    reason:
+      text: 未实现验证码，与规格一致
+      truncated: false
+  - id: A56
+    source: specs/auth-lockout/spec.md
+    text: A1 计数递增：错误密码逐次累计，未达上限每次返回 401 `{ok:false}`。
+    result: passed
+    reason:
+      text: 同 A1：计数递增 401+remaining，源码与 E2E 确认
+      truncated: false
+  - id: A57
+    source: specs/auth-lockout/spec.md
+    text: A2 打满封禁：错误达到 `AUTH_MAX_FAILS` 返回 429；此后即使密码正确也 429 且不下发 `Set-Cookie`、不建会话。
+    result: passed
+    reason:
+      text: 同 A2：打满 429，正确也 429 不下 Cookie
+      truncated: false
+  - id: A58
+    source: specs/auth-lockout/spec.md
+    text: A3 自动解封：`AUTH_BAN_SECONDS` 过后解除，正确密码 200 + `Set-Cookie`。
+    result: passed
+    reason:
+      text: 同 A3：解封后正确 200+Set-Cookie
+      truncated: false
+  - id: A59
+    source: specs/auth-lockout/spec.md
+    text: A4 成功清零：未达上限时成功登录清零该来源计数。
+    result: passed
+    reason:
+      text: 同 A4：成功清零 pop
+      truncated: false
+  - id: A60
+    source: specs/auth-lockout/spec.md
+    text: A5 窗口清理：失败间隔超 `AUTH_FAIL_TTL` 时滞旧计数清零。
+    result: passed
+    reason:
+      text: 同 A5：窗口超时重置
+      truncated: false
+  - id: A61
+    source: specs/auth-lockout/spec.md
+    text: A6 来源识别：`X-Forwarded-For` 首 IP 计数；否则直连 IP。
+    result: passed
+    reason:
+      text: 同 A6：XFF 首 IP 计数，碰撞隔离
+      truncated: false
+  - id: A62
+    source: specs/auth-lockout/spec.md
+    text: A7 响应语义：401 含 `remaining`；429 含 `retry_after`；均为 `{ok:false}`。
+    result: passed
+    reason:
+      text: 同 A7：remaining/retry_after/ok:false
+      truncated: false
+  - id: A63
+    source: specs/auth-lockout/spec.md
+    text: A8 兼容性：鉴权关闭时封禁逻辑不生效，行为与现状一致。
+    result: passed
+    reason:
+      text: 同 A8：鉴权关闭不生效
+      truncated: false
+  - id: A64
+    source: specs/auth-lockout/spec.md
+    text: A9 有界与并发：表上限裁剪 + 锁保护，多线程不串数据。
+    result: passed
+    reason:
+      text: 同 A9：上限裁剪+锁，多线程不串数据
+      truncated: false
+  - id: A65
+    source: specs/auth-lockout/spec.md
+    text: A10 回归：`tests/test_auth.py` 与 `run_all_tests.py` 全量通过。
+    result: passed
+    reason:
+      text: 同 A10：全量回归通过
+      truncated: false
+  - id: A66
+    source: specs/auth-lockout/spec.md
+    text: A11 常量：`AUTH_MAX_FAILS = int(os.environ.get("AUTH_MAX_FAILS", "5"))`
+    result: passed
+    reason:
+      text: AUTH_MAX_FAILS 常量正确（_env_int 5）
+      truncated: false
+  - id: A67
+    source: specs/auth-lockout/spec.md
+    text: A12 常量：`AUTH_BAN_SECONDS = int(os.environ.get("AUTH_BAN_SECONDS", "600"))`
+    result: passed
+    reason:
+      text: AUTH_BAN_SECONDS 常量正确（_env_int 600）
+      truncated: false
+  - id: A68
+    source: specs/auth-lockout/spec.md
+    text: A13 常量：`AUTH_FAIL_TTL = int(os.environ.get("AUTH_FAIL_TTL", "600"))`
+    result: passed
+    reason:
+      text: AUTH_FAIL_TTL 常量正确（_env_int 600）
+      truncated: false
+  - id: A69
+    source: specs/auth-lockout/spec.md
+    text: A14 常量：`_MAX_LOGIN_STATE = 5000`
+    result: passed
+    reason:
+      text: _MAX_LOGIN_STATE=5000
+      truncated: false
+  - id: A70
+    source: specs/auth-lockout/spec.md
+    text: "A15 状态：`_LOGIN_STATE: dict[str, dict] = {}` 与 `_LOGIN_STATE_LOCK =
+      threading.Lock()` 存在"
+    result: passed
+    reason:
+      text: _LOGIN_STATE dict + _LOGIN_STATE_LOCK 存在
+      truncated: false
+  - id: A71
+    source: specs/auth-lockout/spec.md
+    text: A16 函数：`_prune_login_state_locked(now)` 存在，先清过期再按 `updated` 裁剪
+    result: passed
+    reason:
+      text: _prune_login_state_locked 存在且先清过期再裁剪
+      truncated: false
+  - id: A72
+    source: specs/auth-lockout/spec.md
+    text: A17 函数：`_client_ip()` 存在，优先 `X-Forwarded-For` 首 IP，回退 `client_address[0]`
+    result: passed
+    reason:
+      text: _client_ip 存在且 XFF 优先回退直连
+      truncated: false
+  - id: A73
+    source: specs/auth-lockout/spec.md
+    text: A18 流程：`_handle_auth_login` 在密码比对前先查封禁，封禁中返回 429（含 `retry_after`）
+    result: passed
+    reason:
+      text: 密码比对前先查封禁返回 429 retry_after
+      truncated: false
+  - id: A74
+    source: specs/auth-lockout/spec.md
+    text: A19 流程：错误密码递增计数，打满（`count >= AUTH_MAX_FAILS`）设 `banned = now +
+      AUTH_BAN_SECONDS` 并返回 429
+    result: passed
+    reason:
+      text: 错误递增，打满设 banned 返回 429
+      truncated: false
+  - id: A75
+    source: specs/auth-lockout/spec.md
+    text: A20 流程：错误但未打满返回 401，body 含 `remaining`
+    result: passed
+    reason:
+      text: 未打满 401 remaining
+      truncated: false
+  - id: A76
+    source: specs/auth-lockout/spec.md
+    text: A21 流程：密码正确删除 `_LOGIN_STATE.pop(ip, None)` 并签发会话 `200`（沿用 web-auth）
+    result: passed
+    reason:
+      text: 正确 pop(ip) 清零并签发会话 200
+      truncated: false
+  - id: A77
+    source: specs/auth-lockout/spec.md
+    text: A22 流程：打满当把 `count` 归零，便于解封后重新按新窗口计数
+    result: passed
+    reason:
+      text: 打满当把 count 归零便于重新计数
+      truncated: false
+  - id: A78
+    source: specs/auth-lockout/spec.md
+    text: A23 窗口：`now - first > AUTH_FAIL_TTL` 且未封禁时重置计数
+    result: passed
+    reason:
+      text: now-first>TTL 且未封禁时重置
+      truncated: false
+  - id: A79
+    source: specs/auth-lockout/spec.md
+    text: A24 安全：密码比对仍用 `hmac.compare_digest`
+    result: passed
+    reason:
+      text: hmac.compare_digest
+      truncated: false
+  - id: A80
+    source: specs/auth-lockout/spec.md
+    text: "A25 响应：429/401 均为 `{ok: false}` JSON"
+    result: passed
+    reason:
+      text: 429/401 均 {ok:false}
+      truncated: false
+  - id: A81
+    source: specs/auth-lockout/spec.md
+    text: A26 响应：封禁中即使密码正确也不返回 `Set-Cookie`
+    result: passed
+    reason:
+      text: 封禁中正确也不返回 Set-Cookie（E2E 断言无 Set-Cookie）
+      truncated: false
+  - id: A82
+    source: specs/auth-lockout/spec.md
+    text: A27 并发：所有状态读写均在 `_LOGIN_STATE_LOCK` 内
+    result: passed
+    reason:
+      text: 状态读写均在 _LOGIN_STATE_LOCK
+      truncated: false
+  - id: A83
+    source: specs/auth-lockout/spec.md
+    text: A28 有界：状态写入/查询路径会触发 `_prune_login_state_locked`
+    result: passed
+    reason:
+      text: 查询路径（banned 判定块开头 line~1486）与写入路径（错误递增块开头 line~1508）均调用
+        _prune_login_state_locked(now)，共 3 处>=2，测试断言 count>=2
+      truncated: false
+  - id: A84
+    source: specs/auth-lockout/spec.md
+    text: A29 兼容：`AUTH_ENABLED=False` 时登录路径不读/不写封禁状态
+    result: passed
+    reason:
+      text: AUTH_ENABLED=False 不读不写封禁状态
+      truncated: false
+  - id: A85
+    source: specs/auth-lockout/spec.md
+    text: A30 行为：428?→ 无；429 不触发前端 401 跳转（fetch 拦截仅认 401）
+    result: passed
+    reason:
+      text: 429 不触发前端 401 跳转（拦截仅认 401）
+      truncated: false
+  - id: A86
+    source: specs/auth-lockout/spec.md
+    text: A31 测试：`tests/test_auth.py` 含封禁 E2E：错满→429、封禁中正确也 429、`AUTH_BAN_SECONDS`
+      过后 200、成功清零
+    result: passed
+    reason:
+      text: test_e2e_lockout_flow/test_e2e_lockout_per_origin 覆盖错满/封禁中/解封/清零
+      truncated: false
+  - id: A87
+    source: specs/auth-lockout/spec.md
+    text: A32 回归：`python tests/test_auth.py` 与 `python run_all_tests.py` 全量通过
+    result: passed
+    reason:
+      text: test_auth 13/13 + run_all 17/17 通过
+      truncated: false
+  - id: A88
+    source: specs/auth-lockout/spec.md
+    text: 不改变 web-auth 已定鉴权模型、白名单、Cookie 属性与前端拦截。
+    result: passed
+    reason:
+      text: 未改动 web-auth 鉴权模型/白名单/Cookie/前端拦截
+      truncated: false
+  - id: A89
+    source: specs/auth-lockout/spec.md
+    text: 不改任何行情/分析/统计/档案计算口径。
+    result: passed
+    reason:
+      text: 未改动行情/分析/统计/档案计算口径
+      truncated: false
+  - id: A90
+    source: specs/auth-lockout/spec.md
+    text: 密码与封禁计数不写入代码、日志或仓库；日志不记录密码明文。
+    result: passed
+    reason:
+      text: 密码与封禁计数不入代码/日志，不记录明文
+      truncated: false
+  - id: A91
+    source: specs/auth-lockout/spec.md
+    text: 开发期：`python tests/test_auth.py`、`python run_all_tests.py`、`node --check
+      dashboard/app.js`、`python -m py_compile app.py tests/test_auth.py`、`docker
+      compose config`（如可用）。
+    result: passed
+    reason:
+      text: tests/py_compile/node --check/run_all 均通过
+      truncated: false
+  - id: A92
+    source: specs/auth-lockout/spec.md
+    text: 运行期：带 `AUTH_PASSWORD` 启动，设置 `AUTH_MAX_FAILS=3`、`AUTH_BAN_SECONDS=2`
+      快速人工/自动验证「错3次→429→约2秒后正确登录」；不带密码验证全公开不受影响。
+    result: passed
+    reason:
+      text: E2E 复现 AUTH_MAX_FAILS=3/AUTH_BAN_SECONDS=2 场景通过
+      truncated: false
+  - id: A93
+    source: specs/auth-lockout/spec.md
+    text: 由只读 Verifier 按 A1–A32 逐项表决。
+    result: passed
+    reason:
+      text: 本 Verifier 按 A1-A93 逐项表决完成
+      truncated: false
+builder_handoff:
+  candidate_id: a1dff07b-533a-4bc0-a9ee-6bea68357477
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:acb6be52-f519-4a53-961b-f7676e852ff1
+  iteration: 2
+  summary:
+    text: auth-lockout repair（迭代2）：修复 Verifier 指出的
+      A28/A83——_prune_login_state_locked 原先仅在打满封禁路径调用；现已在「查询路径」（banned 判定 with
+      _LOGIN_STATE_LOCK 开头）与「写入路径」（错误密码递增 with _LOGIN_STATE_LOCK 开头）均加入
+      _prune_login_state_locked(now) 调用，保证长期低于上限的陌生 IP 条目也会随每次登录被及时有界裁剪（上限
+      5000，先清过期再按 updated FIFO）。tests/test_auth.py 新增断言
+      APP_SOURCE.count("_prune_login_state_locked(now)") >= 2。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+    - A47
+    - A48
+    - A49
+    - A50
+    - A51
+    - A52
+    - A53
+    - A54
+    - A55
+    - A56
+    - A57
+    - A58
+    - A59
+    - A60
+    - A61
+    - A62
+    - A63
+    - A64
+    - A65
+    - A66
+    - A67
+    - A68
+    - A69
+    - A70
+    - A71
+    - A72
+    - A73
+    - A74
+    - A75
+    - A76
+    - A77
+    - A78
+    - A79
+    - A80
+    - A81
+    - A82
+    - A83
+    - A84
+    - A85
+    - A86
+    - A87
+    - A88
+    - A89
+    - A90
+    - A91
+    - A92
+    - A93
+  checks:
+    - name:
+        text: python tests/test_auth.py
+        truncated: false
+      result: passed
+      note:
+        text: 13/13 PASS（含新增 prune 双路径断言 + 封禁 E2E）
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 17/17 测试文件全量通过
+        truncated: false
+    - name:
+        text: python -m py_compile app.py tests/test_auth.py
+        truncated: false
+      result: passed
+      note:
+        text: 编译通过 exit=0
+        truncated: false
+    - name:
+        text: node --check dashboard/app.js
+        truncated: false
+      result: passed
+      note:
+        text: 前端语法通过（本轮未改前端）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 封禁为进程内存、单实例语义：重启进程即解除（规范§4 明确取舍）。
+      truncated: false
+    - text: 反代场景依赖 X-Forwarded-For 由可信反代注入；直接暴露时须自行叠加防火墙/Nginx 限流。
+      truncated: false
+    - text: 未做水平并发压测；状态读写均在锁内，登录为低频路径，符合 2C2G 场景。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-25T11:03:47.354Z
+blockers: []
+verification:
+  candidate_id: a1dff07b-533a-4bc0-a9ee-6bea68357477
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:90f7d54e-42d1-4400-ad42-3135367a3b9f
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: auth-tests
+      name:
+        text: web-auth and lockout tests
+        truncated: false
+      argv_display:
+        - text: tests/test_auth.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 5209
+    - id: full-regression
+      name:
+        text: full regression suite
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 11181
+    - id: apppy-compile
+      name:
+        text: app.py and tests compile
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: py_compile
+          truncated: false
+        - text: app.py
+          truncated: false
+        - text: tests/test_auth.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 135
+    - id: appjs-syntax
+      name:
+        text: dashboard app.js syntax
+        truncated: false
+      argv_display:
+        - text: --check
+          truncated: false
+        - text: dashboard/app.js
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 136
+  summary:
+    text: 全部 93 项验收 passed。核心 A28/A83 已由 Builder 修复：查询路径（banned
+      判定块开头）与写入路径（错误密码递增块开头）均调用 _prune_login_state_locked(now)，源码共 3
+      处调用>=2，tests/test_auth.py 新增 count>=2 断言并通过；tests/test_auth.py
+      13/13、run_all_tests.py 17/17、node --check、py_compile 全量通过。
+    truncated: false
+  risks:
+    - text: 封禁为进程内存、单实例语义：重启进程即解除（规格§4 明确取舍）
+      truncated: false
+    - text: 反代场景依赖 X-Forwarded-For 由可信反代注入；直接暴露需自行叠加防火墙/Nginx 限流
+      truncated: false
+    - text: 未做水平并发压测；状态读写均在锁内，登录为低频路径，符合 2C2G 场景
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-25T11:06:47.513Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A28
+      - A83
+    summary:
+      text: 93项中A1-A27、A29-A82、A84-A93共91项passed；A28与A83两项failed，根因一致：规范要求状态写入/查询路径触发prune，而实现仅在打满封禁路径调用一处裁剪，长期低于上限的陌生IP条目不会被及时裁剪，故整体判fail。
+      truncated: false
+    completed_at: 2026-08-25T11:02:10.820Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 全部 93 项验收 passed。核心 A28/A83 已由 Builder 修复：查询路径（banned
+        判定块开头）与写入路径（错误密码递增块开头）均调用 _prune_login_state_locked(now)，源码共 3
+        处调用>=2，tests/test_auth.py 新增 count>=2 断言并通过；tests/test_auth.py
+        13/13、run_all_tests.py 17/17、node --check、py_compile 全量通过。
+      truncated: false
+    completed_at: 2026-08-25T11:06:47.513Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-25T10:56:04.747Z

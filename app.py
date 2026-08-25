@@ -67,6 +67,36 @@ def _prune_sessions_locked() -> None:
     now = time.time()
     for t in [t for t, e in _SESSIONS.items() if e <= now]:
         _SESSIONS.pop(t, None)
+
+
+# ---- 登录暴破防护（auth-lockout）：连续错 N 次封禁来源 IP，临时时长 ----
+def _env_int(name: str, default: int) -> int:
+    """读取正整数环境变量，非法值回退默认值（保证服务不会因错误环境变量启动失败）。"""
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+AUTH_MAX_FAILS = _env_int("AUTH_MAX_FAILS", 5)      # 连续失败达到该次数即封禁
+AUTH_BAN_SECONDS = _env_int("AUTH_BAN_SECONDS", 600)  # 封禁持续秒数
+AUTH_FAIL_TTL = _env_int("AUTH_FAIL_TTL", 600)      # 失败计数窗口：距首次失败超过则清零
+_MAX_LOGIN_STATE = 5000                             # 来源条目上限（防内存膨胀）
+_LOGIN_STATE: dict = {}                             # ip -> {"count","first","banned","updated"}
+_LOGIN_STATE_LOCK = threading.Lock()
+
+
+def _prune_login_state_locked(now: float) -> None:
+    """仅持有 _LOGIN_STATE_LOCK 时调用：先清过期条目，再按最后更新时间裁剪到上限。"""
+    cutoff = now - AUTH_FAIL_TTL
+    expired = [k for k, v in _LOGIN_STATE.items()
+               if v.get("banned", 0) < now and v.get("updated", 0) < cutoff]
+    for k in expired:
+        _LOGIN_STATE.pop(k, None)
+    if len(_LOGIN_STATE) > _MAX_LOGIN_STATE:
+        ordered = sorted(_LOGIN_STATE.items(), key=lambda kv: kv[1].get("updated", 0))
+        for k, _ in ordered[:len(_LOGIN_STATE) - _MAX_LOGIN_STATE]:
+            _LOGIN_STATE.pop(k, None)
 # count 参数安全解析上限，防止非法输入导致 500 或超大值放大网络请求
 MAX_KLINE_COUNT = 10000
 MAX_CHANLUN_COUNT = 10000
@@ -1424,6 +1454,15 @@ class Handler(BaseHTTPRequestHandler):
                 return False
         return True
 
+    def _client_ip(self) -> str:
+        """来源 IP：优先取 X-Forwarded-For 首个条目（反代场景），否则直连地址。"""
+        xff = self.headers.get("X-Forwarded-For", "")
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+        return self.client_address[0] or "unknown"
+
     def _handle_auth_login(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0) or 0)
@@ -1439,15 +1478,52 @@ class Handler(BaseHTTPRequestHandler):
         if not AUTH_ENABLED:
             self._json({"ok": False, "error": "鉴权未启用"})
             return
-        if not hmac.compare_digest(pwd.encode("utf-8"), AUTH_PASSWORD.encode("utf-8")):
-            self._json({"ok": False, "error": "密码错误"}, 401)
+
+        # auth-lockout：按来源 IP 计数/封禁（查询路径也触发有界裁剪）
+        ip = self._client_ip()
+        now = time.time()
+        with _LOGIN_STATE_LOCK:
+            _prune_login_state_locked(now)
+            st = _LOGIN_STATE.get(ip)
+            if st and st.get("banned", 0) > now:
+                # 封禁期内一律拒绝：不做密码比对、不建立会话、不下发 Set-Cookie
+                retry_after = int(st["banned"] - now)
+                self._json({"ok": False, "error": "尝试次数过多，请稍后再试",
+                            "retry_after": retry_after}, 429)
+                return
+
+        if hmac.compare_digest(pwd.encode("utf-8"), AUTH_PASSWORD.encode("utf-8")):
+            with _LOGIN_STATE_LOCK:
+                _LOGIN_STATE.pop(ip, None)  # 登录成功即清零该来源计数/封禁
+            token = secrets.token_hex(16)
+            with _SESSIONS_LOCK:
+                _prune_sessions_locked()
+                _SESSIONS[token] = time.time() + _SESSION_TTL
+            cookie = f"{_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={_SESSION_TTL}"
+            self._json({"ok": True}, 200, extra_headers=[("Set-Cookie", cookie)])
             return
-        token = secrets.token_hex(16)
-        with _SESSIONS_LOCK:
-            _prune_sessions_locked()
-            _SESSIONS[token] = time.time() + _SESSION_TTL
-        cookie = f"{_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={_SESSION_TTL}"
-        self._json({"ok": True}, 200, extra_headers=[("Set-Cookie", cookie)])
+
+        # 错误密码：窗口内计数递增，打满即封禁（写入路径触发有界裁剪）
+        with _LOGIN_STATE_LOCK:
+            _prune_login_state_locked(now)
+            st = _LOGIN_STATE.get(ip)
+            if st is None:
+                st = {"count": 0, "first": now, "banned": 0, "updated": now}
+                _LOGIN_STATE[ip] = st
+            if st.get("banned", 0) <= now and now - st.get("first", now) > AUTH_FAIL_TTL:
+                st["count"] = 0  # 窗口超时，滞旧计数清零
+                st["first"] = now
+            st["count"] += 1
+            st["updated"] = now
+            if st["count"] >= AUTH_MAX_FAILS:
+                st["banned"] = now + AUTH_BAN_SECONDS
+                st["count"] = 0  # 打满后归零，解封后按新窗口重新计数
+                _prune_login_state_locked(now)
+                self._json({"ok": False, "error": "尝试次数过多，请稍后再试",
+                            "retry_after": AUTH_BAN_SECONDS}, 429)
+                return
+            remaining = AUTH_MAX_FAILS - st["count"]
+        self._json({"ok": False, "error": "密码错误", "remaining": remaining}, 401)
 
     def _handle_auth_logout(self) -> None:
         tok = self._cookie_token()
