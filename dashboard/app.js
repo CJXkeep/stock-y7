@@ -28,7 +28,7 @@ let _dailyChanlun = null;    // 缓存缠论日线分析结果
 // 鉴权启用时显示「退出」；未登录则跳登录页
 async function _initAuth() {
   try {
-    const s = await (await fetch('/api/auth/status')).json();
+    const s = await (await fetchWithTimeout('/api/auth/status')).json();
     const btn = document.getElementById('btn-logout');
     if (btn && s && s.enabled) btn.style.display = '';
     if (s && s.enabled && !s.authed) location.href = '/login.html';
@@ -36,7 +36,7 @@ async function _initAuth() {
 }
 
 function doLogout() {
-  fetch('/api/auth/logout', { method: 'POST' }).catch(function () {})
+  fetchWithTimeout('/api/auth/logout', { method: 'POST' }).catch(function () {})
     .finally(function () { location.href = '/login.html'; });
 }
 let _flowMode = 'realtime';  // 资金流模式：'realtime'=今日实时, 'daily'=近30日
@@ -676,9 +676,9 @@ function bindChartTooltip() {
     if (found) {
       tooltipEl.innerHTML =
         '<div class="stt-hint">信号说明（鼠标移开自动隐藏）</div>' +
-        '<div class="stt-title">' + found.title + '</div>' +
-        (found.formula ? '<div class="stt-formula">' + found.formula + '</div>' : '') +
-        (found.desc ? '<div class="stt-desc">' + found.desc + '</div>' : '');
+        '<div class="stt-title">' + escHtml(found.title) + '</div>' +
+        (found.formula ? '<div class="stt-formula">' + escHtml(found.formula) + '</div>' : '') +
+        (found.desc ? '<div class="stt-desc">' + escHtml(found.desc) + '</div>' : '');
       tooltipEl.style.display = 'block';
     } else {
       tooltipEl.style.display = 'none';
@@ -1217,7 +1217,7 @@ function switchFlowMode(mode) {
 async function loadRealtimeFlow(symbol) {
   if (!symbol) return;
   try {
-    const r = await fetch(`${API}/api/realtime_flow?symbol=${symbol}`);
+    const r = await fetchWithTimeout(`${API}/api/realtime_flow?symbol=${symbol}`);
     const data = await r.json();
     renderRealtimeFlow(data);
   } catch(e) {
@@ -1969,12 +1969,12 @@ document.addEventListener('click', e => {
 
 async function doSuggest(kw) {
   try {
-    const r = await fetch(`${API}/api/search?keyword=${encodeURIComponent(kw)}`);
+    const r = await fetchWithTimeout(`${API}/api/search?keyword=${encodeURIComponent(kw)}`);
     const data = await r.json();
     if (data.results && data.results.length) {
       searchResults.innerHTML = data.results.map(s =>
-        `<div class="sr-item" onclick="selectStock('${s.code}','${s.name}')">
-          <span class="code">${s.code}</span><span class="name">${s.name}</span>
+        `<div class="sr-item" data-act="selectStock" data-code="${escHtml(s.code)}" data-name="${escHtml(s.name)}">
+          <span class="code">${escHtml(s.code)}</span><span class="name">${escHtml(s.name)}</span>
         </div>`
       ).join('');
       searchResults.style.display = 'block';
@@ -1988,7 +1988,7 @@ async function doSearch() {
   searchResults.style.display = 'none';
   if (/^\d{6}$/.test(kw)) { analyze(kw); return; }
   try {
-    const r = await fetch(`${API}/api/search?keyword=${encodeURIComponent(kw)}`);
+    const r = await fetchWithTimeout(`${API}/api/search?keyword=${encodeURIComponent(kw)}`);
     const data = await r.json();
     if (data.results && data.results.length) selectStock(data.results[0].code, data.results[0].name);
   } catch(e) {}
@@ -2016,11 +2016,13 @@ function _scheduleFailRetry(symbol) {
   }, 8000);
 }
 
-function _markAnalyzeFail(symbol) {
+function _markAnalyzeFail(symbol, err) {
   document.getElementById('loading').style.display = 'none';
   const el = document.getElementById('sum-body');
-  const retryLink = `<span style="color:#4fc3f7;cursor:pointer;text-decoration:underline" onclick="analyze('${symbol}')">立即重试</span>`;
+  const retryLink = `<span style="color:#4fc3f7;cursor:pointer;text-decoration:underline" data-act="analyze" data-code="${escHtml(symbol)}">立即重试</span>`;
   const autoTxt = _failRetryCount < _MAX_FAIL_RETRY ? '，8秒后自动重试' : '';
+  const reason = '行情数据源暂时连不上，稍后再试';
+  const hint = isTimeoutError(err) ? '（请求超时，15 秒无响应）' : '（本地服务可能未启动）';
   if (_lastOkTime && el.innerHTML.trim()) {
     // 已有上次成功结果：保留旧数据，只在结论区顶部插一条失败横幅
     const oldBanner = document.getElementById('analyze-fail-banner');
@@ -2029,9 +2031,25 @@ function _markAnalyzeFail(symbol) {
       `<div id="analyze-fail-banner" style="margin-bottom:8px;padding:6px 8px;background:rgba(255,107,107,0.08);border-radius:6px;border:1px solid rgba(255,107,107,0.15);font-size:11px;color:#ff6b6b;line-height:1.5">⚠ 本次刷新失败，以下为上次结果（计算于 ${_lastOkTime}）· ${retryLink}${autoTxt}</div>`);
   } else {
     // 无历史数据：整块错误提示 + 重试入口
-    el.innerHTML = `<div class="sum-text" style="color:${C.down}">请求失败，请检查服务是否运行<br><span style="display:inline-block;margin-top:8px;font-size:11px">${retryLink}${autoTxt}</span></div>`;
+    el.innerHTML = `<div class="sum-text" style="color:${C.down}">${reason}<span style="color:#888;font-size:11px"> ${hint}</span><br><span style="display:inline-block;margin-top:8px;font-size:11px">${retryLink}${autoTxt}</span></div>`;
   }
   _scheduleFailRetry(symbol);
+}
+
+// ==================== 错误码 → 人话文案（improvements #5） ====================
+const ERROR_EXPLAIN = {
+  kline_empty: '没有找到该代码，可能输错了或已退市，试试搜索框输入名称',
+  bad_symbol: '股票代码格式不对，请检查后重试',
+  upstream_error: '行情数据源暂时连不上，稍后再试',
+};
+const GENERIC_ERROR_TEXT = '分析遇到问题，请稍后重试；若持续出现请查看服务日志';
+
+function explainError(data) {
+  if (!data) return GENERIC_ERROR_TEXT;
+  if (data.error_code && ERROR_EXPLAIN[data.error_code]) return ERROR_EXPLAIN[data.error_code];
+  // 兼容旧版纯文本错误：按关键词归类
+  if (data.error && /K线数据不足|无效代码|不存在/.test(data.error)) return ERROR_EXPLAIN.kline_empty;
+  return GENERIC_ERROR_TEXT;
 }
 
 async function analyze(symbol) {
@@ -2045,10 +2063,10 @@ async function analyze(symbol) {
   const periodParam = currentView === 'week' ? '&period=week' : '';
 
   // 缠论接口单独容错：它失败不应拖垮主分析渲染
-  const clFetch = fetch(`${API}/api/chanlun_daily?symbol=${symbol}${periodParam}`).catch(() => null);
+  const clFetch = fetchWithTimeout(`${API}/api/chanlun_daily?symbol=${symbol}${periodParam}`).catch(() => null);
 
   try {
-    const r = await fetch(`${API}/api/analyze?symbol=${symbol}${periodParam}`);
+    const r = await fetchWithTimeout(`${API}/api/analyze?symbol=${symbol}${periodParam}`);
     const data = await r.json();
     const clRes = await clFetch;
     _dailyChanlun = null;
@@ -2056,7 +2074,10 @@ async function analyze(symbol) {
     document.getElementById('loading').style.display = 'none';
 
     if (data.error) {
-      document.getElementById('sum-body').innerHTML = `<div class="sum-text" style="color:${C.down}">${data.error}</div>`;
+      console.warn('analyze error:', symbol, data.error);
+      const retryLinkHtml = `<span style="color:#4fc3f7;cursor:pointer;text-decoration:underline" data-act="analyze" data-code="${escHtml(symbol)}">立即重试</span>`;
+      document.getElementById('sum-body').innerHTML =
+        `<div class="sum-text" style="color:${C.down}">${escHtml(explainError(data))}<br><span style="display:inline-block;margin-top:8px;font-size:11px">${retryLinkHtml}</span></div>`;
       return;
     }
 
@@ -2123,13 +2144,14 @@ async function analyze(symbol) {
     fxCardStagger();   // 右侧卡片依次淡入（FX标准/炫酷档）
     _refreshTimer = setInterval(() => refreshQuote(symbol), 2000);
   } catch(e) {
-    _markAnalyzeFail(symbol);
+    console.warn('analyze failed:', symbol, e);
+    _markAnalyzeFail(symbol, e);
   }
 }
 
 async function refreshQuote(symbol) {
   try {
-    const r = await fetch(`${API}/api/quote?symbol=${symbol}`);
+    const r = await fetchWithTimeout(`${API}/api/quote?symbol=${symbol}`);
     const q = await r.json();
     if (!q.error) {
       updateQuote(q);
@@ -2199,8 +2221,8 @@ async function loadMinute(symbol) {
     _minuteYRange = null;
     // 并行获取分时数据和缠论分析
     const [minuteRes, chanlunRes] = await Promise.all([
-      fetch(`${API}/api/minute?symbol=${symbol}`),
-      fetch(`${API}/api/chanlun_minute?symbol=${symbol}`),
+      fetchWithTimeout(`${API}/api/minute?symbol=${symbol}`),
+      fetchWithTimeout(`${API}/api/chanlun_minute?symbol=${symbol}`),
     ]);
     const data = await minuteRes.json();
     if (data.error) {
@@ -2224,7 +2246,7 @@ async function loadMinute(symbol) {
 // 分时数据轻量刷新：只更新最后一个点的价格，不全量重载
 async function refreshMinuteLight(symbol) {
   try {
-    const r = await fetch(`${API}/api/minute?symbol=${symbol}`);
+    const r = await fetchWithTimeout(`${API}/api/minute?symbol=${symbol}`);
     const data = await r.json();
     if (data.error || !_minuteData) return;
     // 检查数据是否实际变化（长度或最后一个价格）
@@ -2425,8 +2447,8 @@ function renderHistory() {
   el.innerHTML = list.map(s => {
     const tag = sigTag(s.action, s.score);
     const t = fmtTime(s.time);
-    return `<div class="wp-item" onclick="analyze('${s.code}')">
-      <span class="code">${s.code}</span>
+    return `<div class="wp-item" data-act="analyze" data-code="${escHtml(s.code)}">
+      <span class="code">${escHtml(s.code)}</span>
       <span class="name">${escHtml(s.name)}</span>
       ${tag}
       <span class="time">${t}</span>
@@ -2458,6 +2480,60 @@ function fmtTime(ts) {
 function escHtml(s) {
   if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ==================== XSS 加固：统一事件委托（improvements #1） ====================
+// 规范：innerHTML 模板中的动态文本必须经 escHtml() 转义；
+// 禁止 onclick="fn('${var}')" 式内嵌字符串拼接事件属性，一律改用
+// data-act（click）/ data-dblact（dblclick）/ data-chgact（change）+ data-* 参数，
+// 由下方 document 级委托分发。静态模板（无插值）的 inline handler 过渡期保留。
+const DELEGATED_ACTIONS = {
+  analyze: el => analyze(el.dataset.code),
+  selectStock: el => selectStock(el.dataset.code, el.dataset.name || ''),
+  analyzeFromScan: el => analyzeFromScan(el.dataset.code),
+  renderArchivedRun: el => renderArchivedRun(el.dataset.runId),
+  exportScanCsv: el => exportScanCsv(el.dataset.runId),
+  deleteScanRun: el => deleteScanRun(el.dataset.runId),
+  scanRetry: () => scanPollRetry(),
+  sbToggleCollapse: el => sbToggleCollapse(el.dataset.gid),
+  renameGroupInline: el => renameGroupInline(el, el.dataset.gid),
+  moveStock: el => moveStock(el.dataset.code, el.dataset.gid),
+  pinStock: el => pinStock(el.dataset.code, el.dataset.gid),
+  removeStockCtx: el => { hideCtxMenu(); removeFromWatchlist(el.dataset.code); },
+  renameGroupMenu: el => { hideCtxMenu(); renameGroupInlineById(el.dataset.gid); },
+  toggleCollapseMenu: el => { hideCtxMenu(); sbToggleCollapse(el.dataset.gid); },
+  deleteGroupMenu: el => { hideCtxMenu(); deleteGroup(el.dataset.gid); },
+  poolNote: el => poolNote(el.dataset.code, el.value),
+  poolMove: el => poolMove(el.dataset.code, parseInt(el.dataset.dir, 10)),
+  poolRemove: el => poolRemove(el.dataset.code),
+  poolAddCurrent: el => poolAddCurrent(el.dataset.code),
+};
+
+function _delegateDispatch(e, attr) {
+  const el = e.target.closest('[' + attr + ']');
+  if (!el) return;
+  const fn = DELEGATED_ACTIONS[el.getAttribute(attr)];
+  if (!fn) return;
+  if (attr === 'data-act') {
+    if (el.tagName === 'A') e.preventDefault();
+    if (el.hasAttribute('data-stop')) e.stopPropagation();
+  }
+  fn(el, e);
+}
+document.addEventListener('click', e => _delegateDispatch(e, 'data-act'));
+document.addEventListener('dblclick', e => _delegateDispatch(e, 'data-dblact'));
+document.addEventListener('change', e => _delegateDispatch(e, 'data-chgact'));
+
+// ==================== 网络请求统一超时封装（improvements #3） ====================
+const DEFAULT_FETCH_TIMEOUT = 15000;
+function fetchWithTimeout(url, options = {}, ms = DEFAULT_FETCH_TIMEOUT) {
+  const ctl = ('AbortController' in window) ? new AbortController() : null;
+  if (!ctl) return fetch(url, options);   // 极旧环境降级为无超时请求
+  const timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...options, signal: ctl.signal }).finally(() => clearTimeout(timer));
+}
+function isTimeoutError(err) {
+  return !!(err && (err.name === 'AbortError' || err.isTimeout));
 }
 
 // --- 面板控制 ---
@@ -2631,8 +2707,8 @@ function renderSidebar() {
     const h = document.createElement('div');
     h.className = 'sb-ghead'; h.draggable = true; h.dataset.gid = g.id;
     h.innerHTML =
-      `<span class="sb-arrow" onclick="event.stopPropagation();sbToggleCollapse('${g.id}')">${g.collapsed ? '▸' : '▾'}</span>` +
-      `<span class="sb-gname" title="双击重命名" ondblclick="renameGroupInline(this,'${g.id}')">${escHtml(g.name)}</span>` +
+      `<span class="sb-arrow" data-act="sbToggleCollapse" data-stop data-gid="${escHtml(g.id)}">${g.collapsed ? '▸' : '▾'}</span>` +
+      `<span class="sb-gname" title="双击重命名" data-dblact="renameGroupInline" data-gid="${escHtml(g.id)}">${escHtml(g.name)}</span>` +
       `<span class="sb-gstat">${g.codes.length}只${(up + down) ? ` · ${up}涨${down}跌` : ''}</span>`;
     h.addEventListener('contextmenu', ev => { ev.preventDefault(); showCtxMenu(ev, 'group', g.id); });
     h.addEventListener('dragover', ev => ev.preventDefault());
@@ -2799,14 +2875,14 @@ function showCtxMenu(ev, type, id, gid) {
   let html = '';
   if (type === 'stock') {
     html = '<div class="ctx-title">移动到分组</div>' +
-      getGroups().map(g => `<div class="ctx-item${g.id === gid ? ' cur' : ''}" onclick="moveStock('${id}','${g.id}')">${g.id === gid ? '✓ ' : ''}${escHtml(g.name)}</div>`).join('') +
+      getGroups().map(g => `<div class="ctx-item${g.id === gid ? ' cur' : ''}" data-act="moveStock" data-code="${escHtml(id)}" data-gid="${escHtml(g.id)}">${g.id === gid ? '✓ ' : ''}${escHtml(g.name)}</div>`).join('') +
       `<div class="ctx-sep"></div>` +
-      `<div class="ctx-item" onclick="pinStock('${id}','${gid}')">置顶</div>` +
-      `<div class="ctx-item danger" onclick="hideCtxMenu();removeFromWatchlist('${id}')">删除</div>`;
+      `<div class="ctx-item" data-act="pinStock" data-code="${escHtml(id)}" data-gid="${escHtml(gid)}">置顶</div>` +
+      `<div class="ctx-item danger" data-act="removeStockCtx" data-code="${escHtml(id)}">删除</div>`;
   } else {
-    html = `<div class="ctx-item" onclick="hideCtxMenu();renameGroupInlineById('${id}')">重命名</div>` +
-           `<div class="ctx-item" onclick="hideCtxMenu();sbToggleCollapse('${id}')">折叠/展开</div>`;
-    if (id !== 'default') html += `<div class="ctx-item danger" onclick="hideCtxMenu();deleteGroup('${id}')">删除分组</div>`;
+    html = `<div class="ctx-item" data-act="renameGroupMenu" data-gid="${escHtml(id)}">重命名</div>` +
+           `<div class="ctx-item" data-act="toggleCollapseMenu" data-gid="${escHtml(id)}">折叠/展开</div>`;
+    if (id !== 'default') html += `<div class="ctx-item danger" data-act="deleteGroupMenu" data-gid="${escHtml(id)}">删除分组</div>`;
   }
   menu.innerHTML = html;
   menu.style.display = 'block';
@@ -2823,14 +2899,14 @@ async function sbRefreshQuotes() {
   if (!codes.length) return;
   let quotes = null;
   try {   // P3：优先批量接口
-    const r = await fetch(`${API}/api/quotes?codes=${encodeURIComponent(codes.join(','))}`);
+    const r = await fetchWithTimeout(`${API}/api/quotes?codes=${encodeURIComponent(codes.join(','))}`);
     const j = await r.json();
     if (j && j.quotes) quotes = j.quotes;
   } catch (e) {}
   if (!quotes) {   // 兜底：并行逐只拉取
     quotes = {};
     await Promise.all(codes.map(async c => {
-      try { const r = await fetch(`${API}/api/quote?symbol=${c}`); const q = await r.json(); if (!q.error) quotes[c] = q; } catch (e) {}
+      try { const r = await fetchWithTimeout(`${API}/api/quote?symbol=${c}`); const q = await r.json(); if (!q.error) quotes[c] = q; } catch (e) {}
     }));
   }
   const m = getStockMap();
@@ -3267,7 +3343,7 @@ async function loadOverview() {
   // 并行获取所有自选股的简要行情
   const results = await Promise.all(list.map(async s => {
     try {
-      const r = await fetch(`${API}/api/quote?symbol=${s.code}`);
+      const r = await fetchWithTimeout(`${API}/api/quote?symbol=${s.code}`);
       const q = await r.json();
       if (q.error) return { code: s.code, name: s.name, error: true };
       return {
@@ -3289,8 +3365,8 @@ async function loadOverview() {
     const sigTag = s.action ? `<span class="wp-ov-sig-tag ${s.action === '买入' ? 'buy' : s.action === '卖出' ? 'sell' : 'watch'}">${s.action}</span>` : '<span class="wp-ov-sig-tag none">--</span>';
     const scoreStr = s.score ? s.score : '--';
     const scoreColor = s.score >= 60 ? C.up : s.score >= 40 ? '#ffc107' : s.score > 0 ? C.down : '#666';
-    return `<div class="wp-ov-item" onclick="analyze('${s.code}')">
-      <span class="wp-ov-code">${s.code}</span>
+    return `<div class="wp-ov-item" data-act="analyze" data-code="${escHtml(s.code)}">
+      <span class="wp-ov-code">${escHtml(s.code)}</span>
       <span class="wp-ov-name">${escHtml(s.name)}</span>
       <span class="wp-ov-pct ${pctCls}">${pctStr}</span>
       <span class="wp-ov-score" style="color:${scoreColor}">${scoreStr}</span>
@@ -3331,7 +3407,7 @@ async function _resolveSymbolNames(symbols) {
   for (let i = 0; i < missing.length; i += 50) {
     const chunk = missing.slice(i, i + 50);
     try {
-      const r = await fetch(`${API}/api/quotes?codes=${encodeURIComponent(chunk.join(','))}`);
+      const r = await fetchWithTimeout(`${API}/api/quotes?codes=${encodeURIComponent(chunk.join(','))}`);
       const j = await r.json();
       const m = _symNames();
       for (const c of chunk) {
@@ -3368,7 +3444,7 @@ async function loadJournal() {
   if (_journalSymbolFilter) qs.set('symbol', _journalSymbolFilter);
   let data;
   try {
-    const r = await fetch(`${API}/api/journal?${qs}`);
+    const r = await fetchWithTimeout(`${API}/api/journal?${qs}`);
     data = await r.json();
   } catch (e) {
     el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">信号日志读取失败：' + escHtml(String(e)) + '</div>';
@@ -3407,7 +3483,7 @@ async function loadJournal() {
     const nm = _knownName(rec.symbol);
     return `<tr>
       <td>${rec.trigger_date || ''}</td>
-      <td><a href="#" onclick="analyze('${rec.symbol}');return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a>${nm ? `<div style="color:#888;font-size:10px;margin-top:1px">${escHtml(nm)}</div>` : ''}</td>
+      <td><a href="#" data-act="analyze" data-code="${escHtml(rec.symbol)}" style="color:#ff9800;text-decoration:none">${escHtml(rec.symbol)}</a>${nm ? `<div style="color:#888;font-size:10px;margin-top:1px">${escHtml(nm)}</div>` : ''}</td>
       <td>${_journalTypeNames[rec.signal_type] || rec.signal_type}${dupTag}</td>
       <td>${rec.snapshot_close != null ? rec.snapshot_close : '--'}</td>
       <td>${cell(f[5] && f[5].return_pct)}</td>
@@ -3503,7 +3579,7 @@ function exportJournalJson() {
 
 // ===== 核心池管理（可视化维护，变更自动递增池版本） =====
 async function poolPost(body) {
-  const r = await fetch(`${API}/api/pool`, {
+  const r = await fetchWithTimeout(`${API}/api/pool`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -3522,7 +3598,7 @@ async function loadPool() {
   el.innerHTML = '<div class="wp-ov-loading">正在读取核心池...</div>';
   let data;
   try {
-    const r = await fetch(`${API}/api/pool`);
+    const r = await fetchWithTimeout(`${API}/api/pool`);
     data = await r.json();
   } catch (e) {
     el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">核心池读取失败：' + escHtml(String(e)) + '</div>';
@@ -3532,7 +3608,7 @@ async function loadPool() {
   // 快照同步状态（I7.5 失效提示闭环）
   _poolSnapBanner = '<div style="padding:6px 12px;font-size:11px;color:#888;border-bottom:1px solid #222">未找到历史统计快照——可运行 python -m backtest snapshot 生成</div>';
   try {
-    const sr = await fetch(`${API}/api/snapshot-info`);
+    const sr = await fetchWithTimeout(`${API}/api/snapshot-info`);
     const snap = await sr.json();
     if (snap.snapshot_id) {
       if (snap.pool_version === data.version) {
@@ -3567,14 +3643,14 @@ function renderPoolPanel() {
   const rows = visible.map((it, i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #1c1c1c;font-size:12px">
       <span style="color:#666;width:18px">${i + 1}</span>
-      <a href="#" onclick="analyze('${it.symbol}');return false" style="color:#ff9800;text-decoration:none;min-width:52px">${it.symbol}</a>
+      <a href="#" data-act="analyze" data-code="${escHtml(it.symbol)}" style="color:#ff9800;text-decoration:none;min-width:52px">${escHtml(it.symbol)}</a>
       <span style="min-width:80px;color:#ddd" title="${escHtml(it.industry || '')}">${escHtml(it.name || '--')}</span>
       ${it.industry ? `<span style="color:#666;font-size:10px;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.industry)}</span>` : ''}
       <input value="${escHtml(it.note || '')}" placeholder="备注" style="flex:1;background:#111;border:1px solid #2a2a2a;color:#bbb;font-size:11px;padding:2px 6px"
-        onchange="poolNote('${it.symbol}', this.value)">
-      <button onclick="poolMove('${it.symbol}', -1)" ${i === 0 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↑</button>
-      <button onclick="poolMove('${it.symbol}', 1)" ${i === visible.length - 1 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↓</button>
-      <button onclick="poolRemove('${it.symbol}')" style="background:none;border:1px solid #5a2a2a;color:#e57373;cursor:pointer;padding:0 6px">删</button>
+        data-chgact="poolNote" data-code="${escHtml(it.symbol)}">
+      <button data-act="poolMove" data-code="${escHtml(it.symbol)}" data-dir="-1" ${i === 0 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↑</button>
+      <button data-act="poolMove" data-code="${escHtml(it.symbol)}" data-dir="1" ${i === visible.length - 1 ? 'disabled' : ''} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:0 6px">↓</button>
+      <button data-act="poolRemove" data-code="${escHtml(it.symbol)}" style="background:none;border:1px solid #5a2a2a;color:#e57373;cursor:pointer;padding:0 6px">删</button>
     </div>`).join('');
 
   el.innerHTML = `
@@ -3584,7 +3660,7 @@ function renderPoolPanel() {
       <input id="pool-add-symbol" placeholder="代码 如 600519" size="9" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
       <input id="pool-add-name" placeholder="名称(可选)" size="8" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
       <button onclick="poolAdd()" style="background:#ff9800;border:none;color:#000;padding:2px 10px;cursor:pointer;font-size:11px">添加</button>
-      <button onclick="poolAddCurrent('${cur}')" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur || '无'})</button>
+      <button data-act="poolAddCurrent" data-code="${escHtml(cur)}" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur ? escHtml(cur) : '无'})</button>
       <select id="pool-industry-filter" onchange="_poolIndustryFilter=this.value;renderPoolPanel()" title="按行业筛选（纯前端过滤）"
         style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 4px;max-width:110px">${indOpts}</select>
       <button onclick="poolFillIndustry()" ${items.length ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">补全行业</button>
@@ -3819,7 +3895,7 @@ function showToast(name, code, oldAction, newAction, price) {
   toast.className = `toast ${cls}`;
   toast.onclick = () => removeToast(toast);
   toast.innerHTML = `
-    <div style="font-weight:bold;font-size:14px;margin-bottom:4px">${escHtml(name)} (${code})</div>
+    <div style="font-weight:bold;font-size:14px;margin-bottom:4px">${escHtml(name)} (${escHtml(code)})</div>
     <div>信号变更：<span style="color:${oldColor}">${oldAction}</span> → <span style="color:${newColor};font-weight:bold">${newAction}</span></div>
     <div style="font-size:11px;color:#666;margin-top:4px">当前价 ${price ? price.toFixed(2) : '--'}</div>
   `;
@@ -3866,7 +3942,7 @@ async function loadDigest() {
   el.innerHTML = '<div class="wp-ov-loading">正在读取每日速递...</div>';
   let data;
   try {
-    const r = await fetch(`${API}/api/digest`);
+    const r = await fetchWithTimeout(`${API}/api/digest`);
     data = await r.json();
   } catch (e) {
     el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">每日速递读取失败：' + escHtml(String(e)) + '</div>';
@@ -3877,7 +3953,7 @@ async function loadDigest() {
 }
 
 function refreshDigest() {
-  fetch(`${API}/api/digest?action=refresh`).then(r => r.json()).then(data => {
+  fetchWithTimeout(`${API}/api/digest?action=refresh`).then(r => r.json()).then(data => {
     if (data.status === 'started' || data.status === 'running') {
       startDigestPolling();
       renderDigest(data);
@@ -3890,7 +3966,7 @@ function refreshDigest() {
 function startDigestPolling() {
   stopDigestPolling();
   _digestTimer = setInterval(() => {
-    fetch(`${API}/api/digest`).then(r => r.json()).then(data => {
+    fetchWithTimeout(`${API}/api/digest`).then(r => r.json()).then(data => {
       if (data.status === 'running') renderDigest(data);
       else { stopDigestPolling(); renderDigest(data); }
     }).catch(() => {});
@@ -3995,7 +4071,7 @@ function _digestSections(dg) {
       const nm = _knownName(rec.symbol);
       return `<tr>
         <td style="padding:4px 8px">${g.trigger_date}</td>
-        <td style="padding:4px 6px"><a href="#" onclick="analyze('${rec.symbol}');return false" style="color:#ff9800;text-decoration:none">${rec.symbol}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
+        <td style="padding:4px 6px"><a href="#" data-act="analyze" data-code="${escHtml(rec.symbol)}" style="color:#ff9800;text-decoration:none">${escHtml(rec.symbol)}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
         <td style="padding:4px 6px">${_digestName(rec.signal_type)}</td>
         <td style="padding:4px 6px">${escHtml(rec.action || '')}</td>
         <td style="padding:4px 6px">${rec.snapshot_close != null ? rec.snapshot_close : '--'}</td>
@@ -4038,7 +4114,7 @@ function _digestSections(dg) {
     const rows = matured.map(r => {
       const nm = _knownName(r.symbol);
       return `<tr>
-        <td style="padding:4px 6px"><a href="#" onclick="analyze('${r.symbol}');return false" style="color:#ff9800;text-decoration:none">${r.symbol}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
+        <td style="padding:4px 6px"><a href="#" data-act="analyze" data-code="${escHtml(r.symbol)}" style="color:#ff9800;text-decoration:none">${escHtml(r.symbol)}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
         <td style="padding:4px 6px">${_digestName(r.signal_type)}</td>
         <td style="padding:4px 6px">${escHtml(r.action || '')}</td>
         <td style="padding:4px 6px">${r.horizon}日</td>
@@ -4065,7 +4141,7 @@ function _digestSections(dg) {
     const mkRow = r => {
       const nm = _knownName(r.symbol);
       return `<tr>
-        <td style="padding:4px 6px"><a href="#" onclick="analyze('${r.symbol}');return false" style="color:#ff9800;text-decoration:none">${r.symbol}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
+        <td style="padding:4px 6px"><a href="#" data-act="analyze" data-code="${escHtml(r.symbol)}" style="color:#ff9800;text-decoration:none">${escHtml(r.symbol)}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
         <td style="padding:4px 6px">${r.price != null ? r.price : '--'}</td>
         <td style="padding:4px 6px">${sbBadge(r.action)}</td>
         <td style="padding:4px 6px">${r.score != null ? r.score : '--'}</td>
@@ -4174,7 +4250,7 @@ function archiveScanRun(data) {
 function openScan() {
   document.getElementById('scan-overlay').classList.add('show');
   // 先拉一次状态，再决定是显示进度还是启动新扫描
-  fetch('/api/scan').then(r => r.json()).then(data => {
+  fetchWithTimeout('/api/scan').then(r => r.json()).then(data => {
     if (data.status === 'running') {
       renderScanProgress(data);
       startScanPolling();
@@ -4218,28 +4294,63 @@ function startScan() {
       <div class="scan-bar-bg"><div class="scan-bar-fill" style="width:0%"></div></div>
     </div>`;
   const topn = (document.getElementById('scan-topn') ? document.getElementById('scan-topn').value : '1000');
-  fetch('/api/scan?action=start&max_stocks=' + encodeURIComponent(topn)).then(r => r.json()).then(data => {
+  fetchWithTimeout('/api/scan?action=start&max_stocks=' + encodeURIComponent(topn)).then(r => r.json()).then(data => {
     if (data.status === 'started' || data.status === 'running') {
       startScanPolling();
     }
   });
 }
 
+let _scanFailCount = 0;            // 扫描轮询连续失败计数（improvements #3）
+const _SCAN_FAIL_THRESHOLD = 3;
+
 function startScanPolling() {
   stopScanPolling();
-  _scanTimer = setInterval(() => {
-    fetch('/api/scan').then(r => r.json()).then(data => {
-      if (data.status === 'running') {
-        renderScanProgress(data);
-      } else if (data.status === 'done') {
-        stopScanPolling();
-        renderScanResults(data);
-      } else if (data.status === 'error') {
-        stopScanPolling();
-        renderScanError(data);
-      }
-    }).catch(() => {});
-  }, 2000);
+  _scanFailCount = 0;
+  hideScanConnIssue();
+  _scanTimer = setInterval(scanPollTick, 2000);
+}
+
+function scanPollTick() {
+  fetchWithTimeout('/api/scan', {}, 10000).then(r => r.json()).then(data => {
+    _scanFailCount = 0;
+    hideScanConnIssue();
+    if (data.status === 'running') {
+      renderScanProgress(data);
+    } else if (data.status === 'done') {
+      stopScanPolling();
+      renderScanResults(data);
+    } else if (data.status === 'error') {
+      stopScanPolling();
+      renderScanError(data);
+    }
+  }).catch(() => {
+    // 不再静默吞错：连续失败达到阈值时给出可见提示与手动重试入口
+    _scanFailCount += 1;
+    if (_scanFailCount >= _SCAN_FAIL_THRESHOLD) showScanConnIssue();
+  });
+}
+
+// 轮询失败恢复：清零计数、隐藏横幅并立即补一次轮询
+function scanPollRetry() {
+  _scanFailCount = 0;
+  hideScanConnIssue();
+  scanPollTick();
+}
+
+function showScanConnIssue() {
+  const host = document.getElementById('scan-content');
+  if (!host || document.getElementById('scan-conn-issue')) return;
+  host.insertAdjacentHTML('afterbegin',
+    `<div id="scan-conn-issue" style="margin:0 12px 10px;padding:8px 10px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);border-radius:6px;font-size:12px;color:#ff6b6b;display:flex;align-items:center;gap:10px">
+      <span>与服务器的连接中断</span>
+      <span style="cursor:pointer;color:#4fc3f7;text-decoration:underline" data-act="scanRetry">[重试]</span>
+    </div>`);
+}
+
+function hideScanConnIssue() {
+  const el = document.getElementById('scan-conn-issue');
+  if (el) el.remove();
 }
 
 function stopScanPolling() {
@@ -4316,8 +4427,8 @@ function _scanTableHtml(results) {
     const pctColor = r.daily_pct > 0 ? '#ff2d2d' : r.daily_pct < 0 ? '#00b35c' : '#888';
     html += `<tr>
       <td class="scan-rank">${i + 1}</td>
-      <td>${r.symbol}</td>
-      <td>${r.name}</td>
+      <td>${escHtml(r.symbol)}</td>
+      <td>${escHtml(r.name)}</td>
       <td style="color:${pctColor}">${r.price ? r.price.toFixed(2) : '-'}<span style="font-size:11px;color:#666"> ${pct}%</span></td>
       <td class="${dAct.cls}">${dAct.text}</td>
       <td>${r.daily_score}</td>
@@ -4326,7 +4437,7 @@ function _scanTableHtml(results) {
       <td class="scan-combined" style="color:#ff9800">${r.combined_score}</td>
       <td style="font-size:12px;color:#aaa">${r.position_advice ? r.position_advice.split('—')[0].trim() : '-'}</td>
       <td style="color:${(r.risk_reward||0) >= 2 ? '#00b35c' : (r.risk_reward||0) >= 1 ? '#ffc107' : '#ff2d2d'}">${r.risk_reward || '-'}</td>
-      <td><button class="scan-analyze-btn" onclick="analyzeFromScan('${r.symbol}')">分析</button></td>
+      <td><button class="scan-analyze-btn" data-act="analyzeFromScan" data-code="${escHtml(r.symbol)}">分析</button></td>
     </tr>`;
   });
   html += '</tbody></table></div>';
@@ -4351,9 +4462,9 @@ function renderScanArchiveList() {
         <span class="scan-hist-time">${_fmtScanTime(run.finishedAt)}</span>
         <span class="scan-hist-meta">命中 <b style="color:${run.count ? '#ff9800' : '#666'}">${run.count}</b> 只 · 耗时 ${run.elapsed}s${run.scannedTotal ? ` · 扫描 ${run.scannedTotal} 只` : ''}</span>
         <span class="scan-hist-ops">
-          <button class="scan-analyze-btn" onclick="renderArchivedRun('${run.id}')">查看</button>
-          <button class="scan-analyze-btn" onclick="exportScanCsv('${run.id}')">CSV</button>
-          <button class="scan-analyze-btn scan-del-btn" onclick="deleteScanRun('${run.id}')">删除</button>
+          <button class="scan-analyze-btn" data-act="renderArchivedRun" data-run-id="${escHtml(run.id)}">查看</button>
+          <button class="scan-analyze-btn" data-act="exportScanCsv" data-run-id="${escHtml(run.id)}">CSV</button>
+          <button class="scan-analyze-btn scan-del-btn" data-act="deleteScanRun" data-run-id="${escHtml(run.id)}">删除</button>
         </span>
       </div>`).join('');
     rows = `<div class="scan-hist-list">${rows}</div>`;
@@ -4377,7 +4488,7 @@ function renderArchivedRun(id) {
     <div class="scan-stats" style="margin-bottom:12px">
       <span>归档 ${_fmtScanTime(run.finishedAt)}</span>
       <span>命中 <b style="color:#ff9800">${run.count}</b> 只 · 耗时 ${run.elapsed}s</span>
-      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="exportScanCsv('${run.id}')">导出 CSV</button>
+      <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" data-act="exportScanCsv" data-run-id="${escHtml(run.id)}">导出 CSV</button>
       <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="renderScanArchiveList()">返回列表</button>
     </div>
     ${run.count ? _scanTableHtml(run.items) : '<div class="scan-empty">该次扫描未发现双周期买入信号</div>'}

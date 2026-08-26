@@ -737,15 +737,19 @@ def _in_trading_session() -> bool:
 def handle_analyze(params: dict) -> dict:
     symbol = params.get("symbol", [""])[0].strip()
     if not symbol:
-        return {"error": "缺少symbol参数"}
+        return {"error": "缺少symbol参数", "error_code": "bad_symbol"}
 
     period = params.get("period", ["day"])[0].strip()
     log.info(f"开始分析 {symbol} (period={period})")
 
     # 获取数据：拉取 HISTORY_BARS（约3年/750根）供图表展示
-    all_klines = fetch_kline(symbol, count=journal_config.HISTORY_BARS, period=period)
+    try:
+        all_klines = fetch_kline(symbol, count=journal_config.HISTORY_BARS, period=period)
+    except Exception as exc:   # 数据源异常单独归类，前端映射为人话提示
+        log.warning("analyze %s 数据源异常: %s", symbol, exc)
+        return {"error": f"行情数据源暂时连不上: {symbol}", "error_code": "upstream_error"}
     if len(all_klines) < 30:
-        return {"error": f"K线数据不足: {len(all_klines)}条"}
+        return {"error": f"K线数据不足: {len(all_klines)}条", "error_code": "kline_empty"}
 
     # 分析窗口：最近 REPLAY_WINDOW（250）根，与回测/档案口径完全一致
     klines = all_klines[-journal_config.REPLAY_WINDOW:]
