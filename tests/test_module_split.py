@@ -92,5 +92,23 @@ def test_node_link_check_passes():
         return
     r = subprocess.run([node, checker], capture_output=True, text=True,
                        cwd=ROOT, timeout=120)
-    assert "MODULE LINK OK" in (r.stdout or ""), \
+    assert r.returncode == 0 and "MODULE LINK OK" in (r.stdout or ""), \
         f"模块链接检查失败:\n{r.stdout}\n{r.stderr}"
+
+
+if __name__ == "__main__":
+    _fns = [(n, f) for n, f in sorted(globals().items())
+            if n.startswith("test_") and callable(f)]
+    _bad = 0
+    for _n, _f in _fns:
+        try:
+            _f()
+            print(f"PASS {_n}")
+        except AssertionError as _e:
+            _bad += 1
+            print(f"FAIL {_n}: {_e}")
+        except Exception as _e:  # noqa: BLE001
+            _bad += 1
+            print(f"ERROR {_n}: {_e!r}")
+    print(f"{len(_fns) - _bad}/{len(_fns)} passed")
+    sys.exit(1 if _bad else 0)

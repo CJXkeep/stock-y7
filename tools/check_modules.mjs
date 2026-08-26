@@ -28,6 +28,7 @@ for (const [k, v] of Object.entries({ window: mkStub(), document: mkStub(), loca
 try {
   await import('../dashboard/js/main.js');
   console.log('MODULE LINK OK');
+  process.exit(0);   // 启动期 setTimeout 等会挂住事件循环，显式退出
 } catch (e) {
   const msg = String((e && e.message) || e);
   console.error('MODULE FAIL:', msg);
