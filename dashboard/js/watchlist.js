@@ -258,9 +258,6 @@ export function switchTab(tab) {
   document.querySelectorAll('.sb-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.sb === tab);
   });
-  // 内容切换（wp-content-watch 已随自选功能迁至独立分区，安全跳过）
-  const wEl = document.getElementById('wp-content-watch');
-  if (wEl) wEl.style.display = tab === 'watch' ? 'block' : 'none';
   document.getElementById('wp-content-history').style.display = tab === 'history' ? 'block' : 'none';
   document.getElementById('wp-content-overview').style.display = tab === 'overview' ? 'block' : 'none';
   document.getElementById('wp-content-journal').style.display = tab === 'journal' ? 'block' : 'none';
@@ -303,14 +300,8 @@ export function updateBadges() {
   const hl = getHistory().length;
   const wb = document.getElementById('watch-count');
   const hb = document.getElementById('history-count');
-  const wt = document.getElementById('wt-count');
-  const ht = document.getElementById('ht-count');
-  const ov = document.getElementById('ov-count');
   if (wb) { wb.textContent = wl; wb.style.display = wl > 0 ? 'inline-block' : 'none'; }
   if (hb) { hb.textContent = hl; hb.style.display = hl > 0 ? 'inline-block' : 'none'; }
-  if (wt) wt.textContent = wl > 0 ? `(${wl})` : '';
-  if (ht) ht.textContent = hl > 0 ? `(${hl})` : '';
-  if (ov) ov.textContent = wl > 0 ? `(${wl})` : '';
 }
 
 

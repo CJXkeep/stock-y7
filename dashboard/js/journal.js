@@ -371,9 +371,7 @@ export async function poolAdd() {
 
 export async function poolAddCurrent(symbol) {
   if (!symbol) return;
-  const name = (typeof document.getElementById('stock-name') !== 'undefined'
-    && document.getElementById('stock-name')) ? document.getElementById('stock-name').textContent.trim() : '';
-  const data = await poolPost({ action: 'add', symbol, name });
+  const data = await poolPost({ action: 'add', symbol });
   if (!data.ok) alert(data.error || '添加失败');
   loadPool();
 }
