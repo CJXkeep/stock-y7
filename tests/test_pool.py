@@ -160,12 +160,13 @@ def test_app_routes_and_dashboard_wiring():
     assert m and "/api/pool" in m.group(0), "do_POST 未开放 /api/pool"
     import app as app_module
     assert callable(app_module.handle_pool_get) and callable(app_module.handle_pool_post)
-    # dashboard 结构
+    # dashboard 结构（frontend-improvements-y7：第二套 wp-tab 已移除，核心池仅保留侧边栏单入口）
     import sys as _sys
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from _frontend_source import read_frontend_source
     html = read_frontend_source()
-    assert 'data-tab="pool"' in html
+    assert 'data-sb="pool"' in html, "侧边栏缺少核心池入口"
+    assert 'data-tab="pool"' not in html, "wp-panel 第二套页签应已移除"
     assert 'id="wp-content-pool"' in html
     for marker in ("loadPool(", "poolPost(", "poolAdd(", "poolRemove(", "poolNote(", "poolMove("):
         assert marker in html, f"看板缺少 {marker}"

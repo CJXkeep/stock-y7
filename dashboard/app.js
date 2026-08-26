@@ -31,6 +31,8 @@ async function _initAuth() {
     const s = await (await fetchWithTimeout('/api/auth/status')).json();
     const btn = document.getElementById('btn-logout');
     if (btn && s && s.enabled) btn.style.display = '';
+    const mBtn = document.getElementById('more-logout');
+    if (mBtn && s && s.enabled) mBtn.style.display = '';
     if (s && s.enabled && !s.authed) location.href = '/login.html';
   } catch (e) { /* 离线/异常时静默 */ }
 }
@@ -1290,6 +1292,19 @@ const RISK_EXPLAIN = [
   { kwGroup: true, kws: ['偏低'],
     text: '盈亏比偏低：收益空间相对止损距离优势不足。',
     advice: '可等价格更接近止损位时再考虑，提高盈亏比。' },
+  // improvements #7：全量覆盖后端风险文案（守护测试从 app.py/signal_engine.py 抽取模板逐一校验）
+  { kwGroup: true, kws: ['量价配合不佳'],
+    text: '量价配合不佳：价格走势得不到成交量支持，上涨"没底气"，信号可靠性下降。',
+    advice: '降低仓位或先观望，等量能回升、量价重新配合后再考虑。' },
+  { kwGroup: true, kws: ['处于下降趋势'],
+    text: '处于下降趋势：股价整体重心下移，逆势抄底胜率低。',
+    advice: '不要急于买入，等趋势企稳（如收盘重新站回关键均线）再关注。' },
+  { kwGroup: true, kws: ['勉强达标'],
+    text: '盈亏比勉强达标：可能赚的空间只比可能亏的略大一点，安全垫很薄。',
+    advice: '轻仓参与或不参与，优先寻找盈亏比≥2 的更好位置。' },
+  { kwGroup: true, kws: ['风险收益比良好', '盈亏比良好'],
+    text: '盈亏比良好：可能赚的空间明显大于可能亏的距离，是值得考虑的位置。',
+    advice: '仍要按计划设好止损、分批建仓，避免单笔重仓。' },
 ];
 
 function _lastMA(period) {
@@ -1430,7 +1445,8 @@ document.addEventListener('click', function (e) {
     pop.innerHTML =
       `<div class="gp-term">${escHtml(chip.dataset.term)}<span class="gp-full">${escHtml(g.full)}</span></div>` +
       `<div class="gp-plain">${escHtml(g.plain)}</div>` +
-      `<div class="gp-ex">例：${escHtml(g.example)}</div>`;
+      `<div class="gp-ex">例：${escHtml(g.example)}</div>` +
+      (g.limit ? `<div class="gp-limit">⚠ 局限：${escHtml(g.limit)}</div>` : '');
     pop.style.display = 'block';
     const r = chip.getBoundingClientRect();
     let left = Math.min(r.left, window.innerWidth - 310);
@@ -1950,8 +1966,31 @@ let searchTimer = null;
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   const kw = searchInput.value.trim();
-  if (!kw) { searchResults.style.display = 'none'; return; }
+  if (!kw) { showHotStocksPanel(); return; }
   searchTimer = setTimeout(() => doSuggest(kw), 250);
+});
+
+// improvements #12：热门股从顶栏移入搜索框聚焦推荐面板
+const HOT_STOCKS = [
+  { code: '600519', name: '茅台' },
+  { code: '601899', name: '紫金矿业' },
+  { code: '600276', name: '恒瑞医药' },
+  { code: '588170', name: '科创半导体' },
+  { code: '000001', name: '平安银行' },
+];
+function showHotStocksPanel() {
+  clearTimeout(searchTimer);
+  searchResults.innerHTML =
+    '<div class="sr-hot-title">热门股票</div>' +
+    HOT_STOCKS.map(s =>
+      `<div class="sr-item" data-act="selectStock" data-code="${escHtml(s.code)}" data-name="${escHtml(s.name)}">
+        <span class="code">${escHtml(s.code)}</span><span class="name">${escHtml(s.name)}</span>
+      </div>`
+    ).join('');
+  searchResults.style.display = 'block';
+}
+searchInput.addEventListener('focus', () => {
+  if (!searchInput.value.trim()) showHotStocksPanel();
 });
 
 searchInput.addEventListener('keydown', e => {
@@ -2441,7 +2480,7 @@ function renderHistory() {
   const el = document.getElementById('wp-content-history');
   const list = getHistory();
   if (!list.length) {
-    el.innerHTML = '<div class="wp-empty"><span class="wp-empty-icon">🕐</span>暂无历史记录<br>分析过的股票会显示在这里</div>';
+    el.innerHTML = '<div class="wp-empty"><span class="wp-empty-icon">🕐</span>暂无浏览记录<br>分析过的股票会自动留痕，方便回找</div>';
     return;
   }
   el.innerHTML = list.map(s => {
@@ -2507,7 +2546,26 @@ const DELEGATED_ACTIONS = {
   poolMove: el => poolMove(el.dataset.code, parseInt(el.dataset.dir, 10)),
   poolRemove: el => poolRemove(el.dataset.code),
   poolAddCurrent: el => poolAddCurrent(el.dataset.code),
+  openScan: () => openScan(),
 };
+
+// improvements #8：小屏「更多」菜单
+function closeMoreMenu() {
+  const m = document.getElementById('more-menu');
+  if (m) m.style.display = 'none';
+}
+DELEGATED_ACTIONS.toggleMoreMenu = () => {
+  const m = document.getElementById('more-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+};
+DELEGATED_ACTIONS.moreStar = () => { closeMoreMenu(); toggleStar(); };
+DELEGATED_ACTIONS.moreHistory = () => { closeMoreMenu(); openSbSection('history'); };
+DELEGATED_ACTIONS.moreScan = () => { closeMoreMenu(); openScan(); };
+DELEGATED_ACTIONS.moreSettings = () => { closeMoreMenu(); toggleSettings(); };
+DELEGATED_ACTIONS.moreLogout = () => { closeMoreMenu(); doLogout(); };
+document.addEventListener('click', e => {
+  if (!e.target.closest('.more-wrap')) closeMoreMenu();
+});
 
 function _delegateDispatch(e, attr) {
   const el = e.target.closest('[' + attr + ']');
@@ -2544,10 +2602,7 @@ function switchTab(tab) {
   // wp-panel 已迁入左侧工作台：自选股 tab 回路由到自选分区
   if (tab === 'watch' && document.getElementById('sb-pane-watch')) { openSbSection('watch'); return; }
   _currentTab = tab;
-  // tab样式
-  document.querySelectorAll('.wp-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === tab);
-  });
+  // tab 样式（improvements #4：第二套 wp-tab 已移除，仅同步侧边栏高亮）
   document.querySelectorAll('.sb-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.sb === tab);
   });
@@ -2623,7 +2678,15 @@ let _sbOpen = true;
 let _sbActiveGroup = 'default';
 let _sbTimer = null;
 let _sbSection = 'watch';   // watch | history | overview | journal | pool | digest | scan
-const SB_SECTIONS = { watch: '自选股', history: '历史记录', overview: '多股一览', journal: '信号档案', pool: '核心池', digest: '每日速递', scan: '扫描归档' };
+const SB_SECTIONS = { watch: '自选股', history: '浏览记录', overview: '多股行情', journal: '信号档案', pool: '核心池', digest: '每日速递', scan: '扫描档' };
+// improvements #4：各模块分区头部一句用途说明（12px）
+const SB_SECTION_DESC = {
+  history: '浏览记录：看过的股票自动留痕，方便回找与对比。',
+  overview: '多股行情：自选分组的多股实时行情一览，涨跌与信号一屏尽收。',
+  journal: '信号档案：分析产生的买卖信号自动留档，含后续涨跌验证。',
+  pool: '核心池：精选股票池，是每日速递与批量扫描的数据底座。',
+  digest: '每日速递：每天一份核心池信号汇总，收盘后自动生成。',
+};
 
 function loadSbSection() {
   try { const v = localStorage.getItem('qs_sb_section'); if (v && SB_SECTIONS[v]) _sbSection = v; } catch (e) {}
@@ -2653,6 +2716,12 @@ function renderSbSection() {
   pScan.classList.toggle('active', _sbSection === 'scan');
   const title = document.getElementById('sb-title');
   if (title) title.textContent = SB_SECTIONS[_sbSection];
+  const desc = document.getElementById('sb-pane-desc');
+  if (desc) {
+    const txt = SB_SECTION_DESC[_sbSection] || '';
+    desc.textContent = txt;
+    desc.style.display = txt ? 'block' : 'none';
+  }
   if (_sbSection === 'watch') renderSidebar();
   else if (_sbSection === 'scan') renderScanArchiveList();
   else switchTab(_sbSection);   // 复用原面板渲染器，内部 tab 高亮同步
@@ -3335,7 +3404,7 @@ async function loadOverview() {
   const el = document.getElementById('wp-content-overview');
   const list = getWatchlist();
   if (!list.length) {
-    el.innerHTML = '<div class="wp-empty"><span class="wp-empty-icon">📊</span>还没有自选股<br>添加自选后可查看多股一览</div>';
+    el.innerHTML = '<div class="wp-empty"><span class="wp-empty-icon">📊</span>还没有自选股<br>添加自选后可在多股行情中一屏对比</div>';
     return;
   }
   el.innerHTML = '<div class="wp-ov-loading">正在获取行情数据...</div>';
@@ -4549,7 +4618,44 @@ function renderScanError(data) {
   document.getElementById('scan-content').innerHTML = `
     <div class="scan-empty">
       <div style="margin-bottom:12px;color:#ff4d4d">扫描失败</div>
-      <div style="color:#888;font-size:13px">${data.error || '未知错误'}</div>
+      <div style="color:#888;font-size:13px">${escHtml(data.error || '未知错误')}</div>
       <div style="margin-top:16px"><button class="scan-btn" onclick="renderScanIdle()">重试</button></div>
     </div>`;
 }
+
+// ==================== 首访三步引导（improvements #9） ====================
+const ONBOARD_KEY = 'qs_onboarded_v1';
+let _onboardStep = 1;
+
+function onboardShow() {
+  const ov = document.getElementById('onboard-overlay');
+  if (!ov) return;
+  _onboardStep = 1;
+  _renderOnboard();
+  ov.style.display = 'flex';
+}
+function _renderOnboard() {
+  document.querySelectorAll('.onboard-step').forEach(el =>
+    el.classList.toggle('active', +el.dataset.step === _onboardStep));
+  document.querySelectorAll('.od-dot').forEach((d, i) =>
+    d.classList.toggle('active', i === _onboardStep - 1));
+  const nxt = document.getElementById('onboard-next');
+  if (nxt) nxt.textContent = _onboardStep >= 3 ? '开始使用' : '下一步';
+}
+function onboardFinish() {
+  try { localStorage.setItem(ONBOARD_KEY, '1'); } catch (e) {}
+  const ov = document.getElementById('onboard-overlay');
+  if (ov) ov.style.display = 'none';
+}
+DELEGATED_ACTIONS.onboardNext = () => {
+  if (_onboardStep >= 3) { onboardFinish(); return; }
+  _onboardStep += 1;
+  _renderOnboard();
+};
+DELEGATED_ACTIONS.onboardSkip = () => onboardFinish();
+
+(function onboardInit() {
+  let done = false;
+  try { done = localStorage.getItem(ONBOARD_KEY) === '1'; } catch (e) {}
+  if (!done) setTimeout(onboardShow, 600);
+})();

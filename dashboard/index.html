@@ -15,14 +15,7 @@
     <input type="text" id="search-input" placeholder="代码/名称 如 600519" autocomplete="off">
     <div class="search-results" id="search-results"></div>
   </div>
-  <div class="hot-stocks">
-    <button class="hs-btn" onclick="analyze('600519')">茅台</button>
-    <button class="hs-btn" onclick="analyze('601899')">紫金矿业</button>
-    <button class="hs-btn" onclick="analyze('600276')">恒瑞医药</button>
-    <button class="hs-btn" onclick="analyze('588170')">科创半导体</button>
-    <button class="hs-btn" onclick="analyze('000001')">平安银行</button>
-  </div>
-  <button class="scan-btn" id="scan-btn" onclick="openScan()">扫描买入</button>
+  <!-- improvements #12：热门股移入搜索聚焦推荐面板；扫描买入主入口移入侧边栏扫描档分区头 -->
   <div class="mode-toggle">
     <button class="mt-btn active" id="mt-pro" onclick="setMode('pro')">专业</button>
     <button class="mt-btn" id="mt-simple" onclick="setMode('simple')">小白</button>
@@ -33,6 +26,17 @@
     <button class="wc-btn wc-star" id="star-btn" title="加入/移除自选" onclick="toggleStar()">☆</button>
     <button class="wc-btn" id="watch-btn" style="position:relative" onclick="toggleSbSection('watch')">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
     <button class="wc-btn" id="history-btn" onclick="toggleSbSection('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
+  </div>
+  <!-- improvements #8：小屏「更多」菜单收纳低频入口 -->
+  <div class="more-wrap">
+    <button class="mt-btn more-btn" id="more-btn" title="更多" data-act="toggleMoreMenu">⋯</button>
+    <div class="more-menu" id="more-menu" style="display:none">
+      <button data-act="moreStar">☆ 加自选/移除</button>
+      <button data-act="moreHistory">浏览记录</button>
+      <button data-act="moreScan">扫描买入</button>
+      <button data-act="moreSettings">设置</button>
+      <button data-act="moreLogout" id="more-logout" style="display:none">退出登录</button>
+    </div>
   </div>
   <div class="quote-bar" id="quote-bar">
     <span class="qb-name flat">输入代码开始分析</span>
@@ -47,9 +51,9 @@
   </div>
   <div class="sb-tabs" id="sb-tabs">
     <button class="sb-tab active" data-sb="watch">自选</button>
-    <button class="sb-tab" data-sb="history">历史</button>
-    <button class="sb-tab" data-sb="overview">一览</button>
-    <button class="sb-tab" data-sb="journal">档案</button>
+    <button class="sb-tab" data-sb="history">浏览记录</button>
+    <button class="sb-tab" data-sb="overview">多股行情</button>
+    <button class="sb-tab" data-sb="journal">信号档案</button>
     <button class="sb-tab" data-sb="pool">核心池</button>
     <button class="sb-tab" data-sb="digest">速递</button>
     <button class="sb-tab" data-sb="scan">扫描档</button>
@@ -63,16 +67,11 @@
     </div>
   </div>
 
-  <!-- 分区：历史 / 一览 / 档案 / 核心池（宽面板，原 wp-panel 迁入） -->
+  <!-- 分区：浏览记录 / 多股行情 / 信号档案 / 核心池 / 每日速递（宽面板，单入口） -->
   <div id="sb-pane-modules" class="sb-pane">
     <div class="wp-panel sb-wp-host show" id="wp-panel">
-      <div class="wp-tabs">
-        <button class="wp-tab" data-tab="history" onclick="openSbSection('history')">历史记录<span class="wp-tab-count" id="ht-count"></span></button>
-        <button class="wp-tab" data-tab="overview" onclick="openSbSection('overview')">多股一览<span class="wp-tab-count" id="ov-count"></span></button>
-        <button class="wp-tab" data-tab="journal" onclick="openSbSection('journal')">信号档案</button>
-        <button class="wp-tab" data-tab="pool" onclick="openSbSection('pool')">核心池</button>
-        <button class="wp-tab" data-tab="digest" onclick="openSbSection('digest')">每日速递</button>
-      </div>
+      <!-- improvements #4：移除第二套 wp-panel 内嵌页签，仅保留侧边栏单一入口 -->
+      <div class="sb-pane-desc" id="sb-pane-desc" style="display:none"></div>
       <div class="wp-list" id="wp-content-history"></div>
       <div class="wp-list" id="wp-content-overview" style="display:none"></div>
       <div class="wp-list" id="wp-content-journal" style="display:none"></div>
@@ -87,6 +86,10 @@
 
   <!-- 分区：扫描归档（宽面板） -->
   <div id="sb-pane-scan" class="sb-pane">
+    <div class="sb-pane-desc scan-pane-head">
+      <span>扫描档：双周期共振买入信号批量扫描，每次结果自动留档备查。</span>
+      <button class="scan-btn" id="scan-open-btn" data-act="openScan">扫描买入</button>
+    </div>
     <div id="sb-wide-scan"></div>
   </div>
 
@@ -117,11 +120,11 @@
       <div id="volume-chart"></div>
       <div class="indicator-toolbar" id="indicator-toolbar" style="display:none">
         <button class="it-btn active" data-ind="none" onclick="switchIndicator('none')">副图</button>
-        <button class="it-btn" data-ind="macd" onclick="switchIndicator('macd')">MACD</button>
-        <button class="it-btn" data-ind="rsi" onclick="switchIndicator('rsi')">RSI</button>
-        <button class="it-btn" data-ind="kdj" onclick="switchIndicator('kdj')">KDJ</button>
-        <button class="it-btn" data-ind="boll" onclick="switchIndicator('boll')">BOLL</button>
-        <button class="it-btn" data-ind="wr" onclick="switchIndicator('wr')">WR</button>
+        <button class="it-btn" data-ind="macd" onclick="switchIndicator('macd')">MACD</button><span class="it-help gl-chip" data-term="MACD" title="什么是 MACD？">?</span>
+        <button class="it-btn" data-ind="rsi" onclick="switchIndicator('rsi')">RSI</button><span class="it-help gl-chip" data-term="RSI" title="什么是 RSI？">?</span>
+        <button class="it-btn" data-ind="kdj" onclick="switchIndicator('kdj')">KDJ</button><span class="it-help gl-chip" data-term="KDJ" title="什么是 KDJ？">?</span>
+        <button class="it-btn" data-ind="boll" onclick="switchIndicator('boll')">BOLL</button><span class="it-help gl-chip" data-term="BOLL" title="什么是 BOLL？">?</span>
+        <button class="it-btn" data-ind="wr" onclick="switchIndicator('wr')">WR</button><span class="it-help gl-chip" data-term="WR" title="什么是 WR？">?</span>
       </div>
       <div id="indicator-chart"></div>
       <div id="minute-chart"></div>
@@ -281,6 +284,34 @@
   </div>
 </div>
 
+
+<!-- ===== 首访三步引导（improvements #9） ===== -->
+<div class="onboard-overlay" id="onboard-overlay" style="display:none">
+  <div class="onboard-card">
+    <button class="onboard-skip" data-act="onboardSkip">跳过 ×</button>
+    <div class="onboard-steps">
+      <div class="onboard-step active" data-step="1">
+        <div class="os-icon">🔍</div>
+        <div class="os-title">① 搜一只股票</div>
+        <div class="os-body">在顶部搜索框输入代码或名称（如 600519），也可以点热门股票直接查看。</div>
+      </div>
+      <div class="onboard-step" data-step="2">
+        <div class="os-icon">🤖</div>
+        <div class="os-title">② 看右侧「AI 结论 + 操作计划」</div>
+        <div class="os-body">系统给出方向判断、买卖参考价与仓位建议；小白模式下专业术语可点击翻译。</div>
+      </div>
+      <div class="onboard-step" data-step="3">
+        <div class="os-icon">📡</div>
+        <div class="os-title">③ 用「扫描买入」找机会</div>
+        <div class="os-body">左侧边栏「扫描档」可一键批量扫描双周期共振买点，每次结果自动留档。</div>
+      </div>
+    </div>
+    <div class="onboard-foot">
+      <div class="onboard-dots"><span class="od-dot active"></span><span class="od-dot"></span><span class="od-dot"></span></div>
+      <button class="scan-btn" id="onboard-next" data-act="onboardNext">下一步</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>

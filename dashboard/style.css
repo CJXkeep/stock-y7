@@ -284,17 +284,33 @@ body {
 .plan-rr-item { color: #888; }
 .plan-rr-item b { color: #ddd; }
 
-/* ===== 热门股票快捷入口 ===== */
-.hot-stocks {
-  display: flex; gap: 4px; margin-left: 4px;
+/* ===== 热门股票（improvements #12：移入搜索聚焦推荐面板） ===== */
+.sr-hot-title {
+  padding: 6px 10px 4px; font-size: 10px; color: #777;
+  border-bottom: 1px solid #222;
 }
-.hs-btn {
-  padding: 3px 8px; font-size: 11px;
-  background: #1a1a1a; border: 1px solid #2a2a2a;
-  color: #888; cursor: pointer; border-radius: 3px;
-  transition: all 0.1s; white-space: nowrap;
+.search-results .sr-item { border-bottom: none; }
+
+/* ===== 小屏「更多」菜单（improvements #8） ===== */
+.more-wrap { position: relative; display: none; }
+.more-menu {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  background: #161616; border: 1px solid #2a2a2a; border-radius: 8px;
+  min-width: 132px; padding: 4px; z-index: 3000;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
 }
-.hs-btn:hover { color: #ff9800; border-color: #ff9800; background: #1a1200; }
+.more-menu button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: #ccc;
+  font-size: 12px; padding: 8px 10px; cursor: pointer; border-radius: 6px;
+}
+.more-menu button:hover { background: #222; color: #fff; }
+
+/* ===== 扫描档分区头（improvements #12：扫描买入主入口） ===== */
+.scan-pane-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-shrink: 0;
+}
 
 /* ===== 缠论信号面板 ===== */
 .chanlun-card {
@@ -409,17 +425,11 @@ body {
   flex-direction: column;
 }
 .wp-panel.show { display: flex; }
-.wp-tabs { display: flex; border-bottom: 1px solid #222; }
-.wp-tab {
-  flex: 1; padding: 8px 12px; font-size: 12px;
-  background: transparent; border: none; color: #666;
-  cursor: pointer; border-bottom: 2px solid transparent;
-  transition: all 0.15s; text-align: center;
+/* improvements #4：分区头部一句用途说明（12px） */
+.sb-pane-desc {
+  padding: 8px 12px 6px; font-size: 12px; color: #8a8a8a;
+  border-bottom: 1px solid #1e1e1e; line-height: 1.5;
 }
-.wp-tab:hover { color: #aaa; }
-.wp-tab.active { color: #ff9800; border-bottom-color: #ff9800; }
-.wp-tab .wp-tab-count { font-size: 10px; color: #555; margin-left: 2px; }
-.wp-tab.active .wp-tab-count { color: #ff9800; }
 .wp-list { flex: 1; overflow-y: auto; padding: 4px; }
 .wp-item {
   display: flex; align-items: center; gap: 8px;
@@ -524,6 +534,16 @@ body {
 }
 .it-btn:hover { color: #aaa; background: #1a1a1a; }
 .it-btn.active { color: #ff9800; border-color: #ff9800; background: #1a1200; }
+/* improvements #6：小白模式副图指标「？」即点即译图标 */
+.it-help {
+  display: none; align-self: center;
+  font-size: 9px; line-height: 1; color: #999;
+  border: 1px solid #3a3a3a; border-radius: 50%;
+  padding: 2px 4px; margin-left: -1px; cursor: pointer;
+  user-select: none;
+}
+.it-help:hover { color: #ff9800; border-color: #ff9800; }
+body.mode-simple .it-help { display: inline-block; }
 
 /* ===== 多股一览 ===== */
 .wp-ov-item {
@@ -738,6 +758,11 @@ body:not(.sb-open) .main { margin-left: 48px; }
 .gp-full { font-weight: normal; color: #888; font-size: 10px; margin-left: 8px; }
 .gp-plain { color: #ccc; margin-top: 6px; }
 .gp-ex { color: #999; margin-top: 6px; border-top: 1px solid #2a2a2a; padding-top: 6px; }
+/* improvements #6/#7：词条局限一行 */
+.gp-limit {
+  color: #ffb74d; font-size: 11px; margin-top: 6px;
+  border-top: 1px dashed #3a2a10; padding-top: 6px;
+}
 
 /* ===== 信号"为什么" ===== */
 .sig-why {
@@ -860,8 +885,43 @@ body.fx-max .sum-badge { animation: breathe 3s ease-in-out infinite; }
   width: 100%; max-height: none; height: 100%;
   border: none; border-radius: 0; box-shadow: none; background: #0d0d0d;
 }
-#sb-pane-modules .wp-tabs { flex-shrink: 0; }
+#sb-pane-modules .sb-pane-desc { flex-shrink: 0; }
 #sb-pane-modules .wp-list { flex: 1; }
+
+/* ===== 首访三步引导（improvements #9） ===== */
+.onboard-overlay {
+  display: none; position: fixed; inset: 0; z-index: 5000;
+  background: rgba(0,0,0,0.62); backdrop-filter: blur(2px);
+  align-items: center; justify-content: center;
+}
+.onboard-card {
+  width: min(420px, calc(100vw - 32px));
+  background: linear-gradient(180deg, #181818, #101010);
+  border: 1px solid #2e2e2e; border-radius: 14px;
+  padding: 22px 22px 18px; position: relative;
+  box-shadow: 0 18px 60px rgba(0,0,0,.6);
+}
+.onboard-skip {
+  position: absolute; top: 10px; right: 12px;
+  background: none; border: none; color: #777;
+  font-size: 12px; cursor: pointer;
+}
+.onboard-skip:hover { color: #ccc; }
+.onboard-step { display: none; text-align: left; }
+.onboard-step.active { display: block; animation: ob-fade .25s ease; }
+@keyframes ob-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.os-icon { font-size: 34px; margin-bottom: 10px; }
+.os-title { font-size: 16px; font-weight: bold; color: #eee; margin-bottom: 8px; }
+.os-body { font-size: 13px; color: #aaa; line-height: 1.7; }
+.onboard-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 18px;
+}
+.od-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #333; margin-right: 6px; transition: background .15s;
+}
+.od-dot.active { background: #ff9800; }
 
 /* ===== 存量动画门控补齐（审查P2-1）：FX=关 时 toast/角标不再动效 ===== */
 body.fx-off .toast,
@@ -895,7 +955,6 @@ body.fx-off .wc-change-badge { animation: none !important; }
   .search-wrap { flex: 1; min-width: 90px; }
   .search-wrap input { width: 100%; min-width: 90px; font-size: 12px; }
   .search-results { width: min(78vw, 260px); }
-  .hot-stocks { display: none; }
   .quote-bar { display: none; }
   .mode-toggle .mt-btn { padding: 3px 7px; font-size: 10px; }
   .wc-btn { padding: 3px 6px; font-size: 10px; }
@@ -915,8 +974,14 @@ body.fx-off .wc-change-badge { animation: none !important; }
   .search-wrap { min-width: 70px; }
   .search-wrap input { min-width: 70px; font-size: 12px; padding: 6px 8px; }
   .logo { display: none; }
-  .mode-toggle { display: none; }
+  /* improvements #8：小屏保留小白/专业切换（紧凑图标态），低频项收进「更多」 */
+  .mode-toggle { display: inline-flex; }
+  .mode-toggle .mt-btn { padding: 3px 6px; font-size: 10px; }
+  .mode-toggle #mt-settings,
+  .mode-toggle #btn-logout { display: none; }
+  .watch-wrap #history-btn { display: none; }
   .watch-wrap .wc-btn { padding: 3px 5px; font-size: 10px; }
+  .more-wrap { display: block; }
 }
 
 /* ===== 信号点位预览/跳转 ===== */
