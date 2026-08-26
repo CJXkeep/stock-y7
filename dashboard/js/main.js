@@ -915,6 +915,7 @@ Object.assign(window, {
   toggleWhy, exportJournalCsv, exportJournalJson, poolAdd, poolImportSubmit, poolFillIndustry,
   applyRange, updateQuote, renderPoolPanel, refreshDigest, stopScanPolling,
   saveNotifySettings, testNotify, runNotifyOnce,
+  openSbSection, togglePoolImport, jumpToPoint,
 });
 
 // 侧边栏开合需要图表 resize（chart 实例为 chart.js 私有）

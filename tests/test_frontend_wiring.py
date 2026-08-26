@@ -54,6 +54,7 @@ _R1_BUILTINS = {
     "of", "return", "if", "else", "function", "var", "let", "const",
     "getElementById", "querySelector", "querySelectorAll", "stopPropagation",
     "preventDefault", "target", "closest", "classList", "style", "click",
+    "fn",  # 注释/示例中的占位函数名
 }
 
 
@@ -65,6 +66,19 @@ def extract_inline_handlers(html: str) -> set:
         r"\s*=\s*\"([^\"]*)\""
     )
     for m in attr_re.finditer(html):
+        code = m.group(1)
+        for call in re.finditer(r"([A-Za-z_$][\w$]*)\s*\(", code):
+            name = call.group(1)
+            if name not in _R1_BUILTINS:
+                names.add(name)
+    return names
+
+
+def extract_js_template_handlers(js: str) -> set:
+    """从 JS 源码中的模板/字符串 `onclick="fn(...)"` 提取被调用的顶层函数名。"""
+    names = set()
+    # 覆盖普通引号与反斜杠转义引号；属性值内部可能有多条语句（分号分隔）
+    for m in re.finditer(r'onclick=\\?"([^"\\]*(?:\\.[^"\\]*)*)"', js):
         code = m.group(1)
         for call in re.finditer(r"([A-Za-z_$][\w$]*)\s*\(", code):
             name = call.group(1)
@@ -96,13 +110,13 @@ def extract_window_exposed(js: str) -> set:
 
 
 def check_r1(html: str, js: str, report: list) -> None:
-    used = extract_inline_handlers(html)
+    used = extract_inline_handlers(html) | extract_js_template_handlers(js)
     exposed = extract_window_exposed(js)
     missing = sorted(used - exposed)
     if missing:
         report.append("R1 未暴露的内联 handler: " + ", ".join(missing))
     else:
-        report.append("R1 OK：%d 个内联 handler 均在 window 暴露清单" % len(used))
+        report.append("R1 OK：%d 个内联 handler（含 JS 模板 onclick）均在 window 暴露清单" % len(used))
 
 
 # ---------- R2: data-act 注册 ----------
