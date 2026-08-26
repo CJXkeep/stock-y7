@@ -1,0 +1,400 @@
+schema: comet.native.v4
+name: notify-dingtalk
+language: zh-CN
+phase: archive
+status: done
+state_version: 10
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 配置持久化：保存后 `data/notify.json` 原子写入且版本递增；文件损坏时回退默认配置并告警，服务不崩。
+    result: passed
+    reason:
+      text: save_notify_config 原子写盘 tmp+os.replace 且 version
+        递增，损坏时告警回退默认；ConfigStoreTest 3 例覆盖
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 webhook 校验：仅接受 `https://oapi.dingtalk.com/robot/send?access_token=...`
+      形式；其他 host 保存被拒并返回人话错误。
+    result: passed
+    reason:
+      text: is_dingtalk_webhook 强制 https+oapi.dingtalk.com+/robot/send 结尾，save 对非法
+        host 返回人话错误
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 脱敏：`GET /api/notify` 与保存响应中的 webhook 只露 token 首尾各 4 位，完整 token
+      不出现在任何接口响应。
+    result: passed
+    reason:
+      text: GET/save 响应只含 webhook_masked；mask_webhook 原串替换仅露 token 首尾4位且星号不被转义；无完整
+        token 出口
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 加签：配置 SEC 密钥时请求 URL 附 `timestamp`+`sign`（HMAC-SHA256，base64 后 URL
+      编码）；未配置密钥时原样 URL 发送。
+    result: passed
+    reason:
+      text: signed_url 按 string_to_sign={ts}\n{secret} 做
+        HMAC-SHA256→base64→quote_plus；无 secret 原样返回；测试独立重算签名交叉验证
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5 发送测试：「发送测试」向钉钉群发出连通性测试消息，成功/失败均 toast 人话结果（errcode/网络异常归类）。
+    result: passed
+    reason:
+      text: test action 发送连通性消息并归类 errcode/异常；前端 toast 人话结果
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6 自动巡检：启用且配置有效时，watcher 在交易时段（周一~五 09:15–11:35、12:55–15:05
+      本地时间）按设定间隔分析全部自选；非时段进入 waiting_market；服务重启后无需重新配置即恢复巡检。
+    result: passed
+    reason:
+      text: _in_watch_session 与 app 同口径时段；watcher 15s 轮询按 interval 节流首轮立即触发；main() 启动即
+        start_watcher 且配置持久化重启免重配
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7 推送内容：检出买入类信号推送一条合并 markdown，逐条含
+      名称(代码)/动作/现价与涨跌幅/评分/入场·止损·目标计划/触发日，尾部带口径提醒；无信号时不发消息。
+    result: passed
+    reason:
+      text: build_signal_message 合并 markdown 含名称(代码)/动作/现价涨跌%/评分/计划/触发日+口径提醒；pushable
+        空不发送
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8 落档一致：watcher 检出的信号照常写入 `data/journal/`（含卖出类），信号档案页可见并可补记收益。
+    result: passed
+    reason:
+      text: 卖出类照常落档仅推送层过滤买侧；e2e 断言档案恰 1 条
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: A9 不重复打扰：同股同类同 trigger_date 的精确键只推一次；10 交易日窗口内的重复落档标记 deduped
+      且不推送；盘中反复巡检不会刷屏。
+    result: passed
+    reason:
+      text: select_pushable 与 append_records 完全同语义（精确键+mark_window 尾段标记）；e2e 第二轮
+        pushed=0 档案仍 1 条
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: A10 失败安全：钉钉不可达/errcode≠0 时把错误记入状态行，HTTP
+      主流程不受影响；该批次已落档，下轮不会被再次判定为待推送（无补发风暴）。
+    result: passed
+    reason:
+      text: cfg.get 兜底修复 KeyError；发送失败仅写 last_error 且落档先于发送，下轮 found=0 无补发风暴（专项测试）
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: A11 立即巡检：`POST /api/notify {action:"run_once", force:true}`
+      后台执行一轮并跳过交易时段检查，供随时端到端验证。
+    result: passed
+    reason:
+      text: run_once force 后台 daemon 执行即时 accepted；前端发 force:true 并双刷新状态
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: A12 并发防护：同一时刻仅允许一轮巡检；watcher 轮询与手动触发的并发请求直接返回 busy，不产生双重推送。
+    result: passed
+    reason:
+      text: _cycle_lock 非阻塞互斥占用即 busy，watcher 与手动触发共用
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: A13 前端入口：设置弹窗「钉钉推送」区可完成 启用/间隔/webhook/SEC
+      配置、保存、发送测试、立即巡检与状态查看；打开设置面板时自动刷新状态；输入框留空保存=保持不变。
+    result: passed
+    reason:
+      text: 设置区控件齐全；toggleSettings 打开刷新状态；留空保存经 placeholder 回显+服务端 _keep_or 保持不变
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: A14 回归：`python tests/test_notify_service.py` 与 `python run_all_tests.py`
+      全量通过（新文件已纳入守护测试期望）。
+    result: passed
+    reason:
+      text: Runtime 实测 py_compile、test_notify_service 全绿、SCOPE OK、server/module split
+        7/7、MODULE LINK OK、run_all_tests 23/23 文件通过
+      truncated: false
+builder_handoff:
+  candidate_id: 87e04a34-08ee-431f-a488-986f6c27d211
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:0cd7beab-aee2-4f88-94be-1ed4b7b1cc20
+  iteration: 2
+  summary:
+    text: iteration 2 修复轮：处理 Verify 反馈的全部 5 项。(1) 代码缺陷修复：_run_watch_cycle_locked 改用
+      cfg.get('webhook'/'secret') 兜底，配置缺 secret 不再 KeyError，失败路径
+      last_error/pushed_total 语义恢复（A10）；(2) mask_webhook 弃用 urlunparse+urlencode
+      重组，改为原串 token 替换，脱敏输出稳定为 abcd****cdef 形态（A3）；(3) BuildMessage 用例修正
+      signal_type=strong_buy 与期望动作一致；(4) SelectPushable 窗口用例删除对原始 dict
+      的错误断言（实现对副本标记属正确设计），并新增窗口过期正控用例 test_window_expired_pushed_again；(5)
+      SignedUrl 断言改为独立重算 base64 签名与 parse_qs 解码值直接对比；RunWatchCycleTest setUp 打桩
+      data.kline_fetcher.fetch_index_kline/fetch_market_breadth，e2e 完全离线确定（消除
+      iteration 1 日志中出现的真实网络抓取）。全部 14 项验收的修复已就绪，请复跑检查计划并派发独立 Verifier。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+  checks:
+    - name:
+        text: static-re-review
+        truncated: false
+      result: passed
+      note:
+        text: 复核两处代码修改（cfg.get 兜底、原串替换脱敏）与五处测试修正；确认无新副作用
+        truncated: false
+    - name:
+        text: python tests/test_notify_service.py
+        truncated: false
+      result: not-run
+      note:
+        text: 由 Runtime 检查计划执行
+        truncated: false
+    - name:
+        text: python tools/check_backend_scope.py
+        truncated: false
+      result: not-run
+      note:
+        text: 由 Runtime 检查计划执行
+        truncated: false
+    - name:
+        text: python -m py_compile app.py server/notify_service.py
+        truncated: false
+      result: not-run
+      note:
+        text: 由 Runtime 检查计划执行
+        truncated: false
+    - name:
+        text: node tools/check_modules.mjs
+        truncated: false
+      result: not-run
+      note:
+        text: 由 Runtime 检查计划执行（前端本轮无改动，预期维持通过）
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: not-run
+      note:
+        text: 全量回归收口
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 免费行情源固有延迟：推送时刻滞后于信号最早可计算时刻（brief Non-goals 已明示）
+      truncated: false
+    - text: watcher 为单进程内存状态，多副本部署各自巡检各自推送，沿用 README 单进程约束
+      truncated: false
+    - text: 推送范围 v1 固定 watchlist scope；周线口径、核心池/全市场扫描推送留作 v2 扩展
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-26T09:24:12.443Z
+blockers: []
+verification:
+  candidate_id: 87e04a34-08ee-431f-a488-986f6c27d211
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:c686a8e8-ef9b-46d5-8993-b69c558cde5f
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: py-compile
+      name:
+        text: python -m py_compile app.py server/notify_service.py
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: py_compile
+          truncated: false
+        - text: app.py
+          truncated: false
+        - text: server/notify_service.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 401
+    - id: test-notify-service
+      name:
+        text: python tests/test_notify_service.py
+        truncated: false
+      argv_display:
+        - text: tests/test_notify_service.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1276
+    - id: check-backend-scope
+      name:
+        text: python tools/check_backend_scope.py
+        truncated: false
+      argv_display:
+        - text: tools/check_backend_scope.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 335
+    - id: test-server-split
+      name:
+        text: python tests/test_server_split.py
+        truncated: false
+      argv_display:
+        - text: tests/test_server_split.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1252
+    - id: test-module-split
+      name:
+        text: python tests/test_module_split.py
+        truncated: false
+      argv_display:
+        - text: tests/test_module_split.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 1565
+    - id: check-modules-link
+      name:
+        text: node tools/check_modules.mjs
+        truncated: false
+      argv_display:
+        - text: tools/check_modules.mjs
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 494
+    - id: full-regression
+      name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 25600
+  summary:
+    text: 独立只读 Verifier 判定 pass：A1–A14 全部通过，spec §5.2 抽查 A15–A22/A25–A31 无
+      failed。iteration 1 的历史缺陷均实证修复（cfg.get 兜底、脱敏原串替换、加签算法与钉钉官方一致、去重与档案同语义、busy
+      互斥、留空保存链路）。Runtime 命令检查 7/7 通过含全量回归 23/23 文件。残留 4 条风险均不阻塞验收，已记录供后续迭代。
+    truncated: false
+  risks:
+    - text: watcher 节流戳不被手动 run_once 刷新：时段内手动触发后到期可能多跑一轮分析，精确键去重保证不会重复推送
+      truncated: false
+    - text: select_pushable 的 existing 快照与 append_records
+        内部重载间存在微小竞态窗口，极端并发写档场景理论上可能重复推送一条
+      truncated: false
+    - text: busy/waiting_market/watchlist_codes 三处无专属单测断言，回归保护依赖实现评审
+      truncated: false
+    - text: unittest 输出计数（27）与文件内 test 方法数（28）口径不一致，建议下次运行核对
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-26T09:35:19.841Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A1
+      - A2
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+      - A9
+      - A10
+      - A11
+      - A12
+      - A13
+      - A14
+    summary:
+      text: iteration 1 判定 fail：Runtime 检查 7 项中
+        py_compile/scope/server_split/module_split/modules_link 5
+        项通过，test_notify_service 与全量回归失败。定位 2 个代码问题：(1) cfg['secret'] KeyError 应改
+        .get 兜底；(2) mask_webhook 的 urlencode 破坏脱敏星号应改为原串替换。3 个测试问题：(3)
+        BuildMessage 用例 signal_type 与期望动作不符；(4) 窗口去重断言误改原始
+        dict（实现按副本标记属正确设计），删除断言并补窗口外正控；(5) signed_url 断言被 parse_qs
+        解码干扰，改为独立重算期望签名，同时 e2e 打桩网络接口。修复后须重新提交候选并复跑全部检查。
+      truncated: false
+    completed_at: 2026-08-26T09:21:42.576Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立只读 Verifier 判定 pass：A1–A14 全部通过，spec §5.2 抽查 A15–A22/A25–A31 无
+        failed。iteration 1 的历史缺陷均实证修复（cfg.get
+        兜底、脱敏原串替换、加签算法与钉钉官方一致、去重与档案同语义、busy 互斥、留空保存链路）。Runtime 命令检查 7/7 通过含全量回归
+        23/23 文件。残留 4 条风险均不阻塞验收，已记录供后续迭代。
+      truncated: false
+    completed_at: 2026-08-26T09:35:19.841Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-26T08:44:59.321Z

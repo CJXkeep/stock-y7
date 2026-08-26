@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TARGETS = ["app.py"] + [
     os.path.join("server", n) for n in (
         "journal_hooks.py", "http_utils.py", "signal_pipeline.py",
-        "scan_engine.py", "digest_service.py",
+        "scan_engine.py", "digest_service.py", "notify_service.py",
     )
 ]
 

@@ -13,7 +13,7 @@ FRONTEND_FILES = [
     "index.html", "style.css", "glossary.js",
     "js/shared.js", "js/api.js", "js/ui.js",
     "js/watchlist.js", "js/chart.js", "js/journal.js",
-    "js/scan.js", "js/main.js",
+    "js/scan.js", "js/main.js", "js/notify.js",
 ]
 
 

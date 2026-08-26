@@ -23,13 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 EXPECTED_SERVER_MODULES = (
     "__init__.py", "journal_hooks.py", "http_utils.py",
     "signal_pipeline.py", "scan_engine.py", "digest_service.py",
+    "notify_service.py",
 )
 
 EXPECTED_GET_ROUTES = {
     "/api/analyze", "/api/quote", "/api/quotes", "/api/search",
     "/api/kline", "/api/minute", "/api/chanlun_minute", "/api/chanlun_daily",
     "/api/realtime_flow", "/api/journal", "/api/pool", "/api/watchlist",
-    "/api/snapshot-info", "/api/scan", "/api/digest",
+    "/api/snapshot-info", "/api/scan", "/api/digest", "/api/notify",
 }
 
 

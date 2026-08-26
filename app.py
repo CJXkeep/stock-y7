@@ -8,6 +8,7 @@ API：
   GET /api/quote?symbol=600000            实时行情
   GET /api/search?keyword=贵州             搜索股票
   GET /api/kline?symbol=600000&count=250  K线数据
+  GET|POST /api/notify                    钉钉推送配置/状态/测试（自选买入信号主动推送）
 """
 from __future__ import annotations
 
@@ -60,6 +61,7 @@ from server.signal_pipeline import (
 )
 from server.scan_engine import handle_scan
 from server.digest_service import handle_digest
+from server.notify_service import handle_notify_get, handle_notify_post, start_watcher
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -478,6 +480,7 @@ _GET_ROUTES = {
     "/api/snapshot-info": handle_snapshot_info,
     "/api/scan": handle_scan,
     "/api/digest": handle_digest,
+    "/api/notify": handle_notify_get,
 }
 
 class Handler(BaseHTTPRequestHandler):
@@ -688,7 +691,7 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH_ENABLED and not self._is_authed():
             self._json({"error": "未授权"}, 401)
             return
-        if path not in ("/api/pool", "/api/watchlist"):
+        if path not in ("/api/pool", "/api/watchlist", "/api/notify"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -705,6 +708,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/watchlist":
                 # improvements #11：自选/分组整体写穿服务端（localStorage 仅缓存）
                 self._json(watchlist_store.save(body))
+            elif path == "/api/notify":
+                self._json(handle_notify_post(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:
@@ -716,6 +721,8 @@ def main():
     os.makedirs(DASHBOARD_DIR, exist_ok=True)
     # 启动即触发一次信号日志补记（后台线程，不阻塞服务启动）
     _kick_journal_backfill(min_interval_sec=0.0)
+    # 启动钉钉推送 watcher（内部按配置判断启用与否，未配置时静默待机）
+    start_watcher()
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

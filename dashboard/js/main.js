@@ -7,6 +7,7 @@ import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHi
 import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
 import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, clearScanArchive, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan } from './scan.js';
+import { loadNotifySettings, saveNotifySettings, testNotify, runNotifyOnce, refreshNotifyStatus } from './notify.js';
 /* 趋势分析看板主逻辑 —— 自 index.html 拆分（frontend-ux-v42 P0） */
 
 
@@ -791,8 +792,10 @@ updateQuote = function(q) {
 export function toggleSettings() {
   const o = document.getElementById('settings-overlay');
   if (!o) return;
-  o.style.display = (o.style.display === 'flex') ? 'none' : 'flex';
+  const opening = o.style.display !== 'flex';
+  o.style.display = opening ? 'flex' : 'none';
   applyFx();
+  if (opening) refreshNotifyStatus();   // 打开设置时刷新推送状态行
 }
 function closeSettings(ev) {
   if (ev && ev.target !== ev.currentTarget) return;
@@ -808,6 +811,7 @@ migrateWatchlist();        // 旧自选一次性迁移（在首次渲染前执�
 initCharts();
 updateBadges();
 loadMode();
+loadNotifySettings();      // 钉钉推送：启动即拉取配置与状态（设置面板回显用）
 // 工作台分区 tab 点击
 const _sbTabs = document.getElementById('sb-tabs');
 if (_sbTabs) _sbTabs.addEventListener('click', e => {
@@ -910,6 +914,7 @@ Object.assign(window, {
   renderScanArchiveList, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan,
   toggleWhy, exportJournalCsv, exportJournalJson, poolAdd, poolImportSubmit, poolFillIndustry,
   applyRange, updateQuote, renderPoolPanel, refreshDigest, stopScanPolling,
+  saveNotifySettings, testNotify, runNotifyOnce,
 });
 
 // 侧边栏开合需要图表 resize（chart 实例为 chart.js 私有）

@@ -19,7 +19,7 @@ INDEX = open(os.path.join(ROOT, "dashboard", "index.html"), encoding="utf-8").re
 
 EXPECTED_MODULES = (
     "shared.js", "api.js", "ui.js", "watchlist.js",
-    "chart.js", "journal.js", "scan.js", "main.js",
+    "chart.js", "journal.js", "scan.js", "main.js", "notify.js",
 )
 
 

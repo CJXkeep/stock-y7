@@ -238,7 +238,7 @@
 
 <div class="toast-container" id="toast-container"></div>
 
-<!-- ===== 设置弹层（动效档位 + 自选导入导出） ===== -->
+<!-- ===== 设置弹层（动效档位 + 自选导入导出 + 钉钉推送） ===== -->
 <div class="settings-overlay" id="settings-overlay" onclick="closeSettings(event)">
   <div class="settings-modal" onclick="event.stopPropagation()">
     <div class="settings-header"><span>设置</span><button class="settings-close" onclick="closeSettings()">&times;</button></div>
@@ -260,6 +260,30 @@
         <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importWatchlist(this)">
       </div>
       <div class="settings-hint">自选股保存在本机浏览器，换设备请先导出备份。</div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-label">钉钉推送（自选买入信号）</div>
+      <div class="notify-row notify-switch-row">
+        <label class="notify-switch"><input type="checkbox" id="notify-enabled"> 启用推送</label>
+        <select id="notify-interval" class="notify-select" title="交易时段内的巡检间隔">
+          <option value="3">每 3 分钟</option>
+          <option value="5" selected>每 5 分钟</option>
+          <option value="10">每 10 分钟</option>
+          <option value="15">每 15 分钟</option>
+          <option value="30">每 30 分钟</option>
+        </select>
+      </div>
+      <input type="text" id="notify-webhook" class="notify-input" autocomplete="off" spellcheck="false"
+             placeholder="粘贴钉钉机器人 webhook（https://oapi.dingtalk.com/robot/send?access_token=…）">
+      <input type="text" id="notify-secret" class="notify-input" autocomplete="off" spellcheck="false"
+             placeholder="加签密钥 SEC…（机器人安全设置选「自定义关键词」可留空）">
+      <div class="settings-row">
+        <button class="settings-btn" onclick="saveNotifySettings()">保存配置</button>
+        <button class="settings-btn" onclick="testNotify()">发送测试</button>
+        <button class="settings-btn" onclick="runNotifyOnce()">立即巡检</button>
+      </div>
+      <div class="settings-hint" id="notify-status">加载中…</div>
+      <div class="settings-hint">仅推送自选股的买入类信号；同股同类 10 个交易日内只推首条。获取方式：钉钉群 → 群设置 → 智能群助手 → 添加「自定义」机器人。</div>
     </div>
   </div>
 </div>
