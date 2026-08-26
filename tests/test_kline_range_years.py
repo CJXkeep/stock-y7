@@ -25,7 +25,12 @@ from backtest import config  # noqa: E402
 BASE = os.path.join(ROOT, "docs", "comet", "changes", "kline-range-years")
 APP_SOURCE = open(os.path.join(ROOT, "app.py"), "r", encoding="utf-8").read()
 INDEX_SOURCE = open(os.path.join(ROOT, "dashboard", "index.html"), "r", encoding="utf-8").read()
-JS_SOURCE = open(os.path.join(ROOT, "dashboard", "app.js"), "r", encoding="utf-8").read()
+# improvements #13：前端拆分为 ES modules，断言对全部模块聚合源生效
+import glob as _glob
+JS_SOURCE = "\n".join(
+    open(p, "r", encoding="utf-8").read()
+    for p in sorted(_glob.glob(os.path.join(ROOT, "dashboard", "js", "*.js")))
+)
 
 
 def _spec_text(cap="kline-range-years") -> str:

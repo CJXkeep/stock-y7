@@ -8,7 +8,13 @@ P0 把看板从单文件 index.html 拆分为 index.html + app.js + glossary.js 
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_FILES = ["index.html", "app.js", "glossary.js", "style.css"]
+# improvements #13 后前端按域拆分为原生 ES modules（js/ 目录）+ 入口 main.js
+FRONTEND_FILES = [
+    "index.html", "style.css", "glossary.js",
+    "js/shared.js", "js/api.js", "js/ui.js",
+    "js/watchlist.js", "js/chart.js", "js/journal.js",
+    "js/scan.js", "js/main.js",
+]
 
 
 def read_frontend_source():

@@ -11,8 +11,12 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-APP_JS = open(os.path.join(ROOT, "dashboard", "app.js"), encoding="utf-8").read()
+# improvements #13：RISK_EXPLAIN/explainRisks 移入 ui.js，对聚合前端源断言
+from _frontend_source import read_frontend_source
+
+APP_JS = read_frontend_source()
 APP_PY = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
 ENGINE_PY = open(os.path.join(ROOT, "analysis", "signal_engine.py"), encoding="utf-8").read()
 

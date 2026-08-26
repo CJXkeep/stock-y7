@@ -4,7 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'app.js'), 'utf8');
+// improvements #13：函数分散在 js/ 各模块，按名字跨文件提取
+const jsDir = path.join(__dirname, '..', 'dashboard', 'js');
+const files = fs.readdirSync(jsDir).filter(f => f.endsWith('.js')).map(f => path.join(jsDir, f));
+const src = files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
 
 function extractFn(name) {
   const start = src.indexOf('function ' + name + '(');

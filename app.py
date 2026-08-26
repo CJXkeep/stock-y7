@@ -39,6 +39,7 @@ from analysis.chanlun_minute import analyze_chanlun_minute, signals_to_dict
 from analysis.chanlun_daily import analyze_chanlun_daily, daily_result_to_dict
 from backtest import config as journal_config
 from backtest import pool as stock_pool
+from backtest import watchlist_store
 from backtest.journal import (
     build_chanlun_records, build_main_records, append_records, query_records,
     backfill as journal_backfill,
@@ -1590,6 +1591,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(handle_journal(params))
                 elif path == "/api/pool":
                     self._json(handle_pool_get(params))
+                elif path == "/api/watchlist":
+                    self._json(watchlist_store.load())
                 elif path == "/api/snapshot-info":
                     self._json(handle_snapshot_info(params))
                 elif path == "/api/scan":
@@ -1650,12 +1653,12 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH_ENABLED and not self._is_authed():
             self._json({"error": "未授权"}, 401)
             return
-        if path != "/api/pool":
+        if path not in ("/api/pool", "/api/watchlist"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
             length = int(self.headers.get("Content-Length", 0) or 0)
-            if length <= 0 or length > 65536:
+            if length <= 0 or length > 262144:
                 raise ValueError(f"请求体长度非法: {length}")
             body = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(body, dict):
@@ -1664,7 +1667,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": f"请求体无效: {exc}"})
             return
         try:
-            self._json(handle_pool_post(body))
+            if path == "/api/watchlist":
+                # improvements #11：自选/分组整体写穿服务端（localStorage 仅缓存）
+                self._json(watchlist_store.save(body))
+            else:
+                self._json(handle_pool_post(body))
         except Exception as e:
             log.error(f"API POST错误: {e}", exc_info=True)
             self._json({"ok": False, "error": str(e)}, 500)

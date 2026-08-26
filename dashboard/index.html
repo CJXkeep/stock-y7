@@ -60,7 +60,7 @@
   </div>
 
   <!-- 分区：自选股（窄栏） -->
-  <div id="sb-pane-watch" class="sb-pane active">
+  <div id="sb-pane-watch" class="sb-pane active" role="tabpanel">
     <div class="sb-groups" id="sb-groups"></div>
     <div class="sb-footer">
       <button class="sb-add-group" onclick="addGroupInline()">+ 新建分组</button>
@@ -68,7 +68,7 @@
   </div>
 
   <!-- 分区：浏览记录 / 多股行情 / 信号档案 / 核心池 / 每日速递（宽面板，单入口） -->
-  <div id="sb-pane-modules" class="sb-pane">
+  <div id="sb-pane-modules" class="sb-pane" role="tabpanel">
     <div class="wp-panel sb-wp-host show" id="wp-panel">
       <!-- improvements #4：移除第二套 wp-panel 内嵌页签，仅保留侧边栏单一入口 -->
       <div class="sb-pane-desc" id="sb-pane-desc" style="display:none"></div>
@@ -85,7 +85,7 @@
   </div>
 
   <!-- 分区：扫描归档（宽面板） -->
-  <div id="sb-pane-scan" class="sb-pane">
+  <div id="sb-pane-scan" class="sb-pane" role="tabpanel">
     <div class="sb-pane-desc scan-pane-head">
       <span>扫描档：双周期共振买入信号批量扫描，每次结果自动留档备查。</span>
       <button class="scan-btn" id="scan-open-btn" data-act="openScan">扫描买入</button>
@@ -186,26 +186,26 @@
 
     <!-- 模块评分 -->
     <div class="signal-card" data-card="module">
-      <div class="sc-header" onclick="toggleCard(this)"><span class="sc-arrow">▼</span>模块评分</div>
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>模块评分</div>
       <div class="module-list" id="module-list"></div>
     </div>
 
     <!-- 买卖信号 -->
     <div class="signal-card" data-card="signals">
-      <div class="sc-header" onclick="toggleCard(this)"><span class="sc-arrow">▼</span>买卖信号</div>
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>买卖信号</div>
       <div class="sig-list" id="sig-list"></div>
     </div>
 
     <!-- 动量/资金/市场环境综合分 -->
     <div class="signal-card" data-card="momentum">
-      <div class="sc-header" onclick="toggleCard(this)"><span class="sc-arrow">▼</span>动量/资金/市场环境</div>
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>动量/资金/市场环境</div>
       <div class="cs-grid" id="cs-grid"></div>
       <div id="cs-simple"></div>
     </div>
 
     <!-- 关键价位 -->
     <div class="signal-card" data-card="levels">
-      <div class="sc-header" onclick="toggleCard(this)"><span class="sc-arrow">▼</span>关键价位</div>
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>关键价位</div>
       <div class="kl-grid" id="kl-grid"></div>
     </div>
 
@@ -223,7 +223,7 @@
 
     <!-- 相邻查看方向一致率 -->
     <div class="signal-card signal-accuracy-card" id="accuracy-card" data-card="accuracy">
-      <div class="sc-header" onclick="toggleCard(this)"><span class="sc-arrow">▼</span>相邻查看方向一致率</div>
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>相邻查看方向一致率</div>
       <div class="sa-stats" id="sa-stats"></div>
       <div class="sa-detail" id="sa-detail"></div>
     </div>
@@ -269,7 +269,7 @@
 <div id="ctx-menu" class="ctx-menu" style="display:none"></div>
 
 <script src="glossary.js"></script>
-<script src="app.js"></script>
+<script type="module" src="js/main.js"></script>
 
 <!-- ===== 扫描弹窗 ===== -->
 <div class="scan-overlay" id="scan-overlay" onclick="closeScan(event)">

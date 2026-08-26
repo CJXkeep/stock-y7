@@ -37,7 +37,7 @@ def _read(rel):
 APP_SOURCE = _read("app.py")
 LOGIN_SOURCE = _read("dashboard/login.html")
 INDEX_SOURCE = _read("dashboard/index.html")
-JS_SOURCE = _read("dashboard/app.js")
+JS_SOURCE = _read("dashboard/js/main.js")
 COMPOSE_SOURCE = _read("docker-compose.yml")
 BUILDER_SOURCE = _read("digest/builder.py")
 FETCHER_SOURCE = _read("data/kline_fetcher.py")

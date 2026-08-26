@@ -11,9 +11,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _frontend_source import read_frontend_source
+from _frontend_source import read_frontend_source, FRONTEND_FILES
 
-APP_JS = open(os.path.join(ROOT, "dashboard", "app.js"), encoding="utf-8").read()
+APP_JS = read_frontend_source()  # improvements #13 后对聚合前端源断言
 HTML = open(os.path.join(ROOT, "dashboard", "index.html"), encoding="utf-8").read()
 CSS = open(os.path.join(ROOT, "dashboard", "style.css"), encoding="utf-8").read()
 GLOSSARY = open(os.path.join(ROOT, "dashboard", "glossary.js"), encoding="utf-8").read()
@@ -31,7 +31,7 @@ def test_echarts_vendored():
     head = open(VENDOR_JS, encoding="utf-8", errors="ignore").read()
     assert 'version:"5.5.0"' in head or "5.5.0" in head, "vendor 文件未发现 ECharts 5.5.0 版本标识"
     assert 'src="vendor/echarts.min.js"' in HTML, "index.html 未本地引用 echarts"
-    for name in ("index.html", "app.js", "glossary.js"):
+    for name in FRONTEND_FILES:
         src = open(os.path.join(ROOT, "dashboard", name), encoding="utf-8").read()
         assert "cdn.jsdelivr.net" not in src, f"{name} 仍引用外部 CDN"
 

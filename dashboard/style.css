@@ -110,7 +110,7 @@ body {
   border-radius: 3px; font-size: 12px; cursor: pointer;
 }
 .scan-analyze-btn:hover { background: #333; border-color: #ff9800; }
-.scan-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
+.scan-empty { text-align: center; padding: 40px; color: #8a8a8a; font-size: 14px; }
 
 /* ===== 主布局 ===== */
 .main {
@@ -147,14 +147,14 @@ body {
 /* 资金流 */
 .flow-section { height: 130px; flex-shrink: 0; border-top: 1px solid #1a1a1a; }
 .flow-section .fs-title {
-  font-size: 11px; color: #666; padding: 4px 12px;
+  font-size: 11px; color: #8a8a8a; padding: 4px 12px;
   display: flex; align-items: center; gap: 8px;
 }
 #flow-chart { width: 100%; height: 100px; }
 .flow-toggle { margin-left: auto; display: flex; gap: 2px; }
 .ft-btn {
   font-size: 10px; padding: 1px 6px; border: 1px solid #333; border-radius: 3px;
-  background: #1a1a1a; color: #666; cursor: pointer; transition: all 0.15s;
+  background: #1a1a1a; color: #8a8a8a; cursor: pointer; transition: all 0.15s;
 }
 .ft-btn:hover { color: #aaa; border-color: #555; }
 .ft-btn.ft-active { background: #ff9800; color: #fff; border-color: #ff9800; }
@@ -204,7 +204,7 @@ body {
   display: flex; justify-content: space-between;
   padding: 3px 8px; background: #0d0d0d; border-radius: 3px; font-size: 12px;
 }
-.kl-label { color: #666; }
+.kl-label { color: #8a8a8a; }
 .kl-val { color: #4fc3f7; font-weight: bold; }
 
 /* ===== 一句话总结（小白第一眼看的） ===== */
@@ -231,7 +231,7 @@ body {
 }
 .sum-strength.strong { color: #ff4d4d; }
 .sum-strength.medium { color: #ffc107; }
-.sum-strength.weak { color: #666; }
+.sum-strength.weak { color: #8a8a8a; }
 .sum-text {
   font-size: 14px; line-height: 1.6; color: #ddd; margin-bottom: 6px;
 }
@@ -261,7 +261,7 @@ body {
   padding: 5px 0; border-bottom: 1px solid #0d0d0d;
 }
 .plan-row:last-child { border-bottom: none; }
-.plan-label { font-size: 12px; color: #666; }
+.plan-label { font-size: 12px; color: #8a8a8a; }
 .plan-val { font-size: 14px; font-weight: bold; }
 .plan-prices {
   display: flex; gap: 8px; margin: 8px 0; 
@@ -343,9 +343,9 @@ body {
 .cl-signal-tag.sell2 { background: #4caf50; color: #fff; }
 .cl-signal-tag.sell3 { background: #3B6D11; color: #fff; }
 .cl-signal-desc { color: #aaa; flex: 1; }
-.cl-signal-time { color: #666; font-size: 10px; white-space: nowrap; }
+.cl-signal-time { color: #8a8a8a; font-size: 10px; white-space: nowrap; }
 .cl-stats {
-  display: flex; gap: 12px; font-size: 11px; color: #666;
+  display: flex; gap: 12px; font-size: 11px; color: #8a8a8a;
   padding: 4px 0; border-top: 1px solid #0d0d0d; margin-top: 6px;
 }
 .cl-zhongshu {
@@ -386,7 +386,7 @@ body {
   box-shadow: 0 2px 12px rgba(0,0,0,0.5);
 }
 #signal-tooltip .stt-hint {
-  font-size: 10px; color: #666; margin-bottom: 4px;
+  font-size: 10px; color: #8a8a8a; margin-bottom: 4px;
   border-bottom: 1px solid #333; padding-bottom: 3px;
 }
 .stt-title { font-weight: bold; margin-bottom: 4px; font-size: 13px; }
@@ -461,7 +461,7 @@ body {
 }
 .wp-footer-info { font-size: 10px; color: #444; }
 .wp-clear {
-  font-size: 11px; color: #666; cursor: pointer;
+  font-size: 11px; color: #8a8a8a; cursor: pointer;
   border: 1px solid #2a2a2a; background: #111; padding: 3px 10px; border-radius: 3px;
   transition: all 0.1s;
 }
@@ -529,7 +529,7 @@ body {
 .it-btn {
   padding: 2px 8px; font-size: 10px;
   background: transparent; border: 1px solid transparent;
-  color: #666; cursor: pointer; border-radius: 3px;
+  color: #8a8a8a; cursor: pointer; border-radius: 3px;
   transition: all 0.1s;
 }
 .it-btn:hover { color: #aaa; background: #1a1a1a; }
@@ -572,8 +572,8 @@ body.mode-simple .it-help { display: inline-block; }
 .sa-stats { padding: 8px 12px; display: flex; gap: 12px; flex-wrap: wrap; }
 .sa-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .sa-val { font-size: 20px; font-weight: bold; }
-.sa-label { font-size: 10px; color: #666; }
-.sa-detail { padding: 4px 12px 8px; font-size: 11px; color: #666; border-top: 1px solid #0d0d0d; }
+.sa-label { font-size: 10px; color: #8a8a8a; }
+.sa-detail { padding: 4px 12px 8px; font-size: 11px; color: #8a8a8a; border-top: 1px solid #0d0d0d; }
 
 /* ===== 信号变更提醒 ===== */
 .toast-container {
@@ -640,9 +640,9 @@ body.fx-max .sidebar { transition: transform 0.2s ease; }
   font-size: 12px; border-bottom: 1px solid #111;
 }
 .sb-ghead:hover { background: #141414; }
-.sb-arrow { color: #666; font-size: 9px; width: 12px; }
+.sb-arrow { color: #8a8a8a; font-size: 9px; width: 12px; }
 .sb-gname { font-weight: bold; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sb-gstat { margin-left: auto; font-size: 10px; color: #666; white-space: nowrap; }
+.sb-gstat { margin-left: auto; font-size: 10px; color: #8a8a8a; white-space: nowrap; }
 .sb-rows { max-height: 45vh; overflow-y: auto; }
 .sb-row {
   display: flex; align-items: center; gap: 6px;
@@ -712,13 +712,13 @@ body:not(.sb-open) .main { margin-left: 48px; }
   color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;
 }
 .settings-btn:hover { border-color: #ff9800; color: #ff9800; }
-.settings-hint { font-size: 10px; color: #666; margin-top: 8px; line-height: 1.5; }
+.settings-hint { font-size: 10px; color: #8a8a8a; margin-top: 8px; line-height: 1.5; }
 .fx-options { display: flex; gap: 6px; }
 .fx-opt {
   flex: 1; padding: 7px 0; background: #1a1a1a; border: 1px solid #333;
   color: #888; border-radius: 4px; cursor: pointer; font-size: 12px;
 }
-.fx-opt:hover { color: #ddd; border-color: #666; }
+.fx-opt:hover { color: #ddd; border-color: #8a8a8a; }
 .fx-opt.active { background: #2a1a05; color: #ff9800; border-color: #ff9800; font-weight: bold; }
 
 /* ===== 小白增强：风险横幅 / 三段式 ===== */
@@ -731,7 +731,7 @@ body:not(.sb-open) .main { margin-left: 48px; }
 .rb-item { margin-bottom: 6px; }
 .rb-text { font-size: 11px; color: #e8b4b4; line-height: 1.55; }
 .rb-advice { font-size: 11px; color: #ffb74d; margin-top: 2px; line-height: 1.5; }
-.rb-foot { font-size: 9px; color: #666; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px; }
+.rb-foot { font-size: 9px; color: #8a8a8a; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px; }
 
 .seg-card {
   padding: 8px 10px; border-radius: 6px; margin-bottom: 8px;
@@ -826,7 +826,7 @@ body.fx-max .sum-badge { animation: breathe 3s ease-in-out infinite; }
   background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6); padding: 4px 0; font-size: 12px;
 }
-.ctx-title { padding: 5px 12px; font-size: 10px; color: #666; }
+.ctx-title { padding: 5px 12px; font-size: 10px; color: #8a8a8a; }
 .ctx-item { padding: 6px 12px; cursor: pointer; color: #ccc; white-space: nowrap; }
 .ctx-item:hover { background: #262626; color: #fff; }
 .ctx-item.cur { color: #ff9800; }

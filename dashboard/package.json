@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "description": "仅用于 Node 开发期把 dashboard/*.js 识别为 ES modules；浏览器不读取此文件，前端无构建链。"
+}

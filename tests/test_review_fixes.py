@@ -92,7 +92,8 @@ def test_no_canslim_identifier_in_source():
         os.path.join(ROOT, "analysis", "signal_engine.py"),
         os.path.join(ROOT, "analysis", "momentum_module.py"),
         *[os.path.join(ROOT, "dashboard", n)
-          for n in ("index.html", "app.js", "glossary.js", "style.css")],
+          for n in ("index.html", "glossary.js", "style.css")],
+        *sorted(__import__("glob").glob(os.path.join(ROOT, "dashboard", "js", "*.js"))),
     ]
     for path in targets:
         with open(path, "r", encoding="utf-8") as f:
