@@ -1,4 +1,7 @@
 # -*- pwsh -*-
+# ⚠️ 历史一次性迁移脚本（已执行完毕）：重跑会以旧头部覆盖 dashboard/js/*.js，
+#    冲掉后续评审修复（跨模块导入、S._currentStockName、getSbSection、MA ref 缓存等）。
+#    仅作迁移过程留档；日常校验请用 check_modules.mjs / check_crossref.mjs。
 # frontend-improvements-y7 #13：把 dashboard/app.js 按域切分为 ES modules。
 # 只做行段搬运与导入头注入，不改业务逻辑。执行后需跑 node 链接检查器验证。
 $ErrorActionPreference = 'Stop'
