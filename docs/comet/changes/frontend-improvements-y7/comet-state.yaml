@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: frontend-improvements-y7
 language: zh-CN
-phase: verify
-status: await-user
-state_version: 7
+phase: archive
+status: active
+state_version: 9
 brief: brief.md
 spec_changes:
   - capability: frontend-improvements-y7
@@ -13,9 +13,9 @@ workspace:
   isolation: worktree
   change_branch: comet/frontend-improvements-y7
   target_branch: main
-  finish: null
+  finish: keep
 loop:
-  stage: await-user
+  stage: archive-ready
   goal_cycle: 1
   iteration: 1
   attempt: 2
@@ -24,7 +24,7 @@ loop:
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: confirm-skill-coordinated-pass
+  next_action: archive
 acceptance:
   - id: A1
     source: brief.md
@@ -889,14 +889,7 @@ builder_handoff:
       truncated: false
   known_limits_truncated: false
   submitted_at: 2026-08-26T04:31:50.677Z
-blockers:
-  - owner: user
-    reason:
-      text: The generic Skill bridge cannot prove an independent Verifier execution;
-        user confirmation is required before Archive.
-      truncated: false
-    acceptance_ids: []
-    resolution_action: await-user
+blockers: []
 verification:
   candidate_id: 3bf2e133-6006-4ff4-a565-bb9314b43ba5
   identity_provider: skill-coordinated
