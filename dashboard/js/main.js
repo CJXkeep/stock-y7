@@ -616,7 +616,7 @@ function updateQuote(q) {
   `;
 }
 
-function fmtVol(v) {
+export function fmtVol(v) {
   if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿';
   if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
   return (v || 0).toFixed(0);
@@ -819,7 +819,7 @@ if (_sbTabs) _sbTabs.addEventListener('click', e => {
   if (b) openSbSection(b.dataset.sb);
 });
 // improvements #10：页签 ARIA 语义 + 左右键导航
-function _syncSbTabsAria() {
+export function _syncSbTabsAria() {
   document.querySelectorAll('.sb-tab').forEach(t =>
     t.setAttribute('aria-selected', t.classList.contains('active') ? 'true' : 'false'));
 }

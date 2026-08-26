@@ -2,7 +2,7 @@
 import { C, S } from './shared.js';
 import { escHtml, DELEGATED_ACTIONS, showToast, showToastMsg } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
-import { analyze, fxEnabled } from './main.js';
+import { analyze, fxEnabled, _syncSbTabsAria } from './main.js';
 import { loadOverview, loadJournal, loadPool, loadDigest, clearWatchChangeBadge } from './journal.js';
 import { renderScanArchiveList } from './scan.js';
 import { resizeAllChartsSafe } from './chart.js';
@@ -353,7 +353,7 @@ export function toggleSbSection(sec) {
 }
 export function renderSbSection() {
   document.querySelectorAll('.sb-tab').forEach(t => t.classList.toggle('active', t.dataset.sb === _sbSection));
-  if (typeof _syncSbTabsAria === 'function') _syncSbTabsAria();
+  _syncSbTabsAria();
   const pWatch = document.getElementById('sb-pane-watch');
   const pMods = document.getElementById('sb-pane-modules');
   const pScan = document.getElementById('sb-pane-scan');
@@ -391,7 +391,7 @@ export function applySidebar() {
   document.body.classList.toggle('sb-open', _sbOpen);
   document.body.classList.toggle('sb-section-watch', _sbSection === 'watch');   // 驱动 --sb-w 宽度变量
   document.querySelectorAll('.sb-tab').forEach(x => x.classList.toggle('active', x.dataset.sb === _sbSection));
-  if (typeof _syncSbTabsAria === 'function') _syncSbTabsAria();
+  _syncSbTabsAria();
   if (t) t.textContent = _sbOpen ? '◀' : '▶';
   setTimeout(resizeAllChartsSafe, (S._fxLevel === 'max') ? 220 : 0);
 }

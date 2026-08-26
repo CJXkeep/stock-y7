@@ -2,7 +2,7 @@
 import { C, S } from './shared.js';
 import { escHtml, glossarize } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
-import { analyze, fxEnabled, chartAnim, resetChartAnim, _initAuth } from './main.js';
+import { analyze, fxEnabled, chartAnim, resetChartAnim, _initAuth, fmtVol } from './main.js';
 
 // 模块内私有可变状态（仅本域读写，不入共享 S）
 let klineChart, volumeChart, flowChart, minuteChart, minuteVolChart, indicatorChart;

@@ -1,0 +1,428 @@
+schema: comet.native.v4
+name: fix-chart-drag-zoom
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: chart-interactions
+    operation: create
+    source: specs/chart-interactions/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 滚轮缩放：在 K 线图中央滚动滚轮 4 次，`dataZoom`（inside 与 slider 两份）start/end
+      发生变化且两份保持一致；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 拖拽框选：在 K 线区按下左键横向拖动 ≥6px 后松手，`dataZoom` start/end 收窄到所框选的K线范围，且拖拽过程中出现
+      `.zoom-box` 覆盖层、松手后无残留；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 单击不误触：原位单击（位移 ≤6px）不触发任何 dataZoom 变化；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 滑条平移：按下底部滑条区域横向拖动 120px，`dataZoom` 窗口随之平移；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5 双击复位：双击 K 线区后 `dataZoom` 恢复为 [0, 100]；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "A6 tooltip 无异常：分析任意股票后鼠标划过 K 线/成交量图，tooltip 正常渲染成交量文案，CDP 会话捕获的运行时异常为
+      0（修复前每次 hover 抛 `ReferenceError: fmtVol`）；"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7 三图联动：任一交互引起的窗口变化自动同步到 K 线/成交量/副图指标三图（三份 dataZoom 数值一致）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8 守护回归：新增静态符号扫描通过（全前端模块无可疑未定义引用）；`python run_all_tests.py --quiet` 全量通过。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A9
+    source: specs/chart-interactions/spec.md
+    text: "> 归属 change：fix-chart-drag-zoom。本规格描述归档后看板图表交互的完整行为，而非仅本次差异。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A10
+    source: specs/chart-interactions/spec.md
+    text: 看板提供六图布局（K线主图、成交量、资金流、分时、分时量能、副图指标），其中 K 线主图/成交量/副图指标三图通过
+      `echarts.connect` 联动。用户通过四种指针/滚轮交互控制 K 线时间窗口，全部交互不得因任何模块级脚本异常而部分失效。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A11
+    source: specs/chart-interactions/spec.md
+    text: "| 输入 | 作用范围 | 行为 |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A12
+    source: specs/chart-interactions/spec.md
+    text: "| 滚轮（在主图网格区） | inside dataZoom | 以鼠标位置为中心缩放时间窗口；`zoomOnMouseWheel:
+      true`，不随滚轮平移 |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A13
+    source: specs/chart-interactions/spec.md
+    text: "| 左键拖拽 ≥6px（主图网格区，不含底部滑条带与顶边 4px） | 主图 X 轴 | 显示 `.zoom-box`
+      选框，松手后窗口收窄到框选的K线索引范围；选区过窄（<2根）时前后各扩一根 |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A14
+    source: specs/chart-interactions/spec.md
+    text: "| 左键单击（位移 ≤6px） | — | 不触发框选，保留十字光标与 tooltip |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A15
+    source: specs/chart-interactions/spec.md
+    text: "| 底部滑条（高 28px、bottom 8px）拖动 | slider dataZoom | 平移时间窗口 |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A16
+    source: specs/chart-interactions/spec.md
+    text: "| 双击主图 | 全局 | 复位窗口到 [0, 100]（全部数据） |"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A17
+    source: specs/chart-interactions/spec.md
+    text: 联动不变量：任一上述交互引起的窗口变化必须同步到三份 dataZoom（主图 inside、slider 及联动的量/副图），数值保持一致。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A18
+    source: specs/chart-interactions/spec.md
+    text: chart.js 引用的每个模块外符号必须在文件头部 import 清单中显式导入；禁止依赖全局对象兜底；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A19
+    source: specs/chart-interactions/spec.md
+    text: tooltip formatter（K线 L387 区域、成交量 L429、缠论叠加等）运行时不得抛出任何
+      ReferenceError；鼠标划过图表时 CDP Runtime.exceptionThrown 计数必须为 0；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A20
+    source: specs/chart-interactions/spec.md
+    text: watchlist.js 对 `_syncSbTabsAria` 的调用必须经真实导入解析（不得依赖 `typeof` 守卫静默跳过）。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A21
+    source: specs/chart-interactions/spec.md
+    text: 静态符号扫描守护测试：对 dashboard/js/*.js 提取「本文件定义 ∪ import
+      清单」之外被调用的标识符（过滤字符串字面量、浏览器内建与语言关键字），发现可疑未定义引用即失败；纳入 run_all_tests.py 套件；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A22
+    source: specs/chart-interactions/spec.md
+    text: CDP 交互探针（tools/cdp_chart_probe2.mjs）：headless 浏览器以
+      Input.dispatchMouseEvent 真实输入（含命中测试）驱动 A1–A7 场景，输出各交互是否生效与异常计数，供验收与回归使用。
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A23
+    source: specs/chart-interactions/spec.md
+    text: 移动端触摸手势不在本能力范围（现状：触摸行为由 ECharts 默认决定）；
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+  - id: A24
+    source: specs/chart-interactions/spec.md
+    text: "分时视图（minute）有独立的 dataZoom 配置（moveOnMouseMove: true），不受本规格框选语义约束。"
+    result: passed
+    reason:
+      text: "User confirmed degraded completion without independent semantic
+        verification: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 /
+        全量回归24of24 / CDP真实输入交互探针）全部通过，作为验收依据。"
+      truncated: false
+builder_handoff:
+  candidate_id: 6d063628-f710-4a9d-904e-67a93321233e
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:84a16698-007a-4383-ac9a-4876272e5335
+  iteration: 1
+  summary:
+    text: 修复 K 线图交互回归：main.js 导出 fmtVol 与 _syncSbTabsAria，chart.js/watchlist.js
+      补齐导入并移除 typeof 守卫；新增 tests/test_frontend_symbols.py 守护（等长骨架 + node --check
+      结构自校验 + 未定义符号扫描，防模块拆分类缺陷再入主干）；CDP 探针 tools/cdp_chart_probe2.mjs
+      入库作机械化交互验收。实测（headless Edge 真实输入事件）：滚轮缩放/拖拽框选/底部滑条全部生效，双击复位正常，tooltip
+      无异常，Runtime.exceptionThrown=0；run_all_tests.py 全量 24/24 通过。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: cdp_chart_probe2（真实输入交互探针）
+        truncated: false
+      result: passed
+      note:
+        text: 本地 8795 服务 + headless Edge(9333) 已保持运行可直接复跑：node
+          tools/cdp_chart_probe2.mjs http://127.0.0.1:8795/ 9333；结论四项 true、异常 0
+        truncated: false
+    - name:
+        text: python tests/test_frontend_symbols.py
+        truncated: false
+      result: passed
+      note:
+        text: 9 个前端模块骨架经 node --check 验证合法，无未定义引用
+        truncated: false
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 24/24 文件通过（含新增守护测试）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 移动端触摸手势不在本次范围（Non-goal）
+      truncated: false
+    - text: 远端服务器需 docker compose up -d --build 重建镜像后生效；探针验收针对本地工作树
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-26T13:12:32.931Z
+blockers: []
+verification:
+  candidate_id: 6d063628-f710-4a9d-904e-67a93321233e
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:7d927d7f-0377-476e-bd6e-c8fe301ade5d
+  iteration: 1
+  attempt: 1
+  assurance: user-confirmed-degraded
+  verdict: pass
+  checks:
+    - id: frontend-symbols-guard
+      name:
+        text: 前端未定义符号守护
+        truncated: false
+      argv_display:
+        - text: tests/test_frontend_symbols.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 974
+    - id: full-regression
+      name:
+        text: 全量回归 run_all_tests
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 14615
+    - id: cdp-chart-probe
+      name:
+        text: CDP 图表交互真实输入探针
+        truncated: false
+      argv_display:
+        - text: tools/cdp_chart_probe2.mjs
+          truncated: false
+        - text: http://127.0.0.1:8795/
+          truncated: false
+        - text: "9333"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 21743
+  summary:
+    text: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 / 全量回归24of24 /
+      CDP真实输入交互探针）全部通过，作为验收依据。
+    truncated: false
+  risks:
+    - text: No independent semantic Verifier execution was available; Runtime checks
+        alone do not cover acceptance semantics.
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-26T13:27:09.188Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A2
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+      - A9
+      - A10
+      - A11
+      - A12
+      - A13
+      - A14
+      - A15
+      - A16
+      - A17
+      - A18
+      - A19
+      - A20
+      - A21
+      - A22
+      - A23
+      - A24
+    summary:
+      text: 平台子代理通道不可用：subagent 启动失败，dev_mode_subagent 两次均返回空输出（balanced 与 react
+        模式）。Runtime 计划内三项检查已全部执行并通过（frontend-symbols-guard / full-regression
+        24of24 / cdp-chart-probe 四项生效全 true 且异常计数0，回执见
+        .comet/runtime/native/changes/fix-chart-drag-zoom/logs/checks/）。申请降级为仅命令检查验收。
+      truncated: false
+    completed_at: 2026-08-26T13:24:25.277Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 用户已确认接受降级验收：独立语义验收因平台子代理通道不可用而缺席；Runtime 三项命令检查（前端符号守护 / 全量回归24of24 /
+        CDP真实输入交互探针）全部通过，作为验收依据。
+      truncated: false
+    completed_at: 2026-08-26T13:27:09.188Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-26T11:19:50.505Z
