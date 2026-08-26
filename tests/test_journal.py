@@ -24,7 +24,12 @@ if ROOT not in sys.path:
 from backtest import journal as J
 from backtest.dedupe import filter_visible, mark_window
 
-APP_SOURCE = open(os.path.join(ROOT, "app.py"), "r", encoding="utf-8").read()
+# 后端拆分（server/ 包）后，源码断言对聚合后端源生效（app.py + server/*.py）
+APP_SOURCE = "\n".join(
+    open(p, "r", encoding="utf-8").read()
+    for p in [os.path.join(ROOT, "app.py")]
+    + [os.path.join(ROOT, "server", n) for n in sorted(os.listdir(os.path.join(ROOT, "server"))) if n.endswith(".py")]
+)
 
 
 def _tmpdir():
