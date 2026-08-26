@@ -165,7 +165,7 @@ export function _maTail(arr, data, period) {
   return arr;
 }
 export function _maSeriesFor(data) {
-  if (_maState && _maState.len === data.length) {
+  if (_maState && _maState.ref === data && _maState.len === data.length) {
     return {
       ma5: _maTail(_maState.arr5, data, 5),
       ma10: _maTail(_maState.arr10, data, 10),
@@ -174,6 +174,7 @@ export function _maSeriesFor(data) {
     };
   }
   const s = {
+    ref: data,
     len: data.length,
     arr5: calcMA(data, 5), arr10: calcMA(data, 10),
     arr20: calcMA(data, 20), arr60: calcMA(data, 60),

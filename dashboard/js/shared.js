@@ -20,6 +20,7 @@ export const C = {
 // 各模块统一以 S.xxx 读写，保证单一事实来源）。
 export const S = {
   currentSymbol: '',      // 当前分析标的
+  _currentStockName: '',  // 当前标的显示名（updateQuote 写入，加自选/入池使用）
   currentView: 'dayk',    // dayk | week | minute
   _mode: 'pro',           // pro | simple（小白模式）
   _fxLevel: 'std',        // FX 动效档位

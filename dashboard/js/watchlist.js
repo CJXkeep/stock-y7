@@ -2,10 +2,12 @@
 import { C, S } from './shared.js';
 import { escHtml, DELEGATED_ACTIONS, showToast, showToastMsg } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
-import { analyze } from './main.js';
+import { analyze, fxEnabled } from './main.js';
 import { loadOverview, loadJournal, loadPool, loadDigest, clearWatchChangeBadge } from './journal.js';
 import { renderScanArchiveList } from './scan.js';
 import { resizeAllChartsSafe } from './chart.js';
+
+export function getSbSection() { return _sbSection; }
 
 // 图表实例句柄由 chart.js 持有；侧边栏开合需要触发图表 resize，
 // 通过注入回调避免反向依赖（由 main.js 启动时调用 registerResizeHook）。
@@ -159,7 +161,7 @@ export function toggleStar() {
   if (inWatch) {
     removeFromWatchlist(S.currentSymbol);
   } else {
-    addToGroup(S.currentSymbol, _currentStockName || S.currentSymbol, _sbActiveGroup || 'default');
+    addToGroup(S.currentSymbol, S._currentStockName || S.currentSymbol, _sbActiveGroup || 'default');
     if (btn && fxEnabled()) { btn.classList.remove('fx-pop'); void btn.offsetWidth; btn.classList.add('fx-pop'); }
   }
 }

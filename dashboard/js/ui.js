@@ -2,9 +2,9 @@
 // 转义/事件委托/术语即点即译/风险大白话/toast/搜索推荐/首访引导/更多菜单。
 import { C, S } from './shared.js';
 import { API, fetchWithTimeout } from './api.js';
-import { analyze, setMode, toggleSettings, doLogout } from './main.js';
-import { toggleStar, openSbSection, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist } from './watchlist.js';
-import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, scanPollRetry } from './scan.js';
+import { analyze, setMode, toggleSettings, doLogout, fxEnabled } from './main.js';
+import { toggleStar, openSbSection, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
+import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
 import { poolNote, poolMove, poolRemove, poolAddCurrent } from './journal.js';
 export const RISK_EXPLAIN = [
   { codes: ['price_below_ma20'], kws: ['跌破MA20'],
@@ -403,4 +403,5 @@ DELEGATED_ACTIONS.onboardSkip = () => onboardFinish();
   try { done = localStorage.getItem(ONBOARD_KEY) === '1'; } catch (e) {}
   if (!done) setTimeout(onboardShow, 600);
 })();
+
 

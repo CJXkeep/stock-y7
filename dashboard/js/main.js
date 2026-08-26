@@ -2,7 +2,7 @@
 // 原 4781 行单文件按域拆分后的入口；各域见同目录 api/ui/shared/watchlist/chart/journal/scan.js。
 import { C, S } from './shared.js';
 import { API, fetchWithTimeout, isTimeoutError, explainError } from './api.js';
-import { escHtml, glossarize, _applyTermChips, explainRisks, riskBannerHtml, whyTextFor, toggleWhy, showToastMsg, showToast, DELEGATED_ACTIONS } from './ui.js';
+import { escHtml, glossarize, _applyTermChips, explainRisks, riskBannerHtml, whyTextFor, toggleWhy, showToastMsg, showToast, DELEGATED_ACTIONS, countUpScore, fxCardStagger } from './ui.js';
 import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHistory, addHistory, migrateWatchlist, toggleStar, updateStarButton, updateBadges, openSbSection, toggleSbSection, toggleSidebar, sidebarLoadState, loadSbSection, renderSbSection, applySidebar, renderSidebar, renderWatchlist, exportWatchlist, importWatchlist, sbRefreshQuotes, sbSchedulePolling, removeFromWatchlist, registerResizeHook, clearCurrentTab, addGroupInline } from './watchlist.js';
 import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
@@ -781,11 +781,10 @@ async function refreshQuote(symbol) {
 
 // ==================== 网络请求统一超时封装（improvements #3） ====================
 
-let _currentStockName = '';
 const _origUpdateQuote = updateQuote;
 updateQuote = function(q) {
   _origUpdateQuote(q);
-  if (q && q.name) _currentStockName = q.name;
+  if (q && q.name) S._currentStockName = q.name;
 };
 
 // ---- 右键菜单 ----
@@ -915,3 +914,4 @@ Object.assign(window, {
 
 // 侧边栏开合需要图表 resize（chart 实例为 chart.js 私有）
 registerResizeHook(resizeAllChartsSafe);
+

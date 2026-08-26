@@ -2,7 +2,7 @@
 import { escHtml, showToastMsg } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
 import { analyze } from './main.js';
-import { openSbSection } from './watchlist.js';
+import { openSbSection, getSbSection } from './watchlist.js';
 // ==================== 扫描功能（原独立 script 块） ====================
 // ===== 扫描功能 =====
 export let _scanTimer = null;
@@ -52,7 +52,7 @@ export function archiveScanRun(data) {
   while (list.length > MAX_SCAN_ARCHIVE) list.pop();
   saveScanArchive(list);
   // 用户正停留在侧栏"扫描档"分区时，就地刷新列表
-  if (_sbSection === 'scan' && document.getElementById('sb-wide-scan')) renderScanArchiveList();
+  if (getSbSection() === 'scan' && document.getElementById('sb-wide-scan')) renderScanArchiveList();
   return run;
 }
 

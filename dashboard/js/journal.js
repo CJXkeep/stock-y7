@@ -1,6 +1,6 @@
 // ==================== 数据面板层：一览/信号档案/核心池/速递/信号统计（improvements #13） ====================
 import { C, S } from './shared.js';
-import { escHtml, showToast, showToastMsg } from './ui.js';
+import { escHtml, showToast, showToastMsg, removeToast } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
 import { analyze } from './main.js';
 import { getGroups, getStockMap, saveGroups, saveStockMap, getWatchlist, saveHistory, addHistory, getHistory, sigTag, fmtTime, sbBadge } from './watchlist.js';
@@ -852,5 +852,6 @@ export function _digestSections(dg) {
 
   return parts.join('');
 }
+
 
 
