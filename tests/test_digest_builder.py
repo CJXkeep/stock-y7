@@ -281,22 +281,23 @@ def test_block_error_isolation():
 
 # ---------------------------------------------------------------- app 层：A1/A7/A8
 
-def _reset_digest_state(app):
-    app._digest_state.update({
+def _reset_digest_state(_ds):
+    _ds._digest_state.update({
         "status": "idle", "stage": "", "progress": 0,
         "generated_at": None, "elapsed": 0, "error": "", "digest": None,
     })
-    app._digest_loaded = True
+    _ds._digest_loaded = True
 
 
 def test_app_digest_idle_and_refresh_starts_thread():
     import app
-    _reset_digest_state(app)
+    import server.digest_service as ds
+    _reset_digest_state(ds)
     resp = app.handle_digest({})
     assert resp["status"] == "idle" and resp["digest"] is None
 
     started = []
-    orig_thread = app.threading.Thread
+    orig_thread = ds.threading.Thread
     try:
         class _FakeThread:
             def __init__(self, target=None, daemon=None):
@@ -306,22 +307,23 @@ def test_app_digest_idle_and_refresh_starts_thread():
             def start(self):
                 started.append(self.target)
 
-        app.threading.Thread = _FakeThread
-        _reset_digest_state(app)
+        ds.threading.Thread = _FakeThread
+        _reset_digest_state(ds)
         resp2 = app.handle_digest({"action": ["refresh"]})
         assert resp2["status"] == "started"
-        assert started == [app._run_digest_build]
+        assert started == [ds._run_digest_build]
     finally:
-        app.threading.Thread = orig_thread
-        _reset_digest_state(app)
+        ds.threading.Thread = orig_thread
+        _reset_digest_state(ds)
 
 
 def test_app_digest_ignores_refresh_while_running():
     import app
-    _reset_digest_state(app)
-    app._digest_state.update({"status": "running", "stage": "跑", "progress": 50})
+    import server.digest_service as ds
+    _reset_digest_state(ds)
+    ds._digest_state.update({"status": "running", "stage": "跑", "progress": 50})
     started = []
-    orig_thread = app.threading.Thread
+    orig_thread = ds.threading.Thread
     try:
         class _FakeThread:
             def __init__(self, target=None, daemon=None):
@@ -331,52 +333,54 @@ def test_app_digest_ignores_refresh_while_running():
             def start(self):
                 started.append(self.target)
 
-        app.threading.Thread = _FakeThread
+        ds.threading.Thread = _FakeThread
         resp = app.handle_digest({"action": ["refresh"]})
         assert resp["status"] == "running"
         assert "message" in resp
         assert started == []  # 不启动第二个线程
     finally:
-        app.threading.Thread = orig_thread
-        _reset_digest_state(app)
+        ds.threading.Thread = orig_thread
+        _reset_digest_state(ds)
 
 
 def test_app_digest_latest_json_roundtrip_and_corrupt_fallback():
     import app
+    import server.digest_service as ds
     d = _tmpdir()
-    prev_file = app._DIGEST_FILE
-    app._DIGEST_FILE = os.path.join(d, "latest.json")
+    prev_file = ds._DIGEST_FILE
+    ds._DIGEST_FILE = os.path.join(d, "latest.json")
     try:
         digest = B.build_digest(_ctx())
-        app._digest_persist(digest)
-        assert os.path.isfile(app._DIGEST_FILE)
-        with open(app._DIGEST_FILE, "r", encoding="utf-8") as fh:
+        ds._digest_persist(digest)
+        assert os.path.isfile(ds._DIGEST_FILE)
+        with open(ds._DIGEST_FILE, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
         assert payload["schema"] == B.DIGEST_SCHEMA
         assert payload["status"] == "done"
 
         # 模拟重启：重置内存状态后首次 GET 回填
-        _reset_digest_state(app)
-        app._digest_loaded = False
+        _reset_digest_state(ds)
+        ds._digest_loaded = False
         resp = app.handle_digest({})
         assert resp["status"] == "done"
         assert resp["generated_at"] == digest["meta"]["generated_at"]
         assert resp["digest"]["meta"]["generated_at"] == digest["meta"]["generated_at"]
 
         # 损坏文件 → 回退 idle 并告警
-        with open(app._DIGEST_FILE, "w", encoding="utf-8") as fh:
+        with open(ds._DIGEST_FILE, "w", encoding="utf-8") as fh:
             fh.write("{ 不是合法 json")
-        _reset_digest_state(app)
-        app._digest_loaded = False
+        _reset_digest_state(ds)
+        ds._digest_loaded = False
         resp2 = app.handle_digest({})
         assert resp2["status"] == "idle" and resp2["digest"] is None
     finally:
-        app._DIGEST_FILE = prev_file
-        _reset_digest_state(app)
+        ds._DIGEST_FILE = prev_file
+        _reset_digest_state(ds)
 
 
 def test_app_find_latest_results_picks_newest():
     import app
+    import server.digest_service as ds
     d = _tmpdir()
     prev = app.journal_config.RESULTS_DIR
     app.journal_config.RESULTS_DIR = os.path.join(d, "results")
@@ -388,12 +392,12 @@ def test_app_find_latest_results_picks_newest():
         older_csv = os.path.join(older_dir, "results.csv")
         open(older_csv, "w").close()
         # 最新目录无 csv → 回退到较新的含 csv 目录
-        found = app._digest_find_latest_results()
+        found = ds._digest_find_latest_results()
         assert found == ("20260821T000000Z", older_csv)
         # 最新目录补上 csv 后被选中
         newer_csv = os.path.join(newer_dir, "results.csv")
         open(newer_csv, "w").close()
-        found2 = app._digest_find_latest_results()
+        found2 = ds._digest_find_latest_results()
         assert found2 == ("20260824T000000Z", newer_csv)
     finally:
         app.journal_config.RESULTS_DIR = prev
