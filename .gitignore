@@ -37,5 +37,8 @@ server-connect-guide-for-new-device.md
 DEPLOY_NOTES.md
 REMOTE_DEBUG.md
 
+# 本地运维工具（不入库，服务器专用探针）
+tools/remote_scan_probe.py
+
 # 许可证（机器绑定，敏感，不入库）
 data/license.dat
