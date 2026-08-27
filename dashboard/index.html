@@ -277,13 +277,27 @@
              placeholder="粘贴钉钉机器人 webhook（https://oapi.dingtalk.com/robot/send?access_token=…）">
       <input type="text" id="notify-secret" class="notify-input" autocomplete="off" spellcheck="false"
              placeholder="加签密钥 SEC…（机器人安全设置选「自定义关键词」可留空）">
+      <div class="settings-sub-label">推送级别（勾选才推送）</div>
+      <div class="notify-row" id="notify-level-list">
+        <label class="notify-switch"><input type="checkbox" id="notify-level-strong_buy" value="strong_buy"> 强烈买入</label>
+        <label class="notify-switch"><input type="checkbox" id="notify-level-buy" value="buy"> 买入</label>
+        <label class="notify-switch"><input type="checkbox" id="notify-level-cautious_buy" value="cautious_buy"> 谨慎买入</label>
+      </div>
+      <div class="settings-sub-label">推送范围（自选内勾选，默认全选）</div>
+      <div class="notify-row" id="notify-group-list"></div>
+      <div class="notify-scroll" id="notify-symbol-list"></div>
+      <div class="settings-sub-label">推送阈值（可留空）</div>
+      <div class="notify-row">
+        <label class="notify-inline-label">最低评分<input type="number" id="notify-min-score" min="0" max="100" step="1" placeholder="不限"></label>
+        <label class="notify-inline-label">最低涨跌幅%<input type="number" id="notify-min-pct" min="0" step="any" placeholder="不限"></label>
+      </div>
       <div class="settings-row">
         <button class="settings-btn" onclick="saveNotifySettings()">保存配置</button>
         <button class="settings-btn" onclick="testNotify()">发送测试</button>
         <button class="settings-btn" onclick="runNotifyOnce()">立即巡检</button>
       </div>
       <div class="settings-hint" id="notify-status">加载中…</div>
-      <div class="settings-hint">仅推送自选股的买入类信号；同股同类 10 个交易日内只推首条。获取方式：钉钉群 → 群设置 → 智能群助手 → 添加「自定义」机器人。</div>
+      <div class="settings-hint">仅推送自选股的买入类信号（级别/范围/阈值可在此配置过滤）；同股同类 10 个交易日内只推首条。获取方式：钉钉群 → 群设置 → 智能群助手 → 添加「自定义」机器人。</div>
     </div>
   </div>
 </div>

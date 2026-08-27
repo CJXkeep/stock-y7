@@ -1,0 +1,324 @@
+schema: comet.native.v4
+name: notify-push-config
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 默认兼容：无 `push` 字段（或空值）时 load 返回默认值——levels = 买侧全开、scope = 全自选、thresholds
+      关闭；已有 `data/notify.json` 与既有行为不变。
+    result: passed
+    reason:
+      text: load_notify_config returns default_push_config() when file missing/push
+        absent (levels=BUY_SIDE_TYPES all-on, scope=all-watchlist, thresholds
+        off); existing v1 behavior unchanged
+        (PushConfigTest.test_default_push_keeps_v1_behavior /
+        test_missing_push_returns_defaults).
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 持久化：save 原子写盘且 version+1；新字段按规则归一化（levels 白名单去重、scope
+      列表字符串化去重、min_score 夹取 [0,100]、min_pct_change 非负 float / null），非法输入不写坏配置。
+    result: passed
+    reason:
+      text: save_notify_config writes atomically via tmp+os.replace and bumps
+        version+1; _norm_levels whitelist+dedup,
+        _norm_id_list/_norm_symbol_codes stringify+dedup, _norm_min_score clamps
+        [0,100], _norm_min_pct non-negative float/None; invalid input
+        normalized, never corrupts config.
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 级别过滤：`levels=["strong_buy"]` 时仅 strong_buy 可推送；buy / cautious_buy
+      仍落档（fresh）但不推送。
+    result: passed
+    reason:
+      text: _is_pushable rejects signal_type not in push.levels, so buy/cautious_buy
+        stay fresh but not pushed under levels=['strong_buy']
+        (test_levels_filter_keeps_fresh).
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 空级别：`levels=[]` 时任何买侧信号都落档但不推送。
+    result: passed
+    reason:
+      text: levels=[] makes the membership check always false; any buy-side signal
+        archived fresh but never pushed (test_empty_levels_pushes_nothing).
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5 卖出不变式：无论 levels 如何，`breakout_exit` / `short_cover` 均不推送（照常落档）。
+    result: passed
+    reason:
+      text: select_pushable skips non-BUY_SIDE_TYPES before filtering, so
+        breakout_exit/short_cover are archived but never pushed regardless of
+        levels (test_sell_side_archived_but_not_pushed).
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6 分组过滤：`enabled_groups=[g1]` 时，仅 g1 内代码的信号推送；其他组代码落档但不推。
+    result: passed
+    reason:
+      text: _is_pushable requires group overlap when enabled_groups non-empty;
+        other-group symbols stay fresh but not pushed (test_group_filter).
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7 单只开关：即使某代码所在组被启用，只要其在 `disabled_symbols` 中就不推送（优先级最高）。
+    result: passed
+    reason:
+      text: disabled_symbols is checked first in _is_pushable and vetoes even when the
+        group is enabled (test_disabled_symbol_veto_wins_over_group).
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8 默认范围：`enabled_groups` 与 `disabled_symbols` 均为空时推送全部自选（与现状一致）。
+    result: passed
+    reason:
+      text: empty enabled_groups and disabled_symbols impose no scope restriction; all
+        watchlist buy-side pushed (test_default_scope_pushes_all).
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: A9 阈值评分：`min_score=80` 时 score<80 不推送、score>=80 推送；无 score 字段的记录不被评分过滤拦截。
+    result: passed
+    reason:
+      text: min_score filters only when score is numeric and below it; records with no
+        score (None) are not blocked (test_min_score_threshold).
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: A10 阈值涨跌幅：`min_pct_change=X` 时仅当前涨跌幅 >= X% 的记录推送；pct 不可用时不拦截。
+    result: passed
+    reason:
+      text: min_pct_change filters only when pct is numeric and below it; records with
+        unavailable pct are not blocked via pct_map keyed by exact_key
+        (test_min_pct_threshold).
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: A11 阈值关闭：thresholds 默认值不产生任何过滤。
+    result: passed
+    reason:
+      text: default thresholds min_score=0 (falsy -> no filter) and
+        min_pct_change=None (no filter) produce no filtering
+        (test_thresholds_disabled_by_default).
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: A12 落档与去重不变：任一维度过滤命中的记录仅不推送，仍 fresh 落档并参与去重窗口；run_watch_cycle 返回
+      appended>=1、pushed=0，且下轮不重复推、无补发风暴。
+    result: passed
+    reason:
+      text: select_pushable returns fresh regardless of filters; filtered records
+        still archived and deduped via exact_key/mark_window; run_watch_cycle
+        returns appended>=1/pushed=0 and suppresses repush next round
+        (test_filtered_still_fresh_then_dedup_suppresses, end_to_end,
+        send_failure_no_retry_storm).
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: A13 API 契约：GET /api/notify 返回 push 结构（levels / scope /
+      thresholds）及可选分组与股票清单，webhook 仍脱敏；POST save 可保存并回显归一化后的 push
+      配置，非法配置被拒绝或归一化（不崩溃）。
+    result: passed
+    reason:
+      text: GET /api/notify returns
+        push{levels,scope,thresholds}+watchlist_groups/stocks and masks webhook;
+        POST save persists and echoes normalized push, rejects foreign webhook
+        without crashing (ApiHandlerTest).
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: A14 前端：设置弹窗「钉钉推送」区展示信号级别勾选、分组勾选、单只开关与两个阈值输入；打开时回显已存配置，保存经 POST 提交并 toast
+      结果。
+    result: passed
+    reason:
+      text: index.html has level checkboxes, group list, per-stock scroll list and two
+        threshold inputs; notify.js _fillForm renders/checks from GET and
+        _readForm builds push payload for POST save with toast; required CSS
+        classes present; module-existence and node module-link checks pass.
+      truncated: false
+  - id: A15
+    source: brief.md
+    text: A15 回归：`python tests/test_notify_service.py`
+      通过，且守护测试期望同步（`tests/test_server_split.py` / `tests/test_module_split.py` /
+      `tools/check_backend_scope.py` 涉及文件清单校验的纳入新文件名）。
+    result: passed
+    reason:
+      text: python tests/test_notify_service.py 47/47 OK (new
+        PushConfigTest/SelectPushFilterTest/API push-contract),
+        test_server_split.py 7/7, test_module_split.py 7/7,
+        check_backend_scope.py SCOPE OK, py_compile OK, node check_modules
+        MODULE LINK OK, run_all_tests.py 25/25 files 0 failures; guard files
+        reference notify_service.py/notify.js.
+      truncated: false
+builder_handoff:
+  candidate_id: 9d77c3a8-fb8f-4217-b99a-e319867b08a7
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:72db8ea1-dbbf-40b4-a13c-6897773ec46e
+  iteration: 1
+  summary:
+    text: 实现钉钉推送「决定推送什么」可配置化：data/notify.json 新增 push 配置块（levels 信号级别 /
+      scope.enabled_groups 分组许可 + disabled_symbols 单只否决 / thresholds.min_score +
+      min_pct_change）。后端：normalize_config/_normalize_push
+      归一化与部分更新安全；select_pushable 新增 push_cfg/group_map/pct_map 实现 级别→范围→阈值
+      三层过滤，被滤记录仍 fresh 落档、去重不变，卖出类永不推送；GET/POST /api/notify 透出与持久化 push
+      配置并返回分组/股票清单。前端：设置弹窗新增级别勾选、分组勾选、单只开关列表与两个阈值输入，装载/保存/回显已接通。默认值等价 v1
+      硬编码行为（买侧全开、全自选、阈值关闭）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+  checks:
+    - name:
+        text: python tests/test_notify_service.py
+        truncated: false
+      result: passed
+      note:
+        text: 47/47
+        truncated: false
+    - name:
+        text: python tests/test_server_split.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7
+        truncated: false
+    - name:
+        text: python tests/test_module_split.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7
+        truncated: false
+    - name:
+        text: python tools/check_backend_scope.py
+        truncated: false
+      result: passed
+      note:
+        text: SCOPE OK
+        truncated: false
+    - name:
+        text: python -m py_compile app.py server/notify_service.py
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: node tools/check_modules.mjs
+        truncated: false
+      result: passed
+      note:
+        text: MODULE LINK OK
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 25/25 files, 0 failures
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: A14 前端无 DOM 运行时测试基建，未做自动化点击测试；已由 test_module_split（模块清单/链接）与 node
+        tools/check_modules.mjs 覆盖，推荐 Verifier/人工在浏览器手测「勾选→保存→重开回显→立即巡检」往返。
+      truncated: false
+    - text: min_pct_change 以检测时刻 quote.pct（盘中现价涨跌幅）为准，与消息展示同源；min_score
+        只过滤携带数字评分字段的记录，无评分记录不受评分门限拦截。
+      truncated: false
+    - text: 分组过滤基于 data/watchlist.json 的 groups.codes 归属；enabled_groups
+        为空时不作限制（默认全自选），非空时未入组代码不命中任何分组因此不会推送（A6 语义）。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-27T10:18:25.592Z
+blockers: []
+verification:
+  candidate_id: 9d77c3a8-fb8f-4217-b99a-e319867b08a7
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:a18da76a-e3aa-47e2-8d41-47bf7b393774
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: All A1-A15 verified. Backend push config (levels/scope/thresholds) is
+      correctly normalized, persisted atomically with version bump, and applied
+      as a pure push-selection filter that preserves archive/dedup semantics and
+      the sell-side invariant. API GET/POST surfaces push config plus
+      group/stock options with webhook masking. Frontend settings section and
+      notify.js fill/read the new controls. Regression, guard, scope, compile,
+      module-link, and the full 25-file suite all pass.
+    truncated: false
+  risks:
+    - text: A14 has no DOM runtime test infrastructure in this repo; the frontend
+        section is verified by static inspection plus module-existence and node
+        module-link checks. A manual browser round-trip (open settings -> check
+        levels/groups/symbols/thresholds -> save -> GET echo) is recommended to
+        fully confirm end-to-end UI behavior.
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-27T10:22:53.907Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: All A1-A15 verified. Backend push config (levels/scope/thresholds) is
+        correctly normalized, persisted atomically with version bump, and
+        applied as a pure push-selection filter that preserves archive/dedup
+        semantics and the sell-side invariant. API GET/POST surfaces push config
+        plus group/stock options with webhook masking. Frontend settings section
+        and notify.js fill/read the new controls. Regression, guard, scope,
+        compile, module-link, and the full 25-file suite all pass.
+      truncated: false
+    completed_at: 2026-08-27T10:22:53.907Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-27T07:42:46.725Z

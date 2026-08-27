@@ -735,6 +735,22 @@ body:not(.sb-open) .main { margin-left: 48px; }
 }
 .notify-input:focus { outline: none; border-color: #ff9800; }
 .notify-input::placeholder { color: #666; }
+.settings-sub-label { font-size: 11px; color: #b0b0b0; margin: 10px 0 6px; }
+.notify-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.notify-scroll {
+  max-height: 132px; overflow-y: auto; padding: 6px 8px; margin-top: 6px;
+  background: #191919; border: 1px solid #2c2c2c; border-radius: 4px;
+}
+.notify-scroll::-webkit-scrollbar { width: 6px; }
+.notify-scroll::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+.notify-stock-item {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; color: #ccc; padding: 2px 0; cursor: pointer;
+}
+.notify-stock-item .code { color: #777; font-family: Consolas, monospace; margin-left: 6px; }
+.notify-inline-label { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 11px; color: #ccc; min-width: 0; }
+.notify-inline-label input { width: 100%; min-width: 0; padding: 4px 6px; background: #1f1f1f; border: 1px solid #3a3a3a; color: #ccc; border-radius: 4px; font-size: 11px; }
+.notify-inline-label input:focus { outline: none; border-color: #ff9800; }
 
 /* ===== 小白增强：风险横幅 / 三段式 ===== */
 .risk-banner {

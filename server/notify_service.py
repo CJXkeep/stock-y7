@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """钉钉推送服务（notify-dingtalk）：自选股买入信号主动推送。
 
-口径（v1，自选为主）：
-- 推送范围：``data/watchlist.json`` 全部自选股（scope=watchlist 固定）；
+口径（v2，推送可配置）：
+- 推送范围：默认 ``data/watchlist.json`` 全部自选股，支持分组许可
+  （push.scope.enabled_groups，空=全开）与单只否决（push.scope.disabled_symbols）；
+- 推送级别：默认三类买侧全开，可按 push.levels 子集勾选（强烈买入/买入/谨慎买入）；
+- 推送阈值：可选最低评分（push.thresholds.min_score）与最低涨跌幅
+  （push.thresholds.min_pct_change），默认关闭；
 - 分析口径与看板/扫描一致：run_analysis + _apply_signal_optimization 之后的
   **最终 action**（买入 / 强烈买入 / 谨慎买入），日线周期；
 - 落档即事实来源：watcher 检出的信号照常写入 data/journal/（档案页可见），
@@ -17,6 +21,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import hashlib
 import hmac
@@ -82,7 +87,120 @@ def default_notify_config() -> dict:
         "webhook": "",
         "secret": "",
         "interval_min": 5,
+        "push": default_push_config(),
     }
+
+
+def default_push_config() -> dict:
+    """推送选择默认值：等价于 v1 硬编码行为（买侧全推、全自选、无阈值过滤）。"""
+    return {
+        "levels": list(journal_config.BUY_SIDE_TYPES),
+        "scope": {"enabled_groups": [], "disabled_symbols": []},
+        "thresholds": {"min_score": 0, "min_pct_change": None},
+    }
+
+
+def _norm_levels(raw) -> list:
+    """levels 白名单归一化：只保留 BUY_SIDE_TYPES 内、去重保序。
+
+    非 list（或缺失）视为默认全开；空 list 保留为空（= 全部不推）。
+    """
+    if not isinstance(raw, list):
+        return list(journal_config.BUY_SIDE_TYPES)
+    seen, out = set(), []
+    for value in raw:
+        item = str(value).strip()
+        if item in journal_config.BUY_SIDE_TYPES and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _norm_id_list(raw) -> list:
+    """分组 id 列表归一化：字符串化、去空白、去重保序。"""
+    if not isinstance(raw, list):
+        return []
+    seen, out = set(), []
+    for value in raw:
+        item = str(value).strip()
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _norm_symbol_codes(raw) -> list:
+    """单只开关（disabled_symbols）归一化：字符串化、数字代码 6 位补零、去重保序。"""
+    if not isinstance(raw, list):
+        return []
+    seen, out = set(), []
+    for value in raw:
+        item = str(value).strip()
+        if item.isdigit():
+            item = item.zfill(6)
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _norm_min_score(raw) -> int:
+    """min_score 归一化：夹取 [0, 100]；非法值回退 0（关闭评分过滤）。"""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, value))
+
+
+def _norm_min_pct(raw):
+    """min_pct_change 归一化：非负 float；缺失/非法/负数回退 None（关闭涨跌幅过滤）。"""
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def _normalize_push(raw, current: dict = None) -> dict:
+    """归一化 push 配置块。
+
+    未提供的子段沿用 current（部分更新安全）；完全没有提供时返回默认值。
+    levels 仅保留 BUY_SIDE_TYPES 子集；scope 列表去重；thresholds 夹取/归一。
+    """
+    base = default_push_config()
+    if isinstance(current, dict):
+        base = {
+            "levels": _norm_levels(current.get("levels")),
+            "scope": {
+                "enabled_groups": _norm_id_list(current.get("scope", {}).get("enabled_groups")),
+                "disabled_symbols": _norm_symbol_codes(current.get("scope", {}).get("disabled_symbols")),
+            },
+            "thresholds": {
+                "min_score": _norm_min_score(current.get("thresholds", {}).get("min_score")),
+                "min_pct_change": _norm_min_pct(current.get("thresholds", {}).get("min_pct_change")),
+            },
+        }
+    if not isinstance(raw, dict):
+        return base
+    out = copy.deepcopy(base)
+    if "levels" in raw:
+        out["levels"] = _norm_levels(raw.get("levels"))
+    scope = raw.get("scope")
+    if isinstance(scope, dict):
+        if "enabled_groups" in scope:
+            out["scope"]["enabled_groups"] = _norm_id_list(scope.get("enabled_groups"))
+        if "disabled_symbols" in scope:
+            out["scope"]["disabled_symbols"] = _norm_symbol_codes(scope.get("disabled_symbols"))
+    thresholds = raw.get("thresholds")
+    if isinstance(thresholds, dict):
+        if "min_score" in thresholds:
+            out["thresholds"]["min_score"] = _norm_min_score(thresholds.get("min_score"))
+        if "min_pct_change" in thresholds:
+            out["thresholds"]["min_pct_change"] = _norm_min_pct(thresholds.get("min_pct_change"))
+    return out
 
 
 def is_dingtalk_webhook(url: str) -> bool:
@@ -112,6 +230,7 @@ def normalize_config(data: dict, current: dict = None) -> dict:
             out["interval_min"] = max(1, min(int(raw_interval), 60))
         except (TypeError, ValueError):
             out["interval_min"] = 5
+        out["push"] = _normalize_push(data.get("push"), current=(current or {}).get("push"))
     return out
 
 
@@ -294,9 +413,8 @@ def get_state() -> dict:
         return dict(_notify_state)
 
 
-def watchlist_codes(watchlist_dir: str = None) -> list:
+def _codes_from_data(data: dict) -> list:
     """自选全部代码（stocks 键 + 分组 codes 合并去重，6 位补零）。"""
-    data = watchlist_store.load(watchlist_store.watchlist_path(watchlist_dir))
     codes = []
     for code in data.get("stocks", {}).keys():
         c = str(code).strip().zfill(6)
@@ -308,6 +426,25 @@ def watchlist_codes(watchlist_dir: str = None) -> list:
             if c and c not in codes:
                 codes.append(c)
     return codes
+
+
+def _group_map_from_data(data: dict) -> dict:
+    """code(6 位补零) -> 所属分组 id 集合；未入组代码不在映射中。"""
+    mapping = {}
+    for group in data.get("groups", []):
+        gid = str(group.get("id", ""))
+        if not gid:
+            continue
+        for code in group.get("codes", []):
+            c = str(code).strip().zfill(6)
+            if c:
+                mapping.setdefault(c, set()).add(gid)
+    return mapping
+
+
+def watchlist_codes(watchlist_dir: str = None) -> list:
+    """自选全部代码（stocks 键 + 分组 codes 合并去重，6 位补零）。"""
+    return _codes_from_data(watchlist_store.load(watchlist_store.watchlist_path(watchlist_dir)))
 
 
 def _in_watch_session(now=None) -> bool:
@@ -338,11 +475,48 @@ def _analyze_one(symbol: str, index_klines, breadth) -> dict:
     }
 
 
-def select_pushable(existing: list, candidates: list, trading_dates=None) -> tuple:
+def _is_pushable(record: dict, push_cfg: dict = None,
+                 group_ids=None, pct=None) -> bool:
+    """级别 + 范围 + 阈值三层过滤（纯函数，只判「推不推」，不改落档）。
+
+    - 级别：signal_type 必须在 push.levels 内（levels 空 = 全部不推；
+      卖出类不在归一化后的 BUY_SIDE_TYPES 子集内，天然不推）；
+    - 范围：disabled_symbols 命中即不推（优先级最高）；enabled_groups 非空时
+      股票必须属于其中一个分组；
+    - 阈值：min_score 存在评分时按 score 过滤；min_pct_change 配置时按
+      检测时刻涨跌幅 pct 过滤；评分 / 涨跌幅不可用时不拦截。
+    """
+    cfg = push_cfg or default_push_config()
+    stype = str(record.get("signal_type", ""))
+    if stype not in (cfg.get("levels") or []):
+        return False
+    scope = cfg.get("scope") or {}
+    symbol = str(record.get("symbol", "")).strip().zfill(6)
+    if symbol in set(scope.get("disabled_symbols") or []):
+        return False
+    enabled_groups = scope.get("enabled_groups") or []
+    if enabled_groups and not (set(group_ids or []) & set(enabled_groups)):
+        return False
+    thresholds = cfg.get("thresholds") or {}
+    min_score = thresholds.get("min_score")
+    if min_score:
+        score = record.get("score")
+        if isinstance(score, (int, float)) and score < min_score:
+            return False
+    min_pct = thresholds.get("min_pct_change")
+    if min_pct is not None and isinstance(pct, (int, float)) and pct < min_pct:
+        return False
+    return True
+
+
+def select_pushable(existing: list, candidates: list, trading_dates=None,
+                    push_cfg: dict = None, group_map: dict = None,
+                    pct_map: dict = None) -> tuple:
     """纯函数：按档案去重规则选出本轮可推送记录。
 
     返回 (fresh, pushable)：fresh 是通过精确键去重、应落档的新记录；
-    pushable 是 fresh 中 deduped=False 且属买侧的记录（即推送对象）。
+    pushable 是 fresh 中 deduped=False、属买侧且通过 push_cfg
+    （级别 / 范围 / 阈值）过滤的记录。
     与 append_records 的落档语义保持一致（同样的精确键 + mark_window）。
     """
     existing_keys = {exact_key(r) for r in existing}
@@ -355,9 +529,18 @@ def select_pushable(existing: list, candidates: list, trading_dates=None) -> tup
         fresh.append(record)
     marked = mark_window([dict(r) for r in existing] + [dict(r) for r in fresh],
                          trading_dates=trading_dates)[len(existing):]
-    pushable = [m for m in marked
-                if not m.get("deduped")
-                and str(m.get("signal_type")) in journal_config.BUY_SIDE_TYPES]
+    pushable = []
+    for m in marked:
+        if m.get("deduped"):
+            continue
+        if str(m.get("signal_type")) not in journal_config.BUY_SIDE_TYPES:
+            continue
+        key = exact_key(m)
+        symbol = str(m.get("symbol", "")).strip().zfill(6)
+        group_ids = (group_map or {}).get(symbol) if group_map else None
+        pct = (pct_map or {}).get(key) if pct_map else None
+        if _is_pushable(m, push_cfg, group_ids=group_ids, pct=pct):
+            pushable.append(m)
     return fresh, pushable
 
 
@@ -395,6 +578,12 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
 
         _set_state(status="running")
         codes = watchlist_codes()
+        group_map = {}
+        try:
+            # 分组归属只用于 push.scope.enabled_groups 过滤；读取失败降级为空映射
+            group_map = _group_map_from_data(watchlist_store.load(watchlist_store.watchlist_path()))
+        except Exception:
+            group_map = {}
         if not codes:
             _set_state(status="idle", last_run=time.strftime("%H:%M:%S"))
             return {"status": "idle", "reason": "自选列表为空"}
@@ -443,7 +632,11 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
 
         trading_dates = [getattr(k, "date", "") for k in analyzed[0]["klines"]] if analyzed else None
         existing, _skipped = journal_load_records(journal_dir)
-        fresh, pushable = select_pushable(existing, candidates, trading_dates=trading_dates)
+        pct_map = {key: info.get("pct") for key, info in entry_map.items()
+                   if isinstance(info.get("pct"), (int, float))}
+        fresh, pushable = select_pushable(
+            existing, candidates, trading_dates=trading_dates,
+            push_cfg=cfg.get("push"), group_map=group_map, pct_map=pct_map)
 
         appended = 0
         if fresh:
@@ -508,10 +701,24 @@ def start_watcher() -> None:
 
 # ---------------------------------------------------------------- API handlers
 
+def _watchlist_scope_options() -> tuple:
+    """返回 (groups, stocks)：供设置面板渲染分组勾选与单只开关。"""
+    data = watchlist_store.load(watchlist_store.watchlist_path())
+    groups = [
+        {"id": str(g.get("id", "")), "name": str(g.get("name", "")),
+         "codes": [str(c) for c in g.get("codes", [])]}
+        for g in data.get("groups", []) if g.get("id")
+    ]
+    name_map = {str(k): str(v.get("name", "")) for k, v in data.get("stocks", {}).items()}
+    stocks = [{"code": c, "name": name_map.get(c, "")} for c in _codes_from_data(data)]
+    return groups, stocks
+
+
 def handle_notify_get(params: dict) -> dict:
     """GET /api/notify：配置摘要 + 运行状态。webhook 脱敏返回。"""
     cfg = load_notify_config()
     state = get_state()
+    groups, stocks = _watchlist_scope_options()
     return {
         "ok": True,
         "enabled": bool(cfg.get("enabled")),
@@ -520,6 +727,9 @@ def handle_notify_get(params: dict) -> dict:
         "interval_min": cfg.get("interval_min", 5),
         "scope": "watchlist",
         "watchlist_count": len(watchlist_codes()),
+        "push": cfg.get("push"),
+        "watchlist_groups": groups,
+        "watchlist_stocks": stocks,
         "webhook_masked": mask_webhook(cfg.get("webhook", "")),
         "state": state,
     }
@@ -541,6 +751,7 @@ def handle_notify_post(body: dict) -> dict:
             "webhook": _keep_or(body.get("webhook"), cfg.get("webhook", "")),
             "secret": _keep_or(body.get("secret"), cfg.get("secret", "")),
             "interval_min": body.get("interval_min", cfg.get("interval_min")),
+            "push": body.get("push") if isinstance(body.get("push"), dict) else cfg.get("push"),
         }
         webhook = str(updates["webhook"] or "").strip()
         if webhook and not is_dingtalk_webhook(webhook):
@@ -551,6 +762,7 @@ def handle_notify_post(body: dict) -> dict:
             "configured": is_dingtalk_webhook(saved.get("webhook", "")),
             "has_secret": bool(saved.get("secret")),
             "interval_min": saved.get("interval_min"),
+            "push": saved.get("push"),
             "webhook_masked": mask_webhook(saved.get("webhook", "")),
         }}
 

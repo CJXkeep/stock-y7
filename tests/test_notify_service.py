@@ -79,6 +79,63 @@ class ConfigStoreTest(unittest.TestCase):
         assert cfg["schema"] == ns.NOTIFY_SCHEMA and cfg["enabled"] is False
 
 
+class PushConfigTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="notify_push_cfg_")
+        self.path = os.path.join(self.tmp, "notify.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_default_push_keeps_v1_behavior(self):
+        cfg = ns.default_notify_config()
+        push = cfg["push"]
+        assert push["levels"] == ["buy", "strong_buy", "cautious_buy"]
+        assert push["scope"] == {"enabled_groups": [], "disabled_symbols": []}
+        assert push["thresholds"] == {"min_score": 0, "min_pct_change": None}
+
+    def test_missing_push_returns_defaults(self):
+        saved = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK}, self.path)
+        assert saved["push"]["levels"] == list(ns.journal_config.BUY_SIDE_TYPES)
+        assert saved["push"]["scope"]["enabled_groups"] == []
+        assert saved["push"]["thresholds"]["min_score"] == 0
+
+    def test_levels_whitelist_dedup_preserves_order(self):
+        cfg = ns.normalize_config({"push": {"levels": ["buy", "strong_buy", "buy", "nope"]}})
+        assert cfg["push"]["levels"] == ["buy", "strong_buy"]
+
+    def test_levels_empty_is_preserved(self):
+        cfg = ns.normalize_config({"push": {"levels": []}})
+        assert cfg["push"]["levels"] == []
+
+    def test_scope_normalization(self):
+        cfg = ns.normalize_config({"push": {"scope": {
+            "enabled_groups": ["g1", 2, "g1"],
+            "disabled_symbols": ["600000", "1", "600000"],
+        }}})
+        assert cfg["push"]["scope"]["enabled_groups"] == ["g1", "2"]
+        assert cfg["push"]["scope"]["disabled_symbols"] == ["600000", "000001"]
+
+    def test_thresholds_normalization(self):
+        cfg = ns.normalize_config({"push": {"thresholds": {
+            "min_score": 150, "min_pct_change": "2.5",
+        }}})
+        assert cfg["push"]["thresholds"]["min_score"] == 100
+        assert cfg["push"]["thresholds"]["min_pct_change"] == 2.5
+        bad = ns.normalize_config({"push": {"thresholds": {"min_score": "abc", "min_pct_change": -1}}})
+        assert bad["push"]["thresholds"]["min_score"] == 0
+        assert bad["push"]["thresholds"]["min_pct_change"] is None
+
+    def test_partial_save_preserves_push(self):
+        first = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK, "push": {
+            "levels": ["strong_buy"], "scope": {"enabled_groups": ["g1"]},
+            "thresholds": {"min_score": 80, "min_pct_change": 1.5},
+        }}, self.path)
+        second = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK, "interval_min": 10}, self.path)
+        assert second["push"] == first["push"]
+        assert second["version"] == first["version"] + 1
+
+
 class WebhookValidateTest(unittest.TestCase):
     def test_valid_dingtalk_webhook(self):
         assert ns.is_dingtalk_webhook(WEBHOOK) is True
@@ -197,6 +254,90 @@ class SelectPushableTest(unittest.TestCase):
         candidates = [_make_record(signal_type="breakout_exit", action="卖出风险")]
         fresh, pushable = ns.select_pushable([], candidates)
         assert len(fresh) == 1 and pushable == []
+
+
+class SelectPushFilterTest(unittest.TestCase):
+    def _cfg(self, levels=None, enabled_groups=None, disabled_symbols=None,
+             min_score=0, min_pct_change=None):
+        return {
+            "levels": levels if levels is not None else list(ns.journal_config.BUY_SIDE_TYPES),
+            "scope": {
+                "enabled_groups": enabled_groups or [],
+                "disabled_symbols": disabled_symbols or [],
+            },
+            "thresholds": {"min_score": min_score, "min_pct_change": min_pct_change},
+        }
+
+    def test_levels_filter_keeps_fresh(self):
+        candidates = [
+            _make_record(symbol="600000", signal_type="strong_buy"),
+            _make_record(symbol="600001", signal_type="buy"),
+        ]
+        fresh, pushable = ns.select_pushable([], candidates, push_cfg=self._cfg(levels=["strong_buy"]))
+        assert len(fresh) == 2
+        assert [m["signal_type"] for m in pushable] == ["strong_buy"]
+
+    def test_empty_levels_pushes_nothing(self):
+        fresh, pushable = ns.select_pushable([], [_make_record()], push_cfg=self._cfg(levels=[]))
+        assert len(fresh) == 1 and pushable == []
+
+    def test_group_filter(self):
+        candidates = [_make_record(symbol="600000"), _make_record(symbol="600001")]
+        group_map = {"600000": {"g1"}, "600001": {"g2"}}
+        fresh, pushable = ns.select_pushable([], candidates,
+                                             push_cfg=self._cfg(enabled_groups=["g1"]),
+                                             group_map=group_map)
+        assert len(fresh) == 2
+        assert [m["symbol"] for m in pushable] == ["600000"]
+
+    def test_disabled_symbol_veto_wins_over_group(self):
+        candidates = [_make_record(symbol="600000")]
+        group_map = {"600000": {"g1"}}
+        fresh, pushable = ns.select_pushable(
+            [], candidates,
+            push_cfg=self._cfg(enabled_groups=["g1"], disabled_symbols=["600000"]),
+            group_map=group_map)
+        assert len(fresh) == 1 and pushable == []
+
+    def test_default_scope_pushes_all(self):
+        candidates = [_make_record(symbol="600000"), _make_record(symbol="600001",
+                                                                  signal_type="cautious_buy")]
+        fresh, pushable = ns.select_pushable([], candidates)
+        assert len(pushable) == 2
+
+    def test_min_score_threshold(self):
+        # score>=80 推送、score<80 不推；无 score 字段（None）不被拦截
+        candidates = [_make_record(symbol="600000", score=85),
+                      _make_record(symbol="600001", score=60),
+                      _make_record(symbol="600002", score=None)]
+        fresh, pushable = ns.select_pushable([], candidates, push_cfg=self._cfg(min_score=80))
+        assert sorted(m["symbol"] for m in pushable) == ["600000", "600002"]
+
+    def test_min_pct_threshold(self):
+        # 涨跌幅达标推送、未达标不推；pct 不可用（不在 pct_map）不被拦截
+        candidates = [_make_record(symbol="600000"), _make_record(symbol="600001"),
+                      _make_record(symbol="600002")]
+        pct_map = {ns.exact_key(_make_record(symbol="600000")): 2.0,
+                   ns.exact_key(_make_record(symbol="600001")): 0.5}
+        fresh, pushable = ns.select_pushable([], candidates,
+                                             push_cfg=self._cfg(min_pct_change=1.0),
+                                             pct_map=pct_map)
+        assert [m["symbol"] for m in pushable] == ["600000", "600002"]
+
+    def test_thresholds_disabled_by_default(self):
+        candidates = [_make_record(symbol="600000", score=10)]
+        fresh, pushable = ns.select_pushable([], candidates,
+                                             push_cfg=self._cfg(min_score=0, min_pct_change=None))
+        assert len(pushable) == 1
+
+    def test_filtered_still_fresh_then_dedup_suppresses(self):
+        # 被滤记录仍 fresh（落档）；下轮同键被精确键去重挡住（无补推）
+        cfg = self._cfg(levels=["strong_buy"])
+        now = [_make_record(signal_type="buy")]
+        fresh1, pushable1 = ns.select_pushable([], now, push_cfg=cfg)
+        assert len(fresh1) == 1 and pushable1 == []
+        fresh2, pushable2 = ns.select_pushable(fresh1, now, push_cfg=cfg)
+        assert fresh2 == [] and pushable2 == []
 
 
 class BuildMessageTest(unittest.TestCase):
@@ -348,6 +489,36 @@ class ApiHandlerTest(unittest.TestCase):
         out = ns.handle_notify_post({"action": "save", "enabled": True,
                                      "webhook": WEBHOOK, "interval_min": 3})
         assert out["ok"] is True and out["config"]["interval_min"] == 3
+
+    def test_get_returns_push_and_watchlist_options(self):
+        ns.save_notify_config({"enabled": True, "webhook": WEBHOOK},
+                              self.tmp + "/notify.json")
+        summary = ns.handle_notify_get({})
+        assert summary["push"]["levels"] == list(ns.journal_config.BUY_SIDE_TYPES)
+        assert isinstance(summary["watchlist_groups"], list)
+        assert isinstance(summary["watchlist_stocks"], list)
+
+    def test_post_save_persists_push(self):
+        out = ns.handle_notify_post({"action": "save", "enabled": True, "webhook": WEBHOOK,
+                                     "push": {
+                                         "levels": ["strong_buy"],
+                                         "scope": {"enabled_groups": ["g1"],
+                                                   "disabled_symbols": ["600000"]},
+                                         "thresholds": {"min_score": 80, "min_pct_change": 1.5},
+                                     }})
+        assert out["ok"] is True
+        assert out["config"]["push"]["levels"] == ["strong_buy"]
+        assert out["config"]["push"]["scope"]["disabled_symbols"] == ["600000"]
+        assert out["config"]["push"]["thresholds"]["min_score"] == 80
+        assert ns.load_notify_config()["push"]["levels"] == ["strong_buy"]
+
+    def test_post_save_keeps_push_when_omitted(self):
+        ns.handle_notify_post({"action": "save", "enabled": True, "webhook": WEBHOOK,
+                               "push": {"levels": ["cautious_buy"]}})
+        out = ns.handle_notify_post({"action": "save", "enabled": True,
+                                     "webhook": WEBHOOK, "interval_min": 10})
+        assert out["ok"] is True
+        assert out["config"]["push"]["levels"] == ["cautious_buy"]
 
     def test_post_unknown_action(self):
         out = ns.handle_notify_post({"action": "nope"})
