@@ -12,21 +12,35 @@ from __future__ import annotations
 
 import json
 import os
-import sys
-import time
+import random
 import socket
+import sys
+import threading
+import time
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 便携依赖目录：无内置 python/ 时，从发行包 libs/ 加载第三方依赖
-_LIBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "libs")
+_LIBS_DIR = os.path.join(ROOT, "libs")
 if os.path.isdir(_LIBS_DIR):
     sys.path.insert(0, _LIBS_DIR)
 
 import requests
 
 log = logging.getLogger("trend_data")
+
+# ---- 磁盘缓存与请求鲁棒性配置 ----
+# 磁盘缓存目录；主会话会处理 .gitignore，这里只负责创建和使用目录。
+DATA_CACHE_DIR = os.path.join(ROOT, "data", "cache")
+# 磁盘缓存 TTL：仅用于日线/周线这类低频 K 线，避免陈旧数据长期占用。
+KLINE_DISK_TTL = int(os.environ.get("KLINE_DISK_TTL", "300"))
+# 东财整个 host 池失败后的额外重试次数（默认 2，即总共最多 3 轮 host 池）。
+KLINE_RETRIES = int(os.environ.get("KLINE_RETRIES", "2"))
+# 东财统一请求限速：每秒最多请求次数；<=0 表示不限速。
+KLINE_REQ_PER_SEC = float(os.environ.get("KLINE_REQ_PER_SEC", "5.0"))
 
 # ---- DNS重定向：push2his/push2 → push2delay IP ----
 # push2his服务器拒绝直连，但push2delay CDN按SNI返回数据
@@ -149,27 +163,73 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
+# ---- 限速 / 退避 ----
+_rate_lock = threading.Lock()
+_req_timestamps: List[float] = []
+
+
+def _rate_acquire() -> None:
+    """请求前限速：模块级锁 + 时间戳队列，保证滑动窗口内不超过 KLINE_REQ_PER_SEC。"""
+    rate = KLINE_REQ_PER_SEC
+    if rate <= 0:
+        return
+    min_interval = 1.0 / float(rate)
+    # 允许整数倍突发：每秒 5 次时最多同时保留 5 个时间戳。
+    burst = max(1, int(rate) + (1 if rate > int(rate) else 0))
+    with _rate_lock:
+        now = time.time()
+        # 清理窗口外的旧时间戳
+        while _req_timestamps and now - _req_timestamps[0] >= min_interval:
+            _req_timestamps.pop(0)
+        if len(_req_timestamps) < burst:
+            _req_timestamps.append(now)
+            return
+        wait = min_interval - (now - _req_timestamps[0])
+        if wait > 0:
+            time.sleep(wait)
+        # 若 sleep 被测试 mock 成 no-op，仍按最早请求+interval 推进虚拟时间，避免死循环。
+        now = _req_timestamps[0] + min_interval
+        _req_timestamps.pop(0)
+        _req_timestamps.append(now)
+
+
+def _sleep_backoff(attempt: int, base: float = 0.5, cap: float = 4.0) -> float:
+    """指数退避 + 随机抖动，返回本次实际休眠秒数。attempt 从 0 开始。"""
+    delay = min(cap, base * (2 ** attempt))
+    jitter = random.uniform(0, delay * 0.25)
+    total = delay + jitter
+    time.sleep(total)
+    return total
+
+
 def _get_json_eastmoney(path: str, params: dict, host_pool: List[str]) -> Optional[dict]:
-    """东财API请求，带host池轮换。path如/api/qt/stock/get"""
+    """东财API请求，带host池轮换 + 全池失败重试 + 限速/退避。path如/api/qt/stock/get"""
     s = _get_session()
-    current_url = host_pool[0] + path
-    for attempt in range(len(host_pool)):
-        try:
-            r = s.get(current_url, params=params, timeout=8)
-            if r.status_code == 200:
-                data = r.json()
-                if data and data.get("data") is not None:
-                    # 检查klines是否为空列表（push2delay对kline接口返回空klines）
-                    d = data["data"]
-                    if isinstance(d, dict) and "klines" in d and not d["klines"]:
-                        log.debug(f"host返回空klines，尝试下一个: {current_url}")
-                    else:
-                        return data
-        except Exception as e:
-            log.debug(f"请求失败 try={attempt+1} {current_url}: {e}")
-        _rotate_ua()
-        current_url = host_pool[(attempt + 1) % len(host_pool)] + path
-        time.sleep(0.3)
+    retries = max(0, int(KLINE_RETRIES))
+    for pool_attempt in range(retries + 1):
+        current_url = host_pool[0] + path
+        for attempt in range(len(host_pool)):
+            # 每次真实请求前先限速
+            _rate_acquire()
+            try:
+                r = s.get(current_url, params=params, timeout=8)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data and data.get("data") is not None:
+                        # 检查klines是否为空列表（push2delay对kline接口返回空klines）
+                        d = data["data"]
+                        if isinstance(d, dict) and "klines" in d and not d["klines"]:
+                            log.debug(f"host返回空klines，尝试下一个: {current_url}")
+                        else:
+                            return data
+            except Exception as e:
+                log.debug(f"请求失败 try={attempt+1} {current_url}: {e}")
+            _rotate_ua()
+            current_url = host_pool[(attempt + 1) % len(host_pool)] + path
+            time.sleep(0.3)
+        # 整轮 host 池仍然失败时，指数退避后重试整个池子
+        if pool_attempt < retries:
+            _sleep_backoff(pool_attempt)
     return None
 
 
@@ -229,6 +289,123 @@ def _set_kline_meta(klines: List[Kline], source: str, adjust: str) -> None:
         k.adjust = adjust
 
 
+# ---- 磁盘缓存（K 线第二层缓存） ----
+def _sanitize_disk_key(key: str) -> str:
+    r"""清洗非法文件名字符，Windows 下 :/\|?*<>\” 及控制字符都替换为 _。"""
+    cleaned = []
+    for ch in str(key):
+        if ch.isalnum() or ch in ("-", "_", "."):
+            cleaned.append(ch)
+        else:
+            cleaned.append("_")
+    result = "".join(cleaned).strip("._") or "key"
+    return result
+
+
+def _disk_cache_path(key: str) -> str:
+    """返回磁盘缓存文件完整路径。"""
+    return os.path.join(DATA_CACHE_DIR, f"kline_{_sanitize_disk_key(key)}.json")
+
+
+def _kline_to_dict(k: Kline) -> Dict[str, Any]:
+    """Kline 序列化为缓存用 record dict，保留可选的 source/adjust。"""
+    if isinstance(k, dict):
+        return {
+            "date": k.get("date", ""),
+            "open": k.get("open", 0.0),
+            "high": k.get("high", 0.0),
+            "low": k.get("low", 0.0),
+            "close": k.get("close", 0.0),
+            "volume": k.get("volume", 0.0),
+            "amount": k.get("amount", 0.0),
+            "turnover": k.get("turnover", 0.0),
+            "pct": k.get("pct", 0.0),
+            "source": k.get("source", ""),
+            "adjust": k.get("adjust", ""),
+        }
+    return {
+        "date": k.date,
+        "open": k.open,
+        "high": k.high,
+        "low": k.low,
+        "close": k.close,
+        "volume": k.volume,
+        "amount": k.amount,
+        "turnover": k.turnover,
+        "pct": k.pct,
+        "source": k.source,
+        "adjust": k.adjust,
+    }
+
+
+def _dict_to_kline(d: Dict[str, Any]) -> Optional[Kline]:
+    """从缓存 record dict 重建 Kline；缺关键字段时返回 None。"""
+    try:
+        return Kline(
+            date=str(d["date"]),
+            open=float(d["open"]),
+            high=float(d["high"]),
+            low=float(d["low"]),
+            close=float(d["close"]),
+            volume=float(d["volume"]),
+            amount=float(d.get("amount", 0.0) or 0.0),
+            pct=float(d.get("pct", 0.0) or 0.0),
+            turnover=float(d.get("turnover", 0.0) or 0.0),
+            source=str(d.get("source", "") or ""),
+            adjust=str(d.get("adjust", "") or ""),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _disk_cache_load(key: str) -> Optional[List[Kline]]:
+    """读取磁盘缓存；未命中/损坏/过期均返回 None。"""
+    path = _disk_cache_path(key)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if payload.get("key") != key:
+            return None
+        ts = float(payload.get("ts", 0) or 0)
+        if time.time() - ts >= KLINE_DISK_TTL:
+            return None
+        raw_list = payload.get("data")
+        if not isinstance(raw_list, list) or not raw_list:
+            return None
+        result: List[Kline] = []
+        for item in raw_list:
+            if isinstance(item, dict):
+                k = _dict_to_kline(item)
+                if k is not None:
+                    result.append(k)
+        return result if result else None
+    except Exception as e:
+        log.debug(f"磁盘缓存读取失败 {path}: {e}")
+        return None
+
+
+def _disk_cache_store(key: str, data: List[Kline]) -> None:
+    """写磁盘缓存；写入失败不影响主流程。空列表不写入、不覆盖已有缓存。"""
+    if not data:
+        return
+    path = _disk_cache_path(key)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = {
+            "key": key,
+            "ts": time.time(),
+            "data": [_kline_to_dict(k) for k in data],
+        }
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except Exception as e:
+        log.debug(f"磁盘缓存写入失败 {path}: {e}")
+
+
 def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str = "qfq") -> List[Kline]:
     """获取K线数据。
 
@@ -239,6 +416,15 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
     cached = _cached(cache_key)
     if cached:
         return cached
+
+    # 第二层磁盘缓存：只接入日线/周线 K 线抓取
+    if period in ("day", "week"):
+        disk_key = f"{symbol}:{period}:{adjust}"
+        disk_klines = _disk_cache_load(disk_key)
+        if disk_klines:
+            _set_cache(cache_key, disk_klines)
+            log.debug(f"磁盘K线缓存命中 {symbol}: {len(disk_klines)}条 period={period} adjust={adjust}")
+            return disk_klines
 
     klines: List[Kline] = []
 
@@ -290,6 +476,10 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
     _enrich_from_eastmoney(symbol, count, klines)
 
     _set_cache(cache_key, klines)
+
+    # 写磁盘缓存（空列表不覆盖，由上面 len<10 分支保证已不会走到这里）
+    if period in ("day", "week") and klines:
+        _disk_cache_store(f"{symbol}:{period}:{adjust}", klines)
     return klines
 
 
@@ -877,6 +1067,14 @@ def fetch_index_kline(index_code: str = "000001", count: int = 60) -> List[Kline
     if cached:
         return cached
 
+    # 指数日线也走第二层磁盘缓存；adjust 用 index 标记，避免与同代码个股缓存混淆。
+    disk_key = f"{index_code}:day:index"
+    disk_klines = _disk_cache_load(disk_key)
+    if disk_klines:
+        _set_cache(cache_key, disk_klines)
+        log.debug(f"磁盘指数K线缓存命中 {index_code}: {len(disk_klines)}条")
+        return disk_klines
+
     # 指数的secid: 上证=1.000001, 深证/创业板=0.399xxx
     if index_code.startswith("399"):
         secid = f"0.{index_code}"
@@ -902,6 +1100,7 @@ def fetch_index_kline(index_code: str = "000001", count: int = 60) -> List[Kline
         if klines:
             _set_kline_meta(klines, "tencent", "none")
             _set_cache(cache_key, klines)
+            _disk_cache_store(disk_key, klines)
             return klines
         return []
 
@@ -927,6 +1126,7 @@ def fetch_index_kline(index_code: str = "000001", count: int = 60) -> List[Kline
     if len(klines) >= 10:
         _set_kline_meta(klines, "eastmoney", "none")
         _set_cache(cache_key, klines)
+        _disk_cache_store(disk_key, klines)
         return klines
     return []
 

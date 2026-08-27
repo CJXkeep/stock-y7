@@ -377,9 +377,15 @@ class RunWatchCycleTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="notify_cycle_")
         self.journal_dir = os.path.join(self.tmp, "journal")
         self.cfg_path = os.path.join(self.tmp, "notify.json")
+        # 运行状态文件也隔离到临时目录，避免测试污染真实 data/notify_state.json
+        self.orig_state_file = ns.NOTIFY_STATE_FILE
+        self.state_file = os.path.join(self.tmp, "notify_state.json")
+        ns.NOTIFY_STATE_FILE = self.state_file
         # 模块级状态在测试进程内共享，先归零保证断言不受用例顺序影响
-        ns._set_state(status="idle", last_run="", last_found=0,
-                      pushed_total=0, last_push_at="", rounds=0, last_error="")
+        ns._set_state(status="idle", last_run="", last_run_at="", last_found=0,
+                      pushed_total=0, deduped_total=0, failed_total=0,
+                      last_push_at="", rounds=0, last_error="")
+        ns._notify_state_loaded = True
         # 打桩共享行情接口：巡检循环在调用时局部 import，替换模块属性即可生效，
         # 保证用例完全离线确定（不触真实东财/腾讯接口）
         import data.kline_fetcher as kf
@@ -391,6 +397,7 @@ class RunWatchCycleTest(unittest.TestCase):
     def tearDown(self):
         self._kf.fetch_index_kline = self._orig_index
         self._kf.fetch_market_breadth = self._orig_breadth
+        ns.NOTIFY_STATE_FILE = self.orig_state_file
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_disabled_short_circuits(self):
@@ -467,9 +474,14 @@ class ApiHandlerTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="notify_api_")
         self.orig_path = ns.notify_config_path
         ns.notify_config_path = lambda path=None: path or os.path.join(self.tmp, "notify.json")
+        # 同样隔离运行状态文件；重置加载标记以避免读取真实项目文件
+        self.orig_state_file = ns.NOTIFY_STATE_FILE
+        ns.NOTIFY_STATE_FILE = os.path.join(self.tmp, "notify_state.json")
+        ns._notify_state_loaded = False
 
     def tearDown(self):
         ns.notify_config_path = self.orig_path
+        ns.NOTIFY_STATE_FILE = self.orig_state_file
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_get_summary_masks_webhook(self):
@@ -525,8 +537,24 @@ class ApiHandlerTest(unittest.TestCase):
         assert out["ok"] is False
 
     def test_post_run_once_accepted(self):
-        out = ns.handle_notify_post({"action": "run_once", "force": True})
+        started = []
+        orig_thread = ns.threading.Thread
+        try:
+            class _FakeThread:
+                def __init__(self, target=None, kwargs=None, daemon=None):
+                    self.target = target
+                    self.kwargs = kwargs or {}
+                    self.daemon = daemon
+
+                def start(self):
+                    started.append((self.target, self.kwargs))
+
+            ns.threading.Thread = _FakeThread
+            out = ns.handle_notify_post({"action": "run_once", "force": True})
+        finally:
+            ns.threading.Thread = orig_thread
         assert out["ok"] is True
+        assert started and started[0][0] is ns.run_watch_cycle
 
     def test_test_message_content(self):
         title, text = ns.build_test_message()

@@ -51,9 +51,14 @@ python -m backtest stats <snapshot_id>      # 统计报告（--simulate --capita
 
 ## 部署注意（扫描/速递依赖进程内存）
 
-- 当前扫描、每日速递的进度与结果保存在**单进程内存**中（`app.py` 的 `_scan_state` / `_digest_state`）。
+- 扫描、每日速递、钉钉推送的**最近状态与结果**已持久化（`data/scan/latest.json`、`data/digest/latest.json`、`data/notify_state.json`），进程/容器重启后首次访问自动回填；但**进行中的任务状态**仍在单进程内存（`app.py` 的 `_scan_state` / `_digest_state`），重启会停止未完成任务。
 - 请用**单进程**方式运行（`python app.py` / `启动.bat`）；若用 gunicorn/uwsgi，必须 `--workers 1`（可配 `--threads N`），不能用多副本共享负载。
-- 使用 Docker 多副本或进程重启时，扫描进度/结果会丢失或互相不可见，属已知限制。
+- 使用 Docker 多副本仍不可用（进度互相不可见）；单进程容器重启可恢复最近完成状态（见下）。
+- 信号档案事实来源为 **SQLite**（`data/journal/journal.db`，WAL 模式，仅用标准库 `sqlite3`）；存量 `data/journal/journal.jsonl` 首次使用会自动一次性导入并保留为只读归档。
+
+### 结构化日志（可选）
+
+设置环境变量 `LOG_JSON=1` 后，服务日志以 JSON 行输出（ts/level/logger/message），便于容器收集；未设置时行为不变。
 - 扫描范围默认取**成交额前 1000** 只活跃 A 股，扫描弹窗里可手动选择 **500 / 1000 / 2000 / 全A股**（日K + 周K 双周期买入筛选）。
 - Docker Compose 按 2C2G 配置（`memory: 1.5G`、`cpus: "2"`）；扫描并发可用环境变量调整：`SCAN_DAILY_MAX_WORKERS`（默认 20）、`SCAN_WEEKLY_MAX_WORKERS`（默认 15）、`NOTIFY_MAX_WORKERS`（钉钉推送巡检并发，默认 8）。
 

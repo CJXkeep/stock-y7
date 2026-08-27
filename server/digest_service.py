@@ -133,14 +133,52 @@ def _digest_persist(digest: dict) -> None:
         log.warning("每日速递持久化失败（不影响展示）: %s", exc)
 
 
+def _digest_save_snapshot() -> None:
+    """把当前速递状态快照原子写入 latest.json（running/error/done 均可）。"""
+    try:
+        with _digest_lock:
+            state = dict(_digest_state)
+        payload = {
+            "schema": digest_builder.DIGEST_SCHEMA,
+            "status": state.get("status"),
+            "stage": state.get("stage", ""),
+            "progress": state.get("progress", 0),
+            "generated_at": state.get("generated_at"),
+            "elapsed": state.get("elapsed", 0),
+            "error": state.get("error", ""),
+        }
+        digest = state.get("digest")
+        if digest is not None:
+            # 成功完成时才带完整 digest；error/running 快照不携带结果体
+            payload["digest"] = digest
+            if isinstance(digest.get("meta"), dict):
+                payload["date"] = digest["meta"].get("date")
+        os.makedirs(os.path.dirname(_DIGEST_FILE), exist_ok=True)
+        tmp = _DIGEST_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, _DIGEST_FILE)
+        log.info("每日速递状态已持久化到 %s（status=%s）", _DIGEST_FILE, payload.get("status"))
+    except Exception as exc:
+        log.warning("每日速递状态持久化失败（不影响展示）: %s", exc)
+
+
 def _digest_load_cached():
-    """读取最近一期缓存；缺失/损坏返回 None 并告警。"""
+    """读取最近一期缓存；缺失/损坏返回 None 并告警。
+
+    兼容旧版 done 结构，并支持 error/running 快照回填。
+    """
     try:
         with open(_DIGEST_FILE, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
-        if payload.get("schema") != digest_builder.DIGEST_SCHEMA \
-                or not isinstance(payload.get("digest"), dict):
-            raise ValueError("digest schema 或结构非法")
+        if not isinstance(payload, dict) or payload.get("schema") != digest_builder.DIGEST_SCHEMA:
+            raise ValueError("digest schema 非法")
+        status = payload.get("status")
+        if status not in ("done", "error", "running"):
+            raise ValueError("digest 状态非 done/error/running")
+        if status == "done" and not isinstance(payload.get("digest"), dict):
+            raise ValueError("digest done 结构缺少 digest")
         return payload
     except (OSError, ValueError) as exc:
         log.warning("每日速递缓存读取失败（回退 idle）: %s", exc)
@@ -155,6 +193,7 @@ def _run_digest_build() -> None:
             "status": "running", "stage": "准备数据源...", "progress": 5,
             "error": "", "digest": None, "generated_at": None, "elapsed": 0,
         })
+    _digest_save_snapshot()  # 运行中状态也立即落盘，进程重启后可区分中断/失败
 
     def progress(stage: str, pct: int) -> None:
         with _digest_lock:
@@ -172,11 +211,12 @@ def _run_digest_build() -> None:
                 "generated_at": digest["meta"]["generated_at"],
                 "elapsed": elapsed,
             })
-        _digest_persist(digest)
+        _digest_save_snapshot()  # 成功结果落盘（含完整 digest）
     except Exception as exc:
         log.error("每日速递生成失败: %s", exc, exc_info=True)
         with _digest_lock:
             _digest_state.update({"status": "error", "stage": "生成失败", "error": str(exc)})
+        _digest_save_snapshot()  # 错误状态也落盘
 
 
 def handle_digest(params: dict) -> dict:
@@ -185,13 +225,27 @@ def handle_digest(params: dict) -> dict:
     if not _digest_loaded:
         cached = _digest_load_cached()
         if cached:
+            status = cached.get("status")
             with _digest_lock:
-                _digest_state.update({
-                    "status": "done", "stage": "完成（上次生成）", "progress": 100,
-                    "digest": cached.get("digest"),
-                    "generated_at": cached.get("generated_at"),
-                    "elapsed": cached.get("elapsed", 0),
-                })
+                if status == "done":
+                    _digest_state.update({
+                        "status": "done", "stage": "完成（上次生成）", "progress": 100,
+                        "digest": cached.get("digest"),
+                        "generated_at": cached.get("generated_at"),
+                        "elapsed": cached.get("elapsed", 0),
+                        "error": "",
+                    })
+                else:
+                    # error/running 快照同样回填，重启后能区分「上次失败/上次中断」
+                    _digest_state.update({
+                        "status": status,
+                        "stage": cached.get("stage", ""),
+                        "progress": cached.get("progress", 0),
+                        "generated_at": cached.get("generated_at"),
+                        "elapsed": cached.get("elapsed", 0),
+                        "error": cached.get("error", ""),
+                        "digest": cached.get("digest"),
+                    })
         _digest_loaded = True
 
     action = params.get("action", [""])[0]

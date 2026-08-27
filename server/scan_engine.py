@@ -50,47 +50,147 @@ _scan_state = {
     "error": "",
     "start_time": 0,
     "elapsed": 0,
+    "failed_total": 0,       # 本次扫描失败个股总数（optimization-round2）
+    "failed_symbols": [],     # 失败明细（code/name/period/reason，内存上限 1000 条）
 }
 _scan_lock = threading.Lock()
+_SCAN_STATE_SCHEMA = "v5.scan.latest.v1"
+SCAN_STATE_FILE = os.path.join(ROOT, "data", "scan", "latest.json")
+_scan_state_loaded = False  # 模块级标记：是否已尝试从磁盘回填，避免每次 GET 都读盘
+
+# ---- 扫描两阶段资金流（optimization-round2）----
+# 日K初筛不拉资金流；初筛 action 命中买入集 或 score≥阈值 才算候选，候选才补拉资金流重算。
+_SCAN_TWO_STAGE_CANDIDATE_SCORE_DEFAULT = 55
+_SCAN_BUY_ACTIONS = ("强烈买入", "买入", "谨慎买入")
+_SCAN_FAILED_MAX = 1000          # failed_symbols 内存/落盘上限
+_SCAN_FAILED_RESP_MAX = 200      # /api/scan 响应明细截断（防撑爆个人看板）
 
 
-def _scan_one_stock(symbol: str, period: str, index_klines, breadth) -> dict:
-    """分析单只股票，返回简化结果。供扫描调用。"""
+def _scan_candidate_score() -> int:
+    """读取候选分数阈值环境变量 SCAN_TWO_STAGE_CANDIDATE_SCORE，非法值回退默认 55。"""
+    try:
+        return int(os.environ.get(
+            "SCAN_TWO_STAGE_CANDIDATE_SCORE", str(_SCAN_TWO_STAGE_CANDIDATE_SCORE_DEFAULT)))
+    except (TypeError, ValueError):
+        return _SCAN_TWO_STAGE_CANDIDATE_SCORE_DEFAULT
+
+
+def _scan_is_candidate(prelim: dict) -> bool:
+    """判定日K初筛结果是否为候选：命中买入动作 或 score≥阈值 即纳入，才补拉资金流。"""
+    if prelim.get("action") in _SCAN_BUY_ACTIONS:
+        return True
+    try:
+        return float(prelim.get("score", 0) or 0) >= float(_scan_candidate_score())
+    except (TypeError, ValueError):
+        return False
+
+
+def _scan_record_failure(symbol: str, name: str, period: str, reason: Exception) -> None:
+    """记录单只扫描失败（不中断扫描）；明细限条数、reason 截断。"""
+    try:
+        with _scan_lock:
+            _scan_state["failed_total"] = _scan_state.get("failed_total", 0) + 1
+            failed = _scan_state.setdefault("failed_symbols", [])
+            failed.append({
+                "symbol": str(symbol)[:20],
+                "name": str(name or "")[:40],
+                "period": str(period),
+                "reason": str(reason)[:200],
+            })
+            if len(failed) > _SCAN_FAILED_MAX:
+                del failed[:len(failed) - _SCAN_FAILED_MAX]
+    except Exception:
+        pass  # 失败统计自身异常绝不影响扫描主流程
+
+
+def _scan_persist_state() -> None:
+    """把当前扫描状态完整快照原子写到 data/scan/latest.json；失败不阻塞扫描。"""
+    try:
+        with _scan_lock:
+            state = dict(_scan_state)
+        payload = dict(state)
+        payload.update({
+            "schema": _SCAN_STATE_SCHEMA,
+            "completed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        os.makedirs(os.path.dirname(SCAN_STATE_FILE), exist_ok=True)
+        tmp = SCAN_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, SCAN_STATE_FILE)
+    except Exception as exc:
+        log.warning("扫描状态持久化失败（不影响运行）: %s", exc)
+
+
+def _ensure_scan_state_loaded() -> None:
+    """首次读取扫描状态缓存；损坏/缺失安静回退 idle，且只尝试一次。"""
+    global _scan_state_loaded
+    if _scan_state_loaded:
+        return
+    _scan_state_loaded = True
+    try:
+        with open(SCAN_STATE_FILE, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if not isinstance(payload, dict) or payload.get("schema") != _SCAN_STATE_SCHEMA:
+            raise ValueError("scan schema 或结构非法")
+        with _scan_lock:
+            for key in list(_scan_state.keys()):
+                if key in payload:
+                    _scan_state[key] = payload[key]
+    except (OSError, ValueError) as exc:
+        # 缺失/损坏文件不改变初始 idle 状态
+        log.debug("扫描状态缓存读取失败（保持 idle）: %s", exc)
+
+
+def _run_signal(symbol: str, klines, quote, flows, index_klines, breadth, period: str) -> dict:
+    """运行信号引擎 + 优化后处理，返回简化结果。周K阶段不混入日频指数/宽度。"""
+    effective_index = [] if period == "week" else index_klines
+    effective_breadth = None if period == "week" else breadth
+    result = run_analysis(
+        klines, quote, flows, effective_index,
+        breadth=effective_breadth, period=period,
+    )
+    signal_data = signal_to_dict(result)
+    signal_data = _apply_signal_optimization(signal_data, klines, quote)
+    return {
+        "symbol": symbol,
+        "name": quote.name if quote else "",
+        "price": quote.price if quote else 0,
+        "action": signal_data.get("action", "观望"),
+        "score": signal_data.get("score", 0),
+        "confidence": signal_data.get("confidence", 0),
+        "original_action": signal_data.get("original_action", ""),
+        "veto_reason": signal_data.get("veto_reason", ""),
+        "position_advice": signal_data.get("position_advice", ""),
+        "risk_reward": signal_data.get("risk_reward", 0),
+        "m_score": (signal_data.get("momentum") or {}).get("m_score", 50),
+        "module_scores": signal_data.get("module_scores", {}),
+        "risk_notes": signal_data.get("risk_notes", []),
+    }
+
+
+def _scan_one_stock(symbol: str, period: str, index_klines, breadth, name: str = "") -> dict:
+    """分析单只股票，返回简化结果。失败记录到 failed_*，不中断扫描。
+
+    日K走两阶段资金流：初筛无资金流 → 候选（买入动作/分数≥阈值）才补拉资金流重算；
+    周K保持现状（不拉资金流）。
+    """
     try:
         klines = fetch_kline(symbol, count=250, period=period)
         if len(klines) < 30:
             return None
         quote = fetch_quote(symbol)
-        flows = [] if period == "week" else fetch_fund_flow(symbol, days=30)
-        # 周线扫描不混入日频指数与盘中宽度
-        effective_index = [] if period == "week" else index_klines
-        effective_breadth = None if period == "week" else breadth
-
-        result = run_analysis(
-            klines, quote, flows, effective_index,
-            breadth=effective_breadth, period=period,
-        )
-        signal_data = signal_to_dict(result)
-
-        # 信号引擎优化后处理
-        signal_data = _apply_signal_optimization(signal_data, klines, quote)
-
-        return {
-            "symbol": symbol,
-            "name": quote.name if quote else "",
-            "price": quote.price if quote else 0,
-            "action": signal_data.get("action", "观望"),
-            "score": signal_data.get("score", 0),
-            "confidence": signal_data.get("confidence", 0),
-            "original_action": signal_data.get("original_action", ""),
-            "veto_reason": signal_data.get("veto_reason", ""),
-            "position_advice": signal_data.get("position_advice", ""),
-            "risk_reward": signal_data.get("risk_reward", 0),
-            "m_score": (signal_data.get("momentum") or {}).get("m_score", 50),
-            "module_scores": signal_data.get("module_scores", {}),
-            "risk_notes": signal_data.get("risk_notes", []),
-        }
+        if period == "week":
+            return _run_signal(symbol, klines, quote, [], index_klines, breadth, "week")
+        # 日K：两阶段资金流
+        prelim = _run_signal(symbol, klines, quote, [], index_klines, breadth, "day")
+        if _scan_is_candidate(prelim):
+            flows = fetch_fund_flow(symbol, days=30)
+            return _run_signal(symbol, klines, quote, flows, index_klines, breadth, "day")
+        return None
     except Exception as e:
+        _scan_record_failure(symbol, name, period, e)
         log.debug(f"扫描{symbol}({period})失败: {e}")
         return None
 
@@ -108,6 +208,8 @@ def _run_scan(max_stocks: int = 1000):
                 "found": 0,
                 "results": [],
                 "error": "",
+                "failed_total": 0,
+                "failed_symbols": [],
                 "start_time": time.time(),
                 "elapsed": 0,
             })
@@ -118,6 +220,7 @@ def _run_scan(max_stocks: int = 1000):
             with _scan_lock:
                 _scan_state["status"] = "error"
                 _scan_state["error"] = "获取A股列表失败"
+            _scan_persist_state()
             return
 
         # ---- 2. 预过滤：排除ST/退市/停牌(价格=0) ----
@@ -165,7 +268,7 @@ def _run_scan(max_stocks: int = 1000):
         def scan_daily(stock):
             nonlocal scanned_count
             code = stock["code"]
-            r = _scan_one_stock(code, "day", index_klines, breadth)
+            r = _scan_one_stock(code, "day", index_klines, breadth, stock.get("name", ""))
             with _scan_lock:
                 scanned_count += 1
                 _scan_state["scanned"] = scanned_count
@@ -202,7 +305,8 @@ def _run_scan(max_stocks: int = 1000):
         def scan_weekly(stock):
             nonlocal weekly_scanned
             code = stock["symbol"]
-            r = _scan_one_stock(code, "week", index_klines, breadth)
+            r = _scan_one_stock(code, "week", index_klines, breadth,
+                                stock.get("name") or stock.get("daily_name", ""))
             with _scan_lock:
                 weekly_scanned += 1
                 _scan_state["scanned"] = weekly_scanned
@@ -255,12 +359,14 @@ def _run_scan(max_stocks: int = 1000):
                 "results": results,
                 "elapsed": elapsed,
             })
+        _scan_persist_state()
         log.info(f"扫描完成: {total_stage1}→{len(daily_buy)}→{len(dual_buy)}→TOP{len(results)}, 耗时{elapsed}s")
 
     except Exception as e:
         with _scan_lock:
             _scan_state["status"] = "error"
             _scan_state["error"] = str(e)
+        _scan_persist_state()
         log.error(f"扫描失败: {e}", exc_info=True)
 
 
@@ -284,19 +390,24 @@ def handle_scan(params: dict) -> dict:
             _scan_state.update({
                 "status": "idle", "stage": "", "progress": 0,
                 "total": 0, "scanned": 0, "found": 0,
-                "results": [], "error": "", "elapsed": 0,
+                "results": [], "error": "",
+                "failed_total": 0, "failed_symbols": [],
+                "elapsed": 0,
             })
         # 启动后台线程
         t = threading.Thread(target=_run_scan, args=(max_stocks,), daemon=True)
         t.start()
         return {"status": "started", "message": "扫描已启动"}
 
-    # 默认返回当前状态
+    # 默认返回当前状态；首次进入时从磁盘回填上次完成/失败状态
+    _ensure_scan_state_loaded()
     with _scan_lock:
         state = dict(_scan_state)
     elapsed = state.get("elapsed", 0)
     if state["status"] == "running" and state.get("start_time"):
         elapsed = round(time.time() - state["start_time"], 1)
+    failed_total = state.get("failed_total", 0)
+    failed_symbols = (state.get("failed_symbols") or [])[: _SCAN_FAILED_RESP_MAX]
     return {
         "status": state["status"],
         "stage": state["stage"],
@@ -306,6 +417,8 @@ def handle_scan(params: dict) -> dict:
         "found": state["found"],
         "results": state["results"],
         "error": state.get("error", ""),
+        "failed_total": failed_total,
+        "failed_symbols": failed_symbols,
         "elapsed": elapsed,
     }
 

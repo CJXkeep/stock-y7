@@ -17,6 +17,12 @@ body {
   box-shadow: 0 1px 4px rgba(0,0,0,0.5);
 }
 .logo { font-size: 15px; font-weight: bold; color: #ff9800; white-space: nowrap; letter-spacing: 1px; }
+.sys-status { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 11px; color: #999; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ss-clock { color: #ffb74d; margin-right: 4px; }
+.ss-pill { padding: 2px 8px; border: 1px solid #333; border-radius: 10px; background: #141414; color: #aaa; }
+.ss-pill.ss-run { color: #ff9800; border-color: #b26a00; }
+.ss-pill.ss-err { color: #ff5252; border-color: #b71c1c; }
+.ss-pill.ss-off { color: #666; border-color: #2a2a2a; }
 .search-wrap { position: relative; }
 .search-wrap input {
   width: 200px; padding: 6px 10px;

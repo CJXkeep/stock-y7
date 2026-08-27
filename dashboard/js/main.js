@@ -803,6 +803,56 @@ function closeSettings(ev) {
 }
 function closeSettingsForce() { const o = document.getElementById('settings-overlay'); if (o) o.style.display = 'none'; }
 
+// ===== 顶部状态栏（optimization-landing D5）：时钟 + 扫描/速递/推送最近状态（独立 /api/health，30s 轮询） =====
+const _SS_LABEL = { scan: '扫描', digest: '速递', notify: '推送' };
+const _SS_TIME_FIELD = { scan: 'completed_at', digest: 'generated_at', notify: 'last_run_at' };
+function _ssShortTime(t) {
+  if (!t) return '';
+  const m = String(t).match(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/);
+  const v = m ? m[0].replace('T', ' ') : String(t);
+  return v.length >= 16 ? v.slice(5) : v;   // MM-DD HH:MM
+}
+function _ssMark(el, key, label, state) {
+  if (!el) return;
+  const statusMap = { idle: '空闲', started: '运行中', running: '运行中', done: '完成', error: '失败' };
+  const st = (state && statusMap[state.status]) || '--';
+  const t = (state && state[_SS_TIME_FIELD[key]]) || '';
+  el.textContent = t ? (label + ' ' + st + ' ' + _ssShortTime(t)) : (label + ' ' + st);
+  el.title = (state ? (label + ' 最近状态：' + st + (t ? ' @ ' + t : '')) : (label + ' 暂无状态'));
+  el.classList.toggle('ss-run', !!state && (state.status === 'running' || state.status === 'started'));
+  el.classList.toggle('ss-err', !!state && state.status === 'error');
+  el.classList.toggle('ss-off', !state || !state.status);
+}
+async function _ssRefresh() {
+  const els = { scan: null, digest: null, notify: null };
+  Object.keys(els).forEach(k => { els[k] = document.querySelector('[data-ss="' + k + '"]'); });
+  try {
+    const data = await (await fetchWithTimeout('/api/health')).json();
+    Object.keys(els).forEach(k => _ssMark(els[k], k, _SS_LABEL[k], data[k]));
+  } catch (e) {
+    // 探活失败 fallback：标记离线，不打断页面
+    Object.keys(els).forEach(k => {
+      const el = els[k];
+      if (!el) return;
+      el.textContent = _SS_LABEL[k] + ' 离线';
+      el.classList.add('ss-off');
+      el.classList.remove('ss-run', 'ss-err');
+    });
+  }
+}
+function _ssInit() {
+  const clock = document.getElementById('ss-clock');
+  const tick = () => {
+    if (!clock) return;
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    clock.textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  };
+  tick();
+  setInterval(tick, 1000);
+  _ssRefresh();
+  setInterval(_ssRefresh, 30000);
+}
 // ===== 启动 =====
 applyFx();                 // FX 档位（body class + 设置面板状态）
 sidebarLoadState();        // 侧边栏开合记忆
@@ -812,6 +862,7 @@ initCharts();
 updateBadges();
 loadMode();
 loadNotifySettings();      // 钉钉推送：启动即拉取配置与状态（设置面板回显用）
+_ssInit();                  // 顶部状态栏（时钟 + 最近状态）
 // 工作台分区 tab 点击
 const _sbTabs = document.getElementById('sb-tabs');
 if (_sbTabs) _sbTabs.addEventListener('click', e => {

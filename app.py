@@ -67,6 +67,49 @@ from server.http_utils import _parse_count, MAX_KLINE_COUNT
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("trend_app")
 
+
+# ---- 结构化日志（optimization-landing D4）：LOG_JSON=1 时输出 JSON 行，未设置行为不变 ----
+class _JsonFormatter(logging.Formatter):
+    """把日志行渲染为 JSON 对象（ts/level/logger/message，可选 exception）。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _apply_json_format() -> None:
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(_JsonFormatter())
+
+
+if os.environ.get("LOG_JSON", "").strip().lower() in ("1", "true", "yes", "on"):
+    _apply_json_format()
+    logging.getLogger(__name__).info("结构化日志已启用 (LOG_JSON=1)")
+
+
+def _load_state_file(rel: str):
+    """读取持久化的运行状态 JSON（D2 产物）；缺失/损坏返回 None。"""
+    path = os.path.join(ROOT, rel)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def _pick_state(state, keys):
+    """从状态 dict 挑字段；非 dict 返回 None。"""
+    if not isinstance(state, dict):
+        return None
+    return {k: state.get(k) for k in keys}
+
 PORT = int(os.environ.get("PORT", "8795"))  # 端口可经环境变量覆盖（Docker 映射或测试随机端口）
 HOST = os.environ.get("BIND_HOST", "127.0.0.1")  # 监听地址；容器内设为 0.0.0.0 才能被端口映射访问
 DASHBOARD_DIR = os.path.join(ROOT, "dashboard")
@@ -220,7 +263,53 @@ def _in_trading_session() -> bool:
     return (9 * 60 + 15 <= m <= 11 * 60 + 35) or (12 * 60 + 55 <= m <= 15 * 60 + 5)
 
 
+# ---- /api/analyze 并发去重（optimization-round2）：同 (symbol, period) 并发只执行一次分析 ----
+_ANALYZE_FLIGHT_LOCK = threading.Lock()
+_ANALYZE_FLIGHTS: dict = {}   # (symbol, period) -> {"event","result","error"}
+
+
 def handle_analyze(params: dict) -> dict:
+    """/api/analyze 入口：并发去重（single-flight），无 TTL/陈旧风险。
+
+    同 (symbol, period) 的并发请求只真正执行一次 _analyze_impl，其余等待同一结果；
+    串行重复请求与不同 symbol/period 不受影响；失败原样广播给各等待方。
+    """
+    symbol = str(params.get("symbol", [""])[0] or "").strip()
+    period = str(params.get("period", ["day"])[0] or "").strip() or "day"
+    key = (symbol, period)
+    if not symbol:
+        return _analyze_impl(params)
+
+    with _ANALYZE_FLIGHT_LOCK:
+        slot = _ANALYZE_FLIGHTS.get(key)
+        if slot is None:
+            slot = {"event": threading.Event(), "result": None, "error": None}
+            _ANALYZE_FLIGHTS[key] = slot
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        slot["event"].wait()
+        if slot["error"] is not None:
+            raise slot["error"]
+        return slot["result"]
+
+    try:
+        result = _analyze_impl(params)
+        slot["result"] = result
+        return result
+    except Exception as exc:
+        slot["error"] = exc
+        raise
+    finally:
+        slot["event"].set()
+        with _ANALYZE_FLIGHT_LOCK:
+            if _ANALYZE_FLIGHTS.get(key) is slot:
+                _ANALYZE_FLIGHTS.pop(key, None)
+
+
+def _analyze_impl(params: dict) -> dict:
     symbol = params.get("symbol", [""])[0].strip()
     if not symbol:
         return {"error": "缺少symbol参数", "error_code": "bad_symbol"}
@@ -628,7 +717,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"enabled": AUTH_ENABLED, "authed": self._is_authed()})
                 return
             if path == "/api/health":
-                self._json({"status": "ok", "time": time.strftime("%H:%M:%S")})
+                self._json({
+                    "status": "ok",
+                    "time": time.strftime("%H:%M:%S"),
+                    "scan": _pick_state(_load_state_file(
+                        os.path.join("data", "scan", "latest.json")),
+                        ("status", "stage", "progress", "found", "completed_at", "elapsed")),
+                    "digest": _pick_state(_load_state_file(
+                        os.path.join("data", "digest", "latest.json")),
+                        ("status", "stage", "progress", "generated_at", "elapsed")),
+                    "notify": _pick_state(_load_state_file(
+                        os.path.join("data", "notify_state.json")),
+                        ("status", "last_run_at", "rounds", "pushed_total", "failed_total")),
+                })
                 return
             if AUTH_ENABLED and not self._is_authed():
                 self._json({"error": "未授权"}, 401)

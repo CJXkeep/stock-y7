@@ -18,6 +18,7 @@ import threading
 import uuid
 
 from backtest import config
+from backtest import journal_store
 from backtest.dedupe import exact_key, filter_visible, mark_window
 
 _LOCK = threading.Lock()
@@ -73,26 +74,40 @@ def new_record(**fields) -> dict:
 # ---------------------------------------------------------------- 写入
 
 def load_records(journal_dir: str = None):
-    """读取全部记录。返回 (records, skipped_corrupt_lines)。"""
-    path = journal_path(journal_dir)
-    records = []
+    """读取全部记录。返回 (records, skipped_corrupt_lines)。
+
+    SQLite 为事实来源；`journal.jsonl` 保留为只读归档并做遗留扫描——
+    坏行计入 skipped，归档/人工写入的合法行按精确键合并（与 DB 不去重冲突）。
+    """
+    directory = journal_dir or config.JOURNAL_DIR
+    conn = journal_store.ensure_db(directory)
+    try:
+        records = journal_store.load_all(conn)
+    finally:
+        conn.close()
+
     skipped = 0
-    if not os.path.exists(path):
-        return records, skipped
-    with open(path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                item = json.loads(text)
-            except (ValueError, TypeError):
-                skipped += 1
-                continue
-            if isinstance(item, dict):
-                records.append(item)
-            else:
-                skipped += 1
+    path = journal_path(directory)
+    if os.path.exists(path):
+        seen = {exact_key(r) for r in records}
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    item = json.loads(text)
+                except (ValueError, TypeError):
+                    skipped += 1
+                    continue
+                if isinstance(item, dict):
+                    key = exact_key(item)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    records.append(item)
+                else:
+                    skipped += 1
     if skipped:
         _log.warning("信号日志存在 %d 行损坏，已跳过（%s）", skipped, path)
     return records, skipped
@@ -100,7 +115,7 @@ def load_records(journal_dir: str = None):
 
 def append_records(records: list, journal_dir: str = None,
                    trading_dates=None) -> int:
-    """追加写入若干新记录。
+    """追加写入若干新记录（SQLite 存储）。
 
     - 精确去重：与既有记录或本批内完全同键的记录丢弃，只保留首条；
     - 窗口标记：结合既有记录对新记录标 deduped（既有行不改写）；
@@ -111,27 +126,29 @@ def append_records(records: list, journal_dir: str = None,
         return 0
     directory = journal_dir or config.JOURNAL_DIR
     os.makedirs(directory, exist_ok=True)
-    path = journal_path(directory)
-    with _LOCK:
-        existing, _skipped = load_records(directory)
-        existing_keys = {exact_key(r) for r in existing}
-        fresh = []
-        seen = set()
-        for record in records:
-            key = exact_key(record)
-            if key in existing_keys or key in seen:
-                continue
-            seen.add(key)
-            fresh.append(record)
-        if not fresh:
-            return 0
-        # 结合既有上下文做窗口标记：只需对 fresh 求值，不改写既有行
-        combined = mark_window(existing + fresh, trading_dates=trading_dates)
-        marked = combined[len(existing):]
-        with open(path, "a", encoding="utf-8") as fh:
-            for record in marked:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        return len(marked)
+    conn = journal_store.ensure_db(directory)
+    try:
+        with _LOCK:
+            existing, _skipped = load_records(directory)
+            existing_keys = {exact_key(r) for r in existing}
+            fresh = []
+            seen = set()
+            for record in records:
+                key = exact_key(record)
+                if key in existing_keys or key in seen:
+                    continue
+                seen.add(key)
+                fresh.append(record)
+            if not fresh:
+                return 0
+            # 结合既有上下文做窗口标记：只需对 fresh 求值，不改写既有行
+            combined = mark_window(existing + fresh, trading_dates=trading_dates)
+            marked = combined[len(existing):]
+            journal_store.insert_records(conn, marked)
+            conn.commit()
+            return len(marked)
+    finally:
+        conn.close()
 
 
 def append_records_safe(records: list, journal_dir: str = None):
@@ -143,16 +160,16 @@ def append_records_safe(records: list, journal_dir: str = None):
 
 
 def save_records(records: list, journal_dir: str = None) -> None:
-    """原子改写整个日志文件（仅补记流程使用；顺序与既有行保持不变）。"""
+    """整体替换信号档案（SQLite 存储；仅补记流程使用，顺序保持传入顺序）。"""
     directory = journal_dir or config.JOURNAL_DIR
     os.makedirs(directory, exist_ok=True)
-    path = journal_path(directory)
-    tmp = path + ".tmp"
-    with _LOCK:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            for record in records:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        os.replace(tmp, path)
+    conn = journal_store.ensure_db(directory)
+    try:
+        with _LOCK:
+            journal_store.replace_records(conn, records)
+            conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------- 采集构造

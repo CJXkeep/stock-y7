@@ -1,0 +1,569 @@
+schema: comet.native.v4
+name: storage-optimization-direction
+language: zh-CN
+phase: archive
+status: done
+state_version: 9
+brief: brief.md
+spec_changes:
+  - capability: storage-optimization-direction
+    operation: create
+    source: specs/storage-optimization-direction/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 2
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: "A1: `docs/整体优化与存储方案.md` 存在，含现状、整体优化方向（分层）、存储方案、边界、风险五大部分。"
+    result: passed
+    reason:
+      text: docs/整体优化与存储方案.md 存在；文档含现状/优化方向/存储方案/边界/风险五大部分。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: "A2: 整体优化方向给出明确优先级与理由，并与代码事实一致（引用现行 `journal.py`/`pool.py`/`snapshot.py`
+      等文件路径）。"
+    result: passed
+    reason:
+      text: D1-D5 分层表给出内容/理由/依赖/时机/验收口径，理由引用
+        journal.py/pool.py/snapshot.py/kline_fetcher.py/scan_engine.py
+        等路径且与代码一致。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "A3: 存储方案明确混合形态：journal 迁 SQLite（含表结构、`exact_key` 唯一索引、WAL、schema
+      版本与迁移路径）、配置类保持 JSON、快照/统计产物保持归档。"
+    result: passed
+    reason:
+      text: 混合形态明确：journal 迁 SQLite（表结构/exact_key 唯一索引/WAL/schema 版本/迁移路径），配置类保持
+        JSON，快照/统计保持归档。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "A4: 存储方案写明与现行 API/口径兼容（`/api/journal` 语义、精确键去重、10 交易日窗口不变），并指定 JSONL
+      兼容回读与存量数据一次性导入。"
+    result: passed
+    reason:
+      text: 写明 /api/journal 语义、精确键去重、10 交易日窗口不变，含 JSONL 兼容回读与存量一次性导入。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "A5: Non-goals 与本 change 范围一致（不含实现代码、不迁移配置类、不动快照格式）。"
+    result: passed
+    reason:
+      text: Non-goals 与 brief 范围一致（不实现/不迁移配置类/不动快照格式/不做滚动归档）。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "A6: 全量回归 `python run_all_tests.py` 通过（设计变更不破坏既有实现）。"
+    result: passed
+    reason:
+      text: Runtime check-1：python run_all_tests.py --quiet exit 0，25/25 通过。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: "A7: 除设计文档与 Comet 正式产物外，无其他生产代码改动（git 工作区审查）。"
+    result: passed
+    reason:
+      text: Runtime check-2：git 工作区审查通过；本次仅新增设计文档与 Comet 正式产物。
+      truncated: false
+  - id: A8
+    source: specs/storage-optimization-direction/spec.md
+    text: "> capability: storage-optimization-direction · 本次为「仅方案设计」change。 >
+      本规格描述归档后该 capability 的完整目标：一份可以作为后续实施依据的设计文档。 > 主题为中文文档
+      `docs/整体优化与存储方案.md`，与现行代码、既有文档口径一致。"
+    result: passed
+    reason:
+      text: 文档标注 capability=storage-optimization-direction 仅方案设计、作为后续实施依据。
+      truncated: false
+  - id: A9
+    source: specs/storage-optimization-direction/spec.md
+    text: 本文档是项目的**优化路线图 + 存储方案**，供后续实施 change 使用。定位延续项目基线：
+      个人自用、核心价值=实用、接受「未经实证」但绝不自欺；不做研究级完备、不做多用户。
+    result: passed
+    reason:
+      text: 文档延续个人自用/实用/接受未经实证/不做研究级完备与多用户基线。
+      truncated: false
+  - id: A10
+    source: specs/storage-optimization-direction/spec.md
+    text: 优化总原则：**可靠性 / 可维护性 / 日常体验优先；性能大改造只针对有真实数据规模证据的热点，且不引入运行时新第三方依赖。**
+    result: passed
+    reason:
+      text: 优化总原则与规格一致：可靠性/可维护性/体验优先，性能改造只在有规模证据处做，不引入运行时新依赖。
+      truncated: false
+  - id: A11
+    source: specs/storage-optimization-direction/spec.md
+    text: 数据面清单：`data/` 下现有文件与角色（`journal/journal.jsonl` 约 55
+      行/40KB、`watchlist.json` 仅 1 只自选、`digest/latest.json` 约
+      5.6KB、`license.dat`；`pool.json`、`notify.json`、`snapshots/`、`results/`
+      目前尚未生成，按需创建）——处于「日志少量积累、快照/结果未生成」的早期量级。
+    result: passed
+    reason:
+      text: 数据面清单含 journal 40KB/55行、watchlist、digest、license 及
+        pool/notify/snapshots/results 未生成，与规格一致。
+      truncated: false
+  - id: A12
+    source: specs/storage-optimization-direction/spec.md
+    text: 信号档案 `backtest/journal.py` 现状：append-only JSONL + 每次追加全量读入（`load_records`
+      O(R)）+ 锁内 `existing+fresh` 全量 `mark_window`（约 O(N log N)）+ 补记
+      `save_records` 整文件 tmp+replace 重写（O(R)）；进程内线程锁。
+    result: passed
+    reason:
+      text: journal.py 描述（append-only JSONL、O(R) 读入、全量 mark_window、整文件重写、线程锁）与源码一致。
+      truncated: false
+  - id: A13
+    source: specs/storage-optimization-direction/spec.md
+    text: 配置类 `backtest/pool.py` / `watchlist_store.py` /
+      `server/notify_service.py`：JSON 整文件原子写（tmp+replace），损坏回退空值。
+    result: passed
+    reason:
+      text: 配置类 JSON 原子写 tmp+os.replace、损坏回退空值，与源码一致。
+      truncated: false
+  - id: A14
+    source: specs/storage-optimization-direction/spec.md
+    text: 快照/重放/统计 `backtest/snapshot.py` / `replay.py` / `stats.py`：`bars.jsonl` +
+      `manifest.json`（sha256 + config_hash + pool.version 校验）、`signals.jsonl` +
+      `cache.json`、`results.csv` + `report.md`，按 snapshot_id 归档，不可变。
+    result: passed
+    reason:
+      text: snapshot/replay/stats 的
+        bars.jsonl+manifest/signals.jsonl+cache.json/results.csv+report.md
+        归档描述与源码一致。
+      truncated: false
+  - id: A15
+    source: specs/storage-optimization-direction/spec.md
+    text: 行情抓取 `data/kline_fetcher.py`（单文件 1168 行）：仅有内存缓存（TTL=15s、上限 1500
+      条），无磁盘缓存；并发默认 `SCAN_DAILY_MAX_WORKERS=20` / `SCAN_WEEKLY_MAX_WORKERS=15` /
+      `BREADTH_MAX_WORKERS=6` / `DIGEST_SCAN_MAX_WORKERS=8`（docker-compose
+      覆盖为更小值）。
+    result: passed
+    reason:
+      text: kline_fetcher 1168 行/内存缓存 TTL15/1500/无磁盘缓存，并发默认 20/15/6/8 与代码和 compose 一致。
+      truncated: false
+  - id: A16
+    source: specs/storage-optimization-direction/spec.md
+    text: 进程内状态：`server/scan_engine.py` 的 `_scan_state`
+      把扫描进度与结果存单进程内存、无落盘；`server/digest_service.py` 的 `_digest_state` 持有完整
+      digest，另有 `data/digest/latest.json` 持久化；README 声明需单进程运行（`--workers 1`）。
+    result: passed
+    reason:
+      text: scan._scan_state 纯内存无落盘、digest 有 latest.json、README 单进程 --workers 1 描述正确。
+      truncated: false
+  - id: A17
+    source: specs/storage-optimization-direction/spec.md
+    text: 部署：`launcher.py` 启动器（清理 8795 占用 + 许可校验 + 模块预检 + 拉起 `app.py` +
+      打开看板），`Dockerfile` 以绑定卷 `data/` 持久化，端口 8795。
+    result: passed
+    reason:
+      text: launcher.py 流程与 Dockerfile 端口8795/data 绑定卷描述与代码一致。
+      truncated: false
+  - id: A18
+    source: specs/storage-optimization-direction/spec.md
+    text: 每一层给出：内容、理由（对照 2.1 的事实）、依赖、实施时机（本次/后续）、验收口径提示。
+    result: passed
+    reason:
+      text: D1-D5 每层均含内容/理由/依赖/时机/验收口径。
+      truncated: false
+  - id: A19
+    source: specs/storage-optimization-direction/spec.md
+    text: "**D1 存储与数据面（本方案核心）**：信号档案迁 SQLite；配置类维持 JSON；快照/统计产物维持归档。理由：解决
+      journal「全量读入 + 全量去重 + 整文件重写」随规模增长的开销与一致性风险，同时不做无收益的重构。详见第 3 节。"
+    result: passed
+    reason:
+      text: D1 标注核心并指向§3，理由对应 journal 开销。
+      truncated: false
+  - id: A20
+    source: specs/storage-optimization-direction/spec.md
+    text: "**D2 进程内状态外置（可靠性）**：扫描/速递/推送的运行状态与最新结果持久化（`digest/latest.json`
+      已有先例，扫描可对齐），缓解单进程内存态重启丢失；为容器重启兜底。不打破单进程约束。"
+    result: passed
+    reason:
+      text: D2 状态外置与容器重启兜底、不打破单进程约束。
+      truncated: false
+  - id: A21
+    source: specs/storage-optimization-direction/spec.md
+    text: "**D3 行情抓取鲁棒与并发**：`data/kline_fetcher.py`
+      增加同参缓存（内存/磁盘），减少重复拉取；请求失败重试/退避与免费源限速；扫描并发沿用线程池 +
+      环境变量（`SCAN_DAILY_MAX_WORKERS` 等）。"
+    result: passed
+    reason:
+      text: D3 缓存/重试退避/限速/线程池并发。
+      truncated: false
+  - id: A22
+    source: specs/storage-optimization-direction/spec.md
+    text: "**D4 部署与运维**：许可校验与启动逻辑解耦（可选）、日志结构化/统一、健康检查与容器重启下的状态恢复说明。"
+    result: passed
+    reason:
+      text: D4 许可解耦/日志结构化/健康检查。
+      truncated: false
+  - id: A23
+    source: specs/storage-optimization-direction/spec.md
+    text: "**D5 前端/交互延续**：沿用既有 usability 迭代方向，不在本方案深挖，仅列为后续。"
+    result: passed
+    reason:
+      text: D5 前端延续仅列为后续。
+      truncated: false
+  - id: A24
+    source: specs/storage-optimization-direction/spec.md
+    text: 依赖与时序建议：D1 → D2 → D3 可并行次要项 → D4/D5 伺机。
+    result: passed
+    reason:
+      text: 时序 D1→D2→D3→D4/D5 与规格一致。
+      truncated: false
+  - id: A25
+    source: specs/storage-optimization-direction/spec.md
+    text: "**SQLite 承载信号档案**："
+    result: passed
+    reason:
+      text: §3.2 以 SQLite 承载信号档案并给出落地要点。
+      truncated: false
+  - id: A26
+    source: specs/storage-optimization-direction/spec.md
+    text: 库文件 `journal/` 独立，建议 `data/journal/journal.db`；只用标准库 `sqlite3`。
+    result: passed
+    reason:
+      text: 指定 data/journal/journal.db、仅标准库 sqlite3。
+      truncated: false
+  - id: A27
+    source: specs/storage-optimization-direction/spec.md
+    text: 主表 `journal_records`：字段与 `backtest/journal.py new_record()` 一一对应，`id`
+      主键，`exact_key` 列（`backtest/dedupe.py exact_key()` 结果）建 **唯一索引**（供追加去重）。
+    result: passed
+    reason:
+      text: journal_records 字段与 new_record 对应、id 主键、exact_key 唯一索引。
+      truncated: false
+  - id: A28
+    source: specs/storage-optimization-direction/spec.md
+    text: 视界收益子表 `journal_followups`（`record_id` + `horizon` 联合唯一）或单表 JSON
+      列——规格给出取舍建议：独立子表利于聚合查询。
+    result: passed
+    reason:
+      text: journal_followups 子表联合唯一、独立子表利于聚合的取舍建议。
+      truncated: false
+  - id: A29
+    source: specs/storage-optimization-direction/spec.md
+    text: "`PRAGMA journal_mode=WAL`；单写者约束（沿用 README 单进程部署）；schema
+      版本表（`user_version` 或 `schema_version` 表）。"
+    result: passed
+    reason:
+      text: WAL/单写者/PRAGMA user_version 或 schema_version 表述完整。
+      truncated: false
+  - id: A30
+    source: specs/storage-optimization-direction/spec.md
+    text: 去重/窗口语义不变：精确键去重 + 同股同类 10 交易日窗口 `deduped` 标记，逻辑复用或等价移植 `dedupe.py`。
+    result: passed
+    reason:
+      text: 精确键去重+10交易日窗口不变，复用 dedupe.py。
+      truncated: false
+  - id: A31
+    source: specs/storage-optimization-direction/spec.md
+    text: "**配置类保持 JSON**：`pool.json` / `watchlist.json` / `notify.json` /
+      `digest/latest.json` / `license.dat`；理由：体积极小、已原子写、改动收益低，迁移反而增加复杂度。"
+    result: passed
+    reason:
+      text: 配置类保持 JSON 及理由。
+      truncated: false
+  - id: A32
+    source: specs/storage-optimization-direction/spec.md
+    text: "**快照/统计产物保持归档**：`snapshots/<id>/bars.jsonl`+`manifest.json`、`results/*/r\
+      esults.csv`+`report.md`；理由：不可变、按 id 可复现、manifest 校验已有，迁移无收益。"
+    result: passed
+    reason:
+      text: 快照/统计保持归档及理由。
+      truncated: false
+  - id: A33
+    source: specs/storage-optimization-direction/spec.md
+    text: "**迁移路径（后续实现 change 的路线）**："
+    result: passed
+    reason:
+      text: §3.3 迁移路线五步完整。
+      truncated: false
+  - id: A34
+    source: specs/storage-optimization-direction/spec.md
+    text: 新增存储层 `backtest/journal_store.py`（或重构 `journal.py` 内部存取接口），SQLite 与 JSONL
+      双实现；
+    result: passed
+    reason:
+      text: 新增 journal_store.py 或重构接口、双实现。
+      truncated: false
+  - id: A35
+    source: specs/storage-optimization-direction/spec.md
+    text: 保留 JSONL 读回兼容路径（存量数据一次性导入：逐行读取 → 去重 → 入库）；
+    result: passed
+    reason:
+      text: JSONL 读回兼容与一次性导入。
+      truncated: false
+  - id: A36
+    source: specs/storage-optimization-direction/spec.md
+    text: 切换 app/server
+      调用点（`server/journal_hooks.py`、`server/scan_engine.py`、`server/digest_service.py`、`server/notify_service.py`
+      中 `journal_load_records/append_records/save_records/query_records`
+      等）为存储层接口；
+    result: passed
+    reason:
+      text: 切换调用点含 server 各模块与 journal_* 函数。
+      truncated: false
+  - id: A37
+    source: specs/storage-optimization-direction/spec.md
+    text: 存量 `journal.jsonl` 导入后保留为只读档案（不删除）；
+    result: passed
+    reason:
+      text: 导入后原 jsonl 只读保留不删除。
+      truncated: false
+  - id: A38
+    source: specs/storage-optimization-direction/spec.md
+    text: 测试替换/新增 `tests/test_journal_sqlite.py`（或等效），并保持 `tests/test_journal.py`
+      行为断言不回归。
+    result: passed
+    reason:
+      text: 新增 test_journal_sqlite.py 并保持 test_journal.py 不回归。
+      truncated: false
+  - id: A39
+    source: specs/storage-optimization-direction/spec.md
+    text: Decisions 摘要（本 change 已确认：current 工作区、仅设计、混合存储）。
+    result: passed
+    reason:
+      text: Decisions 摘要与 brief 一致（current/仅设计/混合存储）。
+      truncated: false
+  - id: A40
+    source: specs/storage-optimization-direction/spec.md
+    text: Non-goals 摘要：不实现迁移代码、不迁移配置类、不改快照格式、不做多进程改造实施、不做研究级统计/多用户/组合模拟、**不做 journal
+      滚动归档**（沿用 `docs/版本路线图.md` I8.1「明确不做」口径；SQLite 方案以单一 DB + 索引取代归档诉求）。
+    result: passed
+    reason:
+      text: Non-goals 含不做滚动归档并引用版本路线图 I8.1。
+      truncated: false
+  - id: A41
+    source: specs/storage-optimization-direction/spec.md
+    text: 风险：SQLite 多进程写冲突（缓解：单进程部署约束 + WAL + single-writer）；迁移中途损坏（缓解：事务导入 + 保留原
+      JSONL 档案）；API/口径漂移（缓解：复用 `dedupe.py`、接口不变、回归测试）。
+    result: passed
+    reason:
+      text: 风险表覆盖多进程写/迁移损坏/口径漂移及缓解。
+      truncated: false
+  - id: A42
+    source: specs/storage-optimization-direction/spec.md
+    text: 回滚：删除/忽略 `journal.db`，回切 `journal.py` JSONL 路径即可，无数据破坏。
+    result: passed
+    reason:
+      text: 回滚为删除/忽略 journal.db 回切 JSONL，无数据破坏。
+      truncated: false
+  - id: A43
+    source: specs/storage-optimization-direction/spec.md
+    text: 引用 `docs/v5总体设计.md`（数据流、journal 设计、单机单文件并发说明）、`docs/版本路线图.md`（v5
+      范围外声明）、README（单进程部署注意）等相关表述，不与之冲突。
+    result: passed
+    reason:
+      text: 引用 v5总体设计/版本路线图/README 且无冲突。
+      truncated: false
+  - id: A44
+    source: specs/storage-optimization-direction/spec.md
+    text: SQLite 迁移只改变「journal 的事实来源与读写实现」，不改变信号口径、去重规则、API 形态。
+    result: passed
+    reason:
+      text: 多处明确迁移只改事实来源与读写实现，不改口径/去重/API。
+      truncated: false
+  - id: A45
+    source: specs/storage-optimization-direction/spec.md
+    text: Build 交付物：`docs/整体优化与存储方案.md`（按 2.1–2.5 结构写全）；不改动生产代码。
+    result: passed
+    reason:
+      text: Build 交付物仅为设计文档，未改生产代码。
+      truncated: false
+  - id: A46
+    source: specs/storage-optimization-direction/spec.md
+    text: 验收项（A1–A7，见 brief）：文档存在性与结构、优化方向分层与事实一致、混合存储方案要点齐全、API/口径兼容与迁移路径、Non-goals
+      一致、全量测试通过、工作区无生产代码改动。
+    result: passed
+    reason:
+      text: §7 列 A1-A7 与 brief 对应，逐项核验通过。
+      truncated: false
+builder_handoff:
+  candidate_id: 04ade03d-03db-4db3-a31b-7babc6294d8c
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:c55977e5-d284-47a1-84b0-a6fadb0c1082
+  iteration: 1
+  summary:
+    text: 已完成 design-only 交付：写入 docs/整体优化与存储方案.md（含现状、整体优化方向 D1-D5、混合存储方案
+      SQLite+JSON+归档、边界、风险回滚、与既有文档一致性、验收口径），未改动任何生产代码。已运行全量回归 25/25 通过，并完成 git
+      工作区审查：本次仅新增设计文档与 Comet 正式产物，先前的用户本地改动保持不变。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+  checks:
+    - name:
+        text: python run_all_tests.py --quiet
+        truncated: false
+      result: passed
+      note:
+        text: 25/25 test files passed, 0 failed, 13.2s
+        truncated: false
+    - name:
+        text: git workspace review
+        truncated: false
+      result: passed
+      note:
+        text: new changes are only docs/整体优化与存储方案.md and
+          docs/comet/changes/storage-optimization-direction/; no production code
+          changes from this change; pre-existing user local modifications
+          untouched
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 仅方案设计，不含 SQLite 实现代码；实施留给后续实现 change。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-27T12:01:00.749Z
+blockers: []
+verification:
+  candidate_id: 04ade03d-03db-4db3-a31b-7babc6294d8c
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:d267acf8-5102-4030-9d92-b747ed3e0a83
+  iteration: 1
+  attempt: 2
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: check-1
+      name:
+        text: 全量回归
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 12884
+    - id: check-2
+      name:
+        text: git工作区审查
+        truncated: false
+      argv_display:
+        - text: status
+          truncated: false
+        - text: --porcelain=v1
+          truncated: false
+        - text: --untracked-files=all
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 82
+  summary:
+    text: 独立只读验收完成：docs/整体优化与存储方案.md 完整覆盖 brief 与 spec 的
+      A1-A46；现状事实与代码/既有文档一致，混合存储/API兼容/Non-goals/风险回滚要点齐全；Runtime 提供全量回归与 git
+      审查通过证据，判 pass。
+    truncated: false
+  risks:
+    - text: 设计文档中 watchlist.json
+        量级（1只/version10）与验收时磁盘运行数据（实际2只/version15）不一致；按规格基线编写，后续实施前应刷新该描述或改为量级示例措辞。
+      truncated: false
+    - text: git
+        工作区存在用户既有本地修改（.dockerignore/.gitignore/docker-compose.yml/tools/remote_scan_probe.py/data/watchlist.json
+        等），不属于本次 change；后续实现 change 注意保持提交边界。
+      truncated: false
+    - text: 设计文档 docker-compose 覆盖值写为 8/6/4/4，实际 compose 另含 NOTIFY_MAX_WORKERS=4 与
+        KLINE_CACHE_MAX=1000；实施时建议补齐完整环境变量清单。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-27T12:24:04.361Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: execution-error
+    unresolved_ids: []
+    summary:
+      text: "Native Verifier response was invalid: Native Verifier risks must be text
+        entries"
+      truncated: false
+    completed_at: 2026-08-27T12:12:15.299Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立只读验收完成：docs/整体优化与存储方案.md 完整覆盖 brief 与 spec 的
+        A1-A46；现状事实与代码/既有文档一致，混合存储/API兼容/Non-goals/风险回滚要点齐全；Runtime 提供全量回归与 git
+        审查通过证据，判 pass。
+      truncated: false
+    completed_at: 2026-08-27T12:24:04.361Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-27T11:43:01.070Z

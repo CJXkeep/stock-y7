@@ -19,6 +19,10 @@ data/journal/
 data/pool.json
 data/results/
 data/digest/
+data/scan/
+data/notify_state.json
+data/cache/
+data/watchlist.json
 
 # 工作区与日志
 .worktrees/
@@ -31,6 +35,7 @@ logs/
 # 部署/接入敏感文档（不入库）
 server-connect-guide-for-new-device.md
 DEPLOY_NOTES.md
+REMOTE_DEBUG.md
 
 # 许可证（机器绑定，敏感，不入库）
 data/license.dat

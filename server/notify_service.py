@@ -60,6 +60,8 @@ from data.kline_fetcher import fetch_kline, fetch_quote, fetch_fund_flow
 log = logging.getLogger("trend_app")
 
 NOTIFY_SCHEMA = "v5.notify.v1"
+NOTIFY_STATE_SCHEMA = "v5.notify.state.v1"
+NOTIFY_STATE_FILE = os.path.join(ROOT, "data", "notify_state.json")
 DINGTALK_HOST = "oapi.dingtalk.com"
 
 NOTIFY_MAX_WORKERS = int(os.environ.get("NOTIFY_MAX_WORKERS", "8"))
@@ -393,22 +395,65 @@ _cycle_lock = threading.Lock()      # 同一时刻只允许一轮巡检（防 wa
 _notify_state = {
     "status": "idle",       # idle | waiting_market | running | error
     "last_run": "",         # 本地时间 HH:MM:SS
+    "last_run_at": "",      # 最近一次巡检的完整时间，持久化到 notify_state.json
     "last_found": 0,        # 最近一轮检出的买侧新信号数
     "pushed_total": 0,      # 累计推送条数（成功）
+    "deduped_total": 0,     # 累计被 10 交易日窗口去重拦截的信号条数
+    "failed_total": 0,      # 累计推送失败批次
     "last_push_at": "",
     "rounds": 0,            # 实际执行分析的轮数
     "last_error": "",
 }
+_notify_state_loaded = False  # 模块级标记：是否已尝试从 notify_state.json 回填
 _last_cycle_ts = [0.0]
 _watcher_started = [False]
 
 
 def _set_state(**fields) -> None:
+    """更新内存运行状态；显式更新后视为已初始化，避免测试/手动重置被磁盘旧值覆盖。"""
+    global _notify_state_loaded
     with _state_lock:
         _notify_state.update(fields)
+    _notify_state_loaded = True
+
+
+def _ensure_notify_state_loaded() -> None:
+    """启动/模块首次使用时从 data/notify_state.json 回填运行状态。"""
+    global _notify_state_loaded
+    if _notify_state_loaded:
+        return
+    _notify_state_loaded = True  # 缺失/损坏也只尝试一次
+    try:
+        with open(NOTIFY_STATE_FILE, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if not isinstance(payload, dict) or payload.get("schema") != NOTIFY_STATE_SCHEMA:
+            raise ValueError("notify state schema 或结构非法")
+        with _state_lock:
+            for key in list(_notify_state.keys()):
+                if key in payload:
+                    _notify_state[key] = payload[key]
+    except (OSError, ValueError) as exc:
+        log.warning("推送运行状态读取失败（保持默认值）: %s", exc)
+
+
+def _notify_save_state() -> None:
+    """每次巡检周期结束后把运行状态原子写到 data/notify_state.json。"""
+    try:
+        with _state_lock:
+            state = dict(_notify_state)
+        payload = {"schema": NOTIFY_STATE_SCHEMA, **state}
+        os.makedirs(os.path.dirname(NOTIFY_STATE_FILE), exist_ok=True)
+        tmp = NOTIFY_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, NOTIFY_STATE_FILE)
+    except Exception as exc:
+        log.warning("推送运行状态持久化失败（不影响巡检）: %s", exc)
 
 
 def get_state() -> dict:
+    _ensure_notify_state_loaded()  # 首次使用/直接读取时先回填持久化状态
     with _state_lock:
         return dict(_notify_state)
 
@@ -511,13 +556,14 @@ def _is_pushable(record: dict, push_cfg: dict = None,
 
 def select_pushable(existing: list, candidates: list, trading_dates=None,
                     push_cfg: dict = None, group_map: dict = None,
-                    pct_map: dict = None) -> tuple:
+                    pct_map: dict = None, stats: dict = None) -> tuple:
     """纯函数：按档案去重规则选出本轮可推送记录。
 
     返回 (fresh, pushable)：fresh 是通过精确键去重、应落档的新记录；
     pushable 是 fresh 中 deduped=False、属买侧且通过 push_cfg
     （级别 / 范围 / 阈值）过滤的记录。
     与 append_records 的落档语义保持一致（同样的精确键 + mark_window）。
+    stats 可传入 dict，用于接收 deduped_count 等统计，供运行状态持久化。
     """
     existing_keys = {exact_key(r) for r in existing}
     fresh, seen = [], set()
@@ -541,6 +587,10 @@ def select_pushable(existing: list, candidates: list, trading_dates=None,
         pct = (pct_map or {}).get(key) if pct_map else None
         if _is_pushable(m, push_cfg, group_ids=group_ids, pct=pct):
             pushable.append(m)
+    if stats is not None:
+        stats["deduped_count"] = sum(1 for m in marked if m.get("deduped"))
+        stats["fresh_count"] = len(fresh)
+        stats["pushable_count"] = len(pushable)
     return fresh, pushable
 
 
@@ -552,6 +602,7 @@ def run_watch_cycle(cfg: dict = None, force: bool = False,
     sender 可注入以便离线测试；默认 send_dingtalk_markdown。
     同一时刻只允许一轮巡检：并发触发直接返回 busy。
     """
+    _ensure_notify_state_loaded()  # 模块首次直接使用前先回填持久化状态
     if not _cycle_lock.acquire(blocking=False):
         return {"status": "busy", "reason": "已有巡检在执行"}
     try:
@@ -568,12 +619,15 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
     try:
         if not cfg.get("enabled"):
             _set_state(status="idle", last_error="")
+            _notify_save_state()
             return {"status": "idle", "reason": "未启用"}
         if not is_dingtalk_webhook(cfg.get("webhook", "")):
             _set_state(status="error", last_error="未配置有效的钉钉 webhook")
+            _notify_save_state()
             return {"status": "error", "reason": "未配置有效的钉钉 webhook"}
         if not force and not _in_watch_session():
             _set_state(status="waiting_market", last_error="")
+            _notify_save_state()
             return {"status": "waiting_market", "reason": "非A股交易时段"}
 
         _set_state(status="running")
@@ -585,7 +639,9 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
         except Exception:
             group_map = {}
         if not codes:
-            _set_state(status="idle", last_run=time.strftime("%H:%M:%S"))
+            _set_state(status="idle", last_run=time.strftime("%H:%M:%S"),
+                       last_run_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+            _notify_save_state()
             return {"status": "idle", "reason": "自选列表为空"}
 
         # 共享数据一次获取（指数日线 + 市场宽度），失败降级为空
@@ -634,9 +690,12 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
         existing, _skipped = journal_load_records(journal_dir)
         pct_map = {key: info.get("pct") for key, info in entry_map.items()
                    if isinstance(info.get("pct"), (int, float))}
+        select_stats = {}
         fresh, pushable = select_pushable(
             existing, candidates, trading_dates=trading_dates,
-            push_cfg=cfg.get("push"), group_map=group_map, pct_map=pct_map)
+            push_cfg=cfg.get("push"), group_map=group_map, pct_map=pct_map,
+            stats=select_stats)
+        deduped_count = select_stats.get("deduped_count", 0)
 
         appended = 0
         if fresh:
@@ -654,22 +713,28 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
                 pushed = len(pushable)
 
         found = len(pushable)
+        failed_now = 1 if (send_result is not None and not send_result.get("ok")) else 0
         with _state_lock:
             _notify_state.update({
                 "status": "idle",
                 "last_run": time.strftime("%H:%M:%S"),
+                "last_run_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "last_found": found,
                 "rounds": _notify_state["rounds"] + 1,
                 "pushed_total": _notify_state["pushed_total"] + pushed,
+                "deduped_total": _notify_state["deduped_total"] + deduped_count,
+                "failed_total": _notify_state["failed_total"] + failed_now,
                 "last_push_at": time.strftime("%Y-%m-%d %H:%M:%S") if pushed else _notify_state["last_push_at"],
                 "last_error": "" if (not pushable or (send_result and send_result.get("ok"))) else str(send_result.get("error", "")),
             })
+        _notify_save_state()
         log.info("推送巡检完成：%d 只自选，落档 %d 条，推送 %d 条", len(codes), appended, pushed)
         return {"status": "done", "analyzed": len(analyzed), "appended": appended,
                 "pushed": pushed, "found": found}
     except Exception as exc:
         log.error("推送巡检失败: %s", exc, exc_info=True)
         _set_state(status="error", last_error=str(exc))
+        _notify_save_state()
         return {"status": "error", "reason": str(exc)}
 
 
@@ -692,6 +757,7 @@ def _watcher_loop(poll_sec: float = 15.0) -> None:
 
 def start_watcher() -> None:
     """启动常驻推送线程（幂等；守护线程，不阻塞服务退出）。"""
+    _ensure_notify_state_loaded()  # 启动前先回填上次运行状态
     if _watcher_started[0]:
         return
     _watcher_started[0] = True
@@ -716,6 +782,7 @@ def _watchlist_scope_options() -> tuple:
 
 def handle_notify_get(params: dict) -> dict:
     """GET /api/notify：配置摘要 + 运行状态。webhook 脱敏返回。"""
+    _ensure_notify_state_loaded()  # 首次 GET 回填上次运行状态
     cfg = load_notify_config()
     state = get_state()
     groups, stocks = _watchlist_scope_options()

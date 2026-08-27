@@ -11,6 +11,12 @@
 
 <div class="topbar">
   <div class="logo">趋势分析</div>
+  <div class="sys-status" id="sys-status" title="最近状态（30s 刷新）">
+    <span class="ss-clock" id="ss-clock">--:--:--</span>
+    <span class="ss-pill" data-ss="scan">扫描 --</span>
+    <span class="ss-pill" data-ss="digest">速递 --</span>
+    <span class="ss-pill" data-ss="notify">推送 --</span>
+  </div>
   <div class="search-wrap">
     <input type="text" id="search-input" placeholder="代码/名称 如 600519" autocomplete="off">
     <div class="search-results" id="search-results"></div>
@@ -317,6 +323,7 @@
       <button class="scan-close" onclick="closeScan()">&times;</button>
     </div>
     <div class="scan-body" id="scan-body">
+      <div id="scan-failed-hint" style="display:none;margin:10px 14px 0;padding:6px 10px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);border-radius:6px;font-size:12px;color:#ff6b6b"></div>
       <div id="scan-content"></div>
     </div>
   </div>

@@ -78,6 +78,7 @@ export function closeScan(e) {
 }
 
 export function renderScanIdle() {
+  _scanFailedHint({});
   document.getElementById('scan-content').innerHTML = `
     <div class="scan-empty">
       <div style="margin-bottom:16px;font-size:15px;color:#aaa">扫描全A股，找出日K和周K同时符合买入信号的股票</div>
@@ -162,11 +163,25 @@ export function hideScanConnIssue() {
   if (el) el.remove();
 }
 
+// 扫描失败统计提示（optimization-round2）：failed_total>0 时显示，否则隐藏
+export function _scanFailedHint(data) {
+  const el = document.getElementById('scan-failed-hint');
+  if (!el) return;
+  const n = (data && data.failed_total) || 0;
+  if (n > 0) {
+    el.style.display = 'block';
+    el.textContent = `本次扫描有 ${n} 只个股分析失败（已跳过）。明细见 data/scan/latest.json 或服务日志。`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 export function stopScanPolling() {
   if (_scanTimer) { clearInterval(_scanTimer); _scanTimer = null; }
 }
 
 export function renderScanProgress(data) {
+  _scanFailedHint(data);
   const pct = data.progress || 0;
   const stage = data.stage || '扫描中...';
   const scanned = data.scanned || 0;
@@ -188,6 +203,7 @@ export function renderScanProgress(data) {
 }
 
 export function renderScanResults(data) {
+  _scanFailedHint(data);
   const results = data.results || [];
   const elapsed = data.elapsed || 0;
   const archivedRun = archiveScanRun(data);   // 自动归档（幂等）
@@ -355,6 +371,7 @@ export function analyzeFromScan(symbol) {
 }
 
 export function renderScanError(data) {
+  _scanFailedHint(data);
   document.getElementById('scan-content').innerHTML = `
     <div class="scan-empty">
       <div style="margin-bottom:12px;color:#ff4d4d">扫描失败</div>

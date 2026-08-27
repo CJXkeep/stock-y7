@@ -13,6 +13,7 @@ logs
 # 部署/接入敏感文档（不入镜像）
 server-connect-guide-for-new-device.md
 DEPLOY_NOTES.md
+REMOTE_DEBUG.md
 
 # 许可证（机器绑定，敏感，不入镜像）
 data/license.dat
