@@ -16,6 +16,7 @@ import { loadNotifySettings, saveNotifySettings, testNotify, runNotifyOnce, refr
 
 
 let _refreshTimer = null;
+let _analyzeSeq = 0;   // 分析请求代（stale-guard）：每次 analyze 递增，只允许最新代继续渲染/建轮询，防快速切换 A/B 时旧响应回写
 
 
 
@@ -662,6 +663,7 @@ function _markAnalyzeFail(symbol, err) {
 
 // ==================== 错误码 → 人话文案（improvements #5） ====================
 export async function analyze(symbol) {
+  const _seq = ++_analyzeSeq;   // 本次请求代数：若完成时已不是最新，结果/报错一律丢弃
   S.currentSymbol = symbol;
   try { localStorage.setItem('qs_last_symbol', symbol); } catch(e) {}
   document.getElementById('loading').style.display = 'flex';
@@ -678,6 +680,7 @@ export async function analyze(symbol) {
     const r = await fetchWithTimeout(`${API}/api/analyze?symbol=${symbol}${periodParam}`);
     const data = await r.json();
     const clRes = await clFetch;
+    if (_seq !== _analyzeSeq) return;   // 已有更新的分析请求：本次结果已过时，丢弃（防旧股票回写 K 线/报价栏/信号卡）
     S._dailyChanlun = null;
     try { if (clRes) S._dailyChanlun = await clRes.json(); } catch(e) {}
     document.getElementById('loading').style.display = 'none';
@@ -753,12 +756,14 @@ export async function analyze(symbol) {
     fxCardStagger();   // 右侧卡片依次淡入（FX标准/炫酷档）
     _refreshTimer = setInterval(() => refreshQuote(symbol), 2000);
   } catch(e) {
+    if (_seq !== _analyzeSeq) return;   // 过时请求的失败不覆盖当前结果
     console.warn('analyze failed:', symbol, e);
     _markAnalyzeFail(symbol, e);
   }
 }
 
 async function refreshQuote(symbol) {
+  if (S.currentSymbol !== symbol) return;   // 用户已切走标的：过期轮询直接丢弃（防右上角名称/末根K线被旧股票轮询回写）
   try {
     const r = await fetchWithTimeout(`${API}/api/quote?symbol=${symbol}`);
     const q = await r.json();

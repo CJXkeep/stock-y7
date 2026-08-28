@@ -1254,6 +1254,7 @@ export async function loadMinute(symbol) {
       fetchWithTimeout(`${API}/api/chanlun_minute?symbol=${symbol}`),
     ]);
     const data = await minuteRes.json();
+    if (S.currentSymbol !== symbol) return;   // 用户已切走：丢弃旧股票分时响应（防分时图也被 A/B 交错）
     if (data.error) {
       minuteChart.setOption({ title: { text: data.error, left: 'center', top: 'center', textStyle: { color: C.down, fontSize: 14 } } }, true);
       document.getElementById('chanlun-card').style.display = 'none';
@@ -1274,6 +1275,7 @@ export async function loadMinute(symbol) {
 
 // 分时数据轻量刷新：只更新最后一个点的价格，不全量重载
 export async function refreshMinuteLight(symbol) {
+  if (S.currentSymbol !== symbol) return;   // 用户已切走：过期分时轻量刷新丢弃
   try {
     const r = await fetchWithTimeout(`${API}/api/minute?symbol=${symbol}`);
     const data = await r.json();
