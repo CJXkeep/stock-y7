@@ -92,13 +92,20 @@ def test_no_canslim_identifier_in_source():
         os.path.join(ROOT, "analysis", "signal_engine.py"),
         os.path.join(ROOT, "analysis", "momentum_module.py"),
         *[os.path.join(ROOT, "dashboard", n)
-          for n in ("index.html", "glossary.js", "style.css")],
+          for n in ("glossary.js", "style.css")],
         *sorted(__import__("glob").glob(os.path.join(ROOT, "dashboard", "js", "*.js"))),
     ]
     for path in targets:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
         assert "canslim" not in content.lower(), f"{path} 仍包含 canslim"
+    # spec（content-ia-four-questions A9/A31）：CANSLIM 七维仅保留在 index.html 的
+    # L2 评分总览二级展开，L1 四问卡不得露出该标识
+    html = open(os.path.join(ROOT, "dashboard", "index.html"), encoding="utf-8").read().lower()
+    l1 = html[:html.index("<!-- l2 为什么 -->")]
+    assert "canslim" not in l1
+    l2_module = html[html.index('data-card="module"'):html.index('data-card="momentum"')]
+    assert "canslim" in l2_module
 
 
 def _run_all():

@@ -104,8 +104,8 @@ def test_snapshot_info_handler(tmp_root=None):
 def test_dashboard_polish_markers():
     assert "/api/snapshot-info" in APP_SOURCE and "handle_snapshot_info" in APP_SOURCE
     # 快照同步三态文案
-    assert "快照与核心池同步" in HTML
-    assert "核心池已更新" in HTML and "建议重建快照" in HTML
+    assert "快照与核心池（手动）同步" in HTML
+    assert "核心池（手动）已更新" in HTML and "建议重建快照" in HTML
     assert "未找到历史统计快照" in HTML
     # 即时重拉与失败提示
     m_note = HTML[HTML.index("async function poolNote"):HTML.index("async function poolMove")]
