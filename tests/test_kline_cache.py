@@ -292,7 +292,10 @@ def test_rate_acquire_throttles():
             kf._rate_acquire()
         # 速率 2/s：前 2 次为突发许可，之后每次至少等待 0.5s
         assert len(sleeps) >= 3
-        assert all(s >= 0.5 - 1e-9 for s in sleeps)
+        # 实现按 min_interval - (now - 最早时间戳) 计算休眠，实测略小于 0.5
+        # （差值为调用间的真实时钟流逝，量级 ~1e-5s）。容差放宽到 1ms 仍能挡住
+        # 真实回归（例如休眠单位写错造成 10 倍差距），避免纳秒级断言稳定误报。
+        assert all(s >= 0.5 - 1e-3 for s in sleeps)
     finally:
         for p in patches:
             p.__exit__(None, None, None)
