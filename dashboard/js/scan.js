@@ -98,12 +98,13 @@ export function renderScanIdle() {
 }
 
 export function startScan() {
+  // 先读扫描范围再替换 innerHTML：#scan-topn 在 scan-content 内，替换后即销毁
+  const topn = (document.getElementById('scan-topn') ? document.getElementById('scan-topn').value : '1000');
   document.getElementById('scan-content').innerHTML = `
     <div class="scan-progress-wrap">
       <div class="scan-stage">正在启动扫描...</div>
       <div class="scan-bar-bg"><div class="scan-bar-fill" style="width:0%"></div></div>
     </div>`;
-  const topn = (document.getElementById('scan-topn') ? document.getElementById('scan-topn').value : '1000');
   fetchWithTimeout('/api/scan?action=start&max_stocks=' + encodeURIComponent(topn)).then(r => r.json()).then(data => {
     if (data.status === 'started' || data.status === 'running') {
       startScanPolling();

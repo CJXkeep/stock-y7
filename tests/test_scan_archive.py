@@ -32,10 +32,27 @@ def test_scan_archive_dedupe_and_cap_logic():
     assert "存储空间不足" in src
 
 
+def test_scan_scope_read_before_dom_replace():
+    """回归守护：startScan 必须先读扫描范围再替换 innerHTML。
+
+    #scan-topn 位于 scan-content 内，若先替换进度视图再读值，
+    getElementById 永远为 null，任何范围选择都会回落 1000（2026-08-28 全A扫描bug）。
+    """
+    src = read_frontend_source()
+    fn_pos = src.find("function startScan")
+    assert fn_pos != -1, "缺少 startScan 函数"
+    topn_pos = src.find("getElementById('scan-topn')", fn_pos)
+    replace_pos = src.find("scan-content').innerHTML", fn_pos)
+    assert topn_pos != -1, "startScan 未读取扫描范围"
+    assert replace_pos != -1, "startScan 缺少进度视图替换"
+    assert topn_pos < replace_pos, "startScan 先替换 innerHTML 后读扫描范围，范围选择永远失效"
+
+
 def test_run():
     test_scan_archive_markers_present()
     test_scan_archive_dedupe_and_cap_logic()
-    print("PASS scan-archive tests (2)")
+    test_scan_scope_read_before_dom_replace()
+    print("PASS scan-archive tests (3)")
 
 
 if __name__ == "__main__":
