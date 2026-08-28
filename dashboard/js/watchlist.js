@@ -251,18 +251,18 @@ export function fmtTime(ts) {
 
 
 export function switchTab(tab) {
-  // wp-panel 已迁入左侧工作台：自选股 tab 回路由到自选分区
   if (tab === 'watch' && document.getElementById('sb-pane-watch')) { openSbSection('watch'); return; }
   _currentTab = tab;
-  // tab 样式（improvements #4：第二套 wp-tab 已移除，仅同步侧边栏高亮）
-  document.querySelectorAll('.sb-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.sb === tab);
-  });
-  document.getElementById('wp-content-history').style.display = tab === 'history' ? 'block' : 'none';
-  document.getElementById('wp-content-overview').style.display = tab === 'overview' ? 'block' : 'none';
-  document.getElementById('wp-content-journal').style.display = tab === 'journal' ? 'block' : 'none';
-  document.getElementById('wp-content-pool').style.display = tab === 'pool' ? 'block' : 'none';
-  document.getElementById('wp-content-digest').style.display = tab === 'digest' ? 'block' : 'none';
+  const hist = document.getElementById('wp-content-history');
+  const ov = document.getElementById('wp-content-overview');
+  const jou = document.getElementById('wp-content-journal');
+  const pool = document.getElementById('wp-content-pool');
+  const digest = document.getElementById('wp-content-digest');
+  if (hist) hist.style.display = tab === 'history' ? 'block' : 'none';
+  if (ov) ov.style.display = tab === 'overview' ? 'block' : 'none';
+  if (jou) jou.style.display = tab === 'journal' ? 'block' : 'none';
+  if (pool) pool.style.display = tab === 'pool' ? 'block' : 'none';
+  if (digest && _sbSection === 'tasks') digest.style.display = tab === 'digest' ? 'block' : 'none';
   // 渲染内容
   if (tab === 'history') renderHistory();
   else if (tab === 'overview') loadOverview();
@@ -299,9 +299,7 @@ export function updateBadges() {
   const wl = getWatchlist().length;
   const hl = getHistory().length;
   const wb = document.getElementById('watch-count');
-  const hb = document.getElementById('history-count');
   if (wb) { wb.textContent = wl; wb.style.display = wl > 0 ? 'inline-block' : 'none'; }
-  if (hb) { hb.textContent = hl; hb.style.display = hl > 0 ? 'inline-block' : 'none'; }
 }
 
 
@@ -314,55 +312,103 @@ document.getElementById('wp-panel').addEventListener('click', e => e.stopPropaga
 let _sbOpen = true;
 let _sbActiveGroup = 'default';
 let _sbTimer = null;
-let _sbSection = 'watch';   // watch | history | overview | journal | pool | digest | scan
-const SB_SECTIONS = { watch: '自选股', history: '浏览记录', overview: '多股行情', journal: '信号档案', pool: '核心池', digest: '每日速递', scan: '扫描档' };
-// improvements #4：各模块分区头部一句用途说明（12px）
+let _sbSection = 'watch';   // watch | tasks | archive
+let _archiveSeg = 'history'; // history | journal | pool
+let _watchOverview = false;
+let _taskSeg = 'scan';       // scan | digest
+const SB_PRIMARY = { watch: '自选', tasks: '任务', archive: '档案' };
+const SB_SECTIONS = {
+  watch: '自选', tasks: '任务', archive: '档案',
+  history: '档案', overview: '自选', journal: '档案', pool: '档案',
+  digest: '任务', scan: '任务',
+};
 const SB_SECTION_DESC = {
   history: '浏览记录：看过的股票自动留痕，方便回找与对比。',
-  overview: '多股行情：自选分组的多股实时行情一览，涨跌与信号一屏尽收。',
+  overview: '全列表对比：自选分组的多股实时行情一览。',
   journal: '信号档案：分析产生的买卖信号自动留档，含后续涨跌验证。',
-  pool: '核心池：精选股票池，是每日速递与批量扫描的数据底座。',
+  pool: '核心池（手动）：精选股票池，是每日速递与批量扫描的数据底座。',
   digest: '每日速递：每天一份核心池信号汇总，收盘后自动生成。',
+  scan: '扫描：双周期共振买入信号批量扫描，每次结果自动留档备查。',
+};
+const LEGACY_TO_PRIMARY = {
+  watch: 'watch', overview: 'watch',
+  tasks: 'tasks', scan: 'tasks', digest: 'tasks',
+  archive: 'archive', history: 'archive', journal: 'archive', pool: 'archive',
 };
 
+function _primaryOf(sec) { return LEGACY_TO_PRIMARY[sec] || 'watch'; }
+
 export function loadSbSection() {
-  try { const v = localStorage.getItem('qs_sb_section'); if (v && SB_SECTIONS[v]) _sbSection = v; } catch (e) {}
+  try {
+    const v = localStorage.getItem('qs_sb_section');
+    if (v && LEGACY_TO_PRIMARY[v]) {
+      _sbSection = _primaryOf(v);
+      if (v === 'scan' || v === 'digest') _taskSeg = v;
+      if (v === 'history' || v === 'journal' || v === 'pool') _archiveSeg = v;
+if (v === 'overview') _watchOverview = true;
+    }
+  } catch (e) {}
 }
-// 切换分区（侧栏tab/面板内tab统一入口，不做收起）
+export function toggleWatchOverview() {
+  _watchOverview = !_watchOverview;
+  openSbSection('watch');
+}
 export function openSbSection(sec) {
-  if (!SB_SECTIONS[sec]) return;
-  _sbSection = sec;
-  try { localStorage.setItem('qs_sb_section', sec); } catch (e) {}
+  if (!LEGACY_TO_PRIMARY[sec]) return;
+  const primary = _primaryOf(sec);
+  if (sec === 'scan' || sec === 'digest') _taskSeg = sec;
+  if (sec === 'history' || sec === 'journal' || sec === 'pool') _archiveSeg = sec;
+if (sec === 'overview') _watchOverview = true;
+  _sbSection = primary;
+  try { localStorage.setItem('qs_sb_section', primary); } catch (e) {}
   if (!_sbOpen) _sbOpen = true;
   applySidebar();
   renderSbSection();
 }
-// 顶栏入口：同区且已展开 → 收起；否则切到该区并展开
 export function toggleSbSection(sec) {
-  if (SB_SECTIONS[sec] && _sbSection === sec && _sbOpen) { toggleSidebar(); return; }
+  const primary = _primaryOf(sec);
+  if (primary && _sbSection === primary && _sbOpen) { toggleSidebar(); return; }
   openSbSection(sec);
 }
+function _markSegTabs(rootId, active) {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+  root.querySelectorAll('.ia-seg-tab').forEach(t => t.classList.toggle('active', t.dataset.seg === active));
+}
 export function renderSbSection() {
-  document.querySelectorAll('.sb-tab').forEach(t => t.classList.toggle('active', t.dataset.sb === _sbSection));
+  document.querySelectorAll('#sb-tabs .sb-tab').forEach(t => t.classList.toggle('active', t.dataset.sb === _sbSection));
   _syncSbTabsAria();
   const pWatch = document.getElementById('sb-pane-watch');
-  const pMods = document.getElementById('sb-pane-modules');
-  const pScan = document.getElementById('sb-pane-scan');
-  if (!pWatch || !pMods || !pScan) return;
+  const pTasks = document.getElementById('sb-pane-tasks');
+  const pArch = document.getElementById('sb-pane-archive');
+  if (!pWatch || !pTasks || !pArch) return;
   pWatch.classList.toggle('active', _sbSection === 'watch');
-  pMods.classList.toggle('active', ['history', 'overview', 'journal', 'pool', 'digest'].includes(_sbSection));
-  pScan.classList.toggle('active', _sbSection === 'scan');
+  pTasks.classList.toggle('active', _sbSection === 'tasks');
+  pArch.classList.toggle('active', _sbSection === 'archive');
   const title = document.getElementById('sb-title');
-  if (title) title.textContent = SB_SECTIONS[_sbSection];
+  if (title) title.textContent = SB_PRIMARY[_sbSection] || '自选';
   const desc = document.getElementById('sb-pane-desc');
   if (desc) {
-    const txt = SB_SECTION_DESC[_sbSection] || '';
+    const key = _sbSection === 'archive' ? _archiveSeg : (_sbSection === 'tasks' ? _taskSeg : '');
+    const txt = SB_SECTION_DESC[key] || '';
     desc.textContent = txt;
     desc.style.display = txt ? 'block' : 'none';
   }
-  if (_sbSection === 'watch') renderSidebar();
-  else if (_sbSection === 'scan') renderScanArchiveList();
-  else switchTab(_sbSection);   // 复用原面板渲染器，内部 tab 高亮同步
+  if (_sbSection === 'watch') {
+    renderSidebar();
+    if (_watchOverview) { switchTab('overview'); } else { const ov = document.getElementById('wp-content-overview'); if (ov) ov.style.display = 'none'; }
+  } else if (_sbSection === 'tasks') {
+    _markSegTabs('tasks-seg-tabs', _taskSeg);
+    const scanEl = document.getElementById('sb-wide-scan');
+    const digestEl = document.getElementById('wp-content-digest');
+    if (scanEl) scanEl.style.display = _taskSeg === 'scan' ? 'block' : 'none';
+    if (digestEl) digestEl.style.display = _taskSeg === 'digest' ? 'block' : 'none';
+    if (_taskSeg === 'scan') renderScanArchiveList();
+    else switchTab('digest');
+  } else {
+    _markSegTabs('archive-seg-tabs', _archiveSeg);
+    switchTab(_archiveSeg);
+  }
 }
 
 export function isMarketOpen() {
@@ -604,17 +650,26 @@ export async function sbRefreshQuotes() {
   if (document.hidden) return;
   const codes = [...new Set(getWatchlist().map(s => s.code))];
   if (!codes.length) return;
+  const fresh = S._lastQuote && S._lastQuote.code && (Date.now() - S._lastQuote.ts) < 5000;
+  const skip = (fresh && codes.indexOf(S._lastQuote.code) >= 0) ? S._lastQuote.code : null;
+  const reqCodes = skip ? codes.filter(function (c) { return c !== skip; }) : codes;
   let quotes = null;
+  if (reqCodes.length) {
   try {   // P3：优先批量接口
-    const r = await fetchWithTimeout(`${API}/api/quotes?codes=${encodeURIComponent(codes.join(','))}`);
+    const r = await fetchWithTimeout(API + '/api/quotes?codes=' + encodeURIComponent(reqCodes.join(',')));
     const j = await r.json();
     if (j && j.quotes) quotes = j.quotes;
   } catch (e) {}
   if (!quotes) {   // 兜底：并行逐只拉取
     quotes = {};
-    await Promise.all(codes.map(async c => {
+    await Promise.all(reqCodes.map(async c => {
       try { const r = await fetchWithTimeout(`${API}/api/quote?symbol=${c}`); const q = await r.json(); if (!q.error) quotes[c] = q; } catch (e) {}
     }));
+  }
+  }
+  if (skip) {
+    if (!quotes) quotes = {};
+    quotes[skip] = S._lastQuote.q;
   }
   const m = getStockMap();
   const changedRows = [];

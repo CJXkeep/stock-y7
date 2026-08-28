@@ -11,35 +11,26 @@
 
 <div class="topbar">
   <div class="logo">趋势分析</div>
-  <div class="sys-status" id="sys-status" title="最近状态（30s 刷新）">
-    <span class="ss-clock" id="ss-clock">--:--:--</span>
-    <span class="ss-pill" data-ss="scan">扫描 --</span>
-    <span class="ss-pill" data-ss="digest">速递 --</span>
-    <span class="ss-pill" data-ss="notify">推送 --</span>
-  </div>
   <div class="search-wrap">
     <input type="text" id="search-input" placeholder="代码/名称 如 600519" autocomplete="off">
     <div class="search-results" id="search-results"></div>
   </div>
   <!-- improvements #12：热门股移入搜索聚焦推荐面板；扫描买入主入口移入侧边栏扫描档分区头 -->
   <div class="mode-toggle">
-    <button class="mt-btn active" id="mt-pro" onclick="setMode('pro')">专业</button>
-    <button class="mt-btn" id="mt-simple" onclick="setMode('simple')">小白</button>
+    <button class="mt-btn active" id="mt-pro" onclick="setMode('pro')">完整</button>
+    <button class="mt-btn" id="mt-simple" onclick="setMode('simple')">简化</button>
     <button class="mt-btn" id="mt-settings" title="设置" onclick="toggleSettings()">⚙</button>
     <button class="mt-btn" id="btn-logout" title="退出登录" style="display:none" onclick="doLogout()">退出</button>
   </div>
   <div class="watch-wrap">
     <button class="wc-btn wc-star" id="star-btn" title="加入/移除自选" onclick="toggleStar()">☆</button>
-    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="toggleSbSection('watch')">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
-    <button class="wc-btn" id="history-btn" onclick="toggleSbSection('history')">历史<span class="wc-badge" id="history-count" style="display:none">0</span></button>
+    <button class="wc-btn" id="watch-btn" style="position:relative" onclick="toggleSbSection('watch')" title="展开/收起侧边栏">自选<span class="wc-badge" id="watch-count" style="display:none">0</span><span class="wc-change-badge" id="watch-change" style="display:none">0</span></button>
   </div>
   <!-- improvements #8：小屏「更多」菜单收纳低频入口 -->
   <div class="more-wrap">
     <button class="mt-btn more-btn" id="more-btn" title="更多" data-act="toggleMoreMenu">⋯</button>
     <div class="more-menu" id="more-menu" style="display:none">
       <button data-act="moreStar">☆ 加自选/移除</button>
-      <button data-act="moreHistory">浏览记录</button>
-      <button data-act="moreScan">扫描买入</button>
       <button data-act="moreSettings">设置</button>
       <button data-act="moreLogout" id="more-logout" style="display:none">退出登录</button>
     </div>
@@ -57,46 +48,59 @@
   </div>
   <div class="sb-tabs" id="sb-tabs">
     <button class="sb-tab active" data-sb="watch">自选</button>
-    <button class="sb-tab" data-sb="history">浏览记录</button>
-    <button class="sb-tab" data-sb="overview">多股行情</button>
-    <button class="sb-tab" data-sb="journal">信号档案</button>
-    <button class="sb-tab" data-sb="pool">核心池</button>
-    <button class="sb-tab" data-sb="digest">速递</button>
-    <button class="sb-tab" data-sb="scan">扫描档</button>
+    <button class="sb-tab" data-sb="tasks">任务</button>
+    <button class="sb-tab" data-sb="archive">档案</button>
   </div>
 
-  <!-- 分区：自选股（窄栏） -->
+  <!-- 分区：自选（窄栏 + 可展开全列表对比） -->
   <div id="sb-pane-watch" class="sb-pane active" role="tabpanel">
     <div class="sb-groups" id="sb-groups"></div>
     <div class="sb-footer">
       <button class="sb-add-group" onclick="addGroupInline()">+ 新建分组</button>
+      <button class="sb-add-group" id="watch-overview-btn" data-act="openWatchOverview">全列表对比</button>
+    </div>
+    <div class="wp-list ia-seg-panel" id="wp-content-overview" style="display:none"></div>
+  </div>
+
+  <!-- 分区：任务（扫描 + 速递） -->
+  <div id="sb-pane-tasks" class="sb-pane" role="tabpanel">
+    <div class="sb-pane-desc scan-pane-head">
+      <span>任务：扫描找可买，速递看今日汇总。钉钉推送仍在设置里。</span>
+      <button class="scan-btn" id="scan-open-btn" data-act="openScan">扫描买入</button>
+    </div>
+    <div class="sys-status task-status" id="sys-status" title="最近状态（30s 刷新）">
+      <span class="ss-clock" id="ss-clock">--:--:--</span>
+      <span class="ss-pill" data-ss="scan">扫描 --</span>
+      <span class="ss-pill" data-ss="digest">速递 --</span>
+      <span class="ss-pill" data-ss="notify">推送 --</span>
+    </div>
+    <div class="ia-seg-tabs" id="tasks-seg-tabs" role="tablist">
+      <button class="ia-seg-tab active" data-seg="scan" data-act="openTaskSeg">扫描</button>
+      <button class="ia-seg-tab" data-seg="digest" data-act="openTaskSeg">速递</button>
+    </div>
+    <div class="ia-seg-body">
+      <div id="sb-wide-scan" class="ia-seg-panel active"></div>
+      <div class="wp-list ia-seg-panel" id="wp-content-digest" style="display:none"></div>
     </div>
   </div>
 
-  <!-- 分区：浏览记录 / 多股行情 / 信号档案 / 核心池 / 每日速递（宽面板，单入口） -->
-  <div id="sb-pane-modules" class="sb-pane" role="tabpanel">
+  <!-- 分区：档案（浏览记录 / 信号档案 / 核心池手动） -->
+  <div id="sb-pane-archive" class="sb-pane" role="tabpanel">
     <div class="wp-panel sb-wp-host show" id="wp-panel">
-      <!-- improvements #4：移除第二套 wp-panel 内嵌页签，仅保留侧边栏单一入口 -->
       <div class="sb-pane-desc" id="sb-pane-desc" style="display:none"></div>
+      <div class="ia-seg-tabs" id="archive-seg-tabs" role="tablist">
+        <button class="ia-seg-tab active" data-seg="history" data-act="openArchiveSeg">浏览记录</button>
+        <button class="ia-seg-tab" data-seg="journal" data-act="openArchiveSeg">信号档案</button>
+        <button class="ia-seg-tab" data-sb="pool" data-seg="pool" data-act="openArchiveSeg">核心池（手动）</button>
+      </div>
       <div class="wp-list" id="wp-content-history"></div>
-      <div class="wp-list" id="wp-content-overview" style="display:none"></div>
       <div class="wp-list" id="wp-content-journal" style="display:none"></div>
       <div class="wp-list" id="wp-content-pool" style="display:none"></div>
-      <div class="wp-list" id="wp-content-digest" style="display:none"></div>
       <div class="wp-footer" id="wp-footer" style="display:none">
         <span class="wp-footer-info" id="wp-footer-info"></span>
         <button class="wp-clear" id="wp-clear-btn" onclick="clearCurrentTab()">清空</button>
       </div>
     </div>
-  </div>
-
-  <!-- 分区：扫描归档（宽面板） -->
-  <div id="sb-pane-scan" class="sb-pane" role="tabpanel">
-    <div class="sb-pane-desc scan-pane-head">
-      <span>扫描档：双周期共振买入信号批量扫描，每次结果自动留档备查。</span>
-      <button class="scan-btn" id="scan-open-btn" data-act="openScan">扫描买入</button>
-    </div>
-    <div id="sb-wide-scan"></div>
   </div>
 
   <span class="sb-collapsed-badge"></span>
@@ -162,81 +166,60 @@
     </div>
   </div>
 
-  <!-- ===== 右侧：信号 ===== -->
+  <!-- ===== 右侧：四问 + 证据 ===== -->
   <div class="right-panel">
-    <!-- 一句话总结（小白第一眼看的） -->
-    <div class="summary-card" id="summary-card">
-      <div class="sc-header">AI 分析结论</div>
+    <!-- L1 四问卡（默认唯一权威） -->
+    <div class="summary-card fq-card" id="summary-card" data-layer="l1">
+      <div class="sc-header">四问</div>
       <div class="sum-body" id="sum-body">
-        <div class="sum-action-row">
-          <span class="sum-badge sum-badge-watch">等待分析</span>
-          <span class="sum-strength">--</span>
-          <span class="sum-score-big flat">--</span>
-        </div>
-        <div class="sum-text" style="color:#666">输入股票代码或点击上方热门股票开始分析</div>
+        <div class="fq-idle" style="color:#666">输入股票代码或点击搜索结果开始分析</div>
       </div>
+      <div class="plan-body" id="plan-body"></div>
       <div id="sum-meta" style="padding:6px 14px;font-size:10px;color:#888;border-top:1px solid #222"></div>
     </div>
+    <div class="plan-card" id="plan-card" style="display:none" aria-hidden="true"></div>
 
-    <!-- 操作计划（具体怎么操作） -->
-    <div class="plan-card" id="plan-card" style="display:none">
-      <div class="sc-header" style="color:#ff9800">操作计划</div>
-      <div class="plan-body" id="plan-body"></div>
-    </div>
-
-    <!-- 大盘环境 -->
-    <div class="signal-card" id="market-card" style="display:none">
-      <div class="sc-header" style="color:#4fc3f7">大盘环境</div>
+    <!-- L2 为什么 -->
+    <div class="layer-label" data-layer="l2">为什么</div>
+    <div class="signal-card" id="market-card" data-card="market" data-layer="l2" style="display:none">
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true" style="color:#4fc3f7"><span class="sc-arrow">▼</span>大盘环境</div>
       <div id="market-body" style="padding:8px 12px;font-size:12px;line-height:1.6"></div>
     </div>
-
-    <!-- 模块评分 -->
-    <div class="signal-card" data-card="module">
-      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>模块评分</div>
+    <div class="signal-card" data-card="module" data-layer="l2">
+      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>评分总览</div>
       <div class="module-list" id="module-list"></div>
+      <details class="cs-details" id="cs-details">
+        <summary>CANSLIM 七维</summary>
+        <div class="cs-grid" id="cs-grid"></div>
+        <div id="cs-simple"></div>
+      </details>
     </div>
-
-    <!-- 买卖信号 -->
-    <div class="signal-card" data-card="signals">
+    <div class="signal-card" data-card="momentum" data-layer="l2" style="display:none" aria-hidden="true"></div>
+    <div class="signal-card" data-card="signals" data-layer="l2">
       <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>买卖信号</div>
       <div class="sig-list" id="sig-list"></div>
     </div>
-
-    <!-- 动量/资金/市场环境综合分 -->
-    <div class="signal-card" data-card="momentum">
-      <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>动量/资金/市场环境</div>
-      <div class="cs-grid" id="cs-grid"></div>
-      <div id="cs-simple"></div>
-    </div>
-
-    <!-- 关键价位 -->
-    <div class="signal-card" data-card="levels">
+    <div class="signal-card" data-card="levels" data-layer="l2">
       <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>关键价位</div>
       <div class="kl-grid" id="kl-grid"></div>
     </div>
 
-    <!-- 缠论日线/周线分析 -->
-    <div class="chanlun-card" id="chanlun-daily-card" data-card="chanlun-daily" style="display:none">
-      <div class="sc-header" style="color:#7F77DD" id="chanlun-daily-title"><span class="sc-arrow">▼</span><span id="chanlun-daily-label">缠论日线分析</span></div>
+    <!-- L3 专家 -->
+    <div class="layer-label" data-layer="l3">专家</div>
+    <div class="chanlun-card" id="chanlun-daily-card" data-card="chanlun-daily" data-layer="l3" style="display:none">
+      <div class="sc-header" style="color:#7F77DD" id="chanlun-daily-title" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span><span id="chanlun-daily-label">缠论日线分析</span></div>
       <div class="cl-body" id="chanlun-daily-body"></div>
     </div>
-
-    <!-- 缠论分时分析 -->
-    <div class="chanlun-card" id="chanlun-card" data-card="chanlun-minute">
-      <div class="sc-header" style="color:#ff9800"><span class="sc-arrow">▼</span>缠论分时分析</div>
+    <div class="chanlun-card" id="chanlun-card" data-card="chanlun-minute" data-layer="l3">
+      <div class="sc-header" style="color:#ff9800" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>缠论分时分析</div>
       <div class="cl-body" id="chanlun-body"></div>
     </div>
-
-    <!-- 相邻查看方向一致率 -->
-    <div class="signal-card signal-accuracy-card" id="accuracy-card" data-card="accuracy">
+    <div class="signal-card signal-accuracy-card" id="accuracy-card" data-card="accuracy" data-layer="l3">
       <div class="sc-header" onclick="toggleCard(this)" role="button" tabindex="0" aria-expanded="true"><span class="sc-arrow">▼</span>相邻查看方向一致率</div>
       <div class="sa-stats" id="sa-stats"></div>
       <div class="sa-detail" id="sa-detail"></div>
     </div>
-
-    <!-- 风险提示 -->
-    <div class="signal-card" id="risk-card" data-card="risk" style="display:none">
-      <div class="sc-header" style="color:#ffc107"><span class="sc-arrow">▼</span>风险提示</div>
+    <div class="signal-card" id="risk-card" data-card="risk" style="display:none" aria-hidden="true">
       <div class="sig-list" id="risk-list"></div>
     </div>
   </div>
@@ -342,13 +325,13 @@
       </div>
       <div class="onboard-step" data-step="2">
         <div class="os-icon">🤖</div>
-        <div class="os-title">② 看右侧「AI 结论 + 操作计划」</div>
-        <div class="os-body">系统给出方向判断、买卖参考价与仓位建议；小白模式下专业术语可点击翻译。</div>
+        <div class="os-title">② 看右侧四问（趋势 / 买 / 卖 / 风险）</div>
+        <div class="os-body">系统用现有分析结果回答四个问题；简化模式只看答案，完整模式可展开「为什么」。</div>
       </div>
       <div class="onboard-step" data-step="3">
         <div class="os-icon">📡</div>
-        <div class="os-title">③ 用「扫描买入」找机会</div>
-        <div class="os-body">左侧边栏「扫描档」可一键批量扫描双周期共振买点，每次结果自动留档。</div>
+        <div class="os-title">③ 用侧边栏「任务」找可买</div>
+        <div class="os-body">任务里可以批量扫描双周期买点，也可以看今日速递；每次扫描结果自动留档。</div>
       </div>
     </div>
     <div class="onboard-foot">

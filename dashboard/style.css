@@ -1016,7 +1016,6 @@ body.fx-off .wc-change-badge { animation: none !important; }
   .mode-toggle .mt-btn { padding: 3px 6px; font-size: 10px; }
   .mode-toggle #mt-settings,
   .mode-toggle #btn-logout { display: none; }
-  .watch-wrap #history-btn { display: none; }
   .watch-wrap .wc-btn { padding: 3px 5px; font-size: 10px; }
   .more-wrap { display: block; }
 }
@@ -1031,3 +1030,32 @@ body.fx-off .wc-change-badge { animation: none !important; }
   white-space: nowrap;
 }
 .sig-pt-stop { color: #ffc107; background: #1f1a05; border-color: #ffc10755; }
+
+/* ===== 内容重构：四问卡 / 三段入口 / 密度层 ===== */
+.ia-seg-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #1a1a1a; flex-shrink: 0; }
+.ia-seg-tab { padding: 3px 10px; font-size: 12px; color: #888; background: #141414; border: 1px solid #262626; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+.ia-seg-tab:hover { color: #bbb; }
+.ia-seg-tab.active { color: #ff9800; border-color: #ff9800; background: #241a08; }
+.ia-seg-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ia-seg-panel { flex: 1; overflow-y: auto; }
+.task-status { margin: 4px 8px; }
+.layer-label { font-size: 11px; color: #666; padding: 8px 4px 4px; letter-spacing: 1px; }
+.fq-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+.fq-label { font-size: 12px; color: #888; min-width: 32px; }
+.fq-val { font-size: 14px; color: #ddd; line-height: 1.5; }
+.fq-yes .fq-val { color: #ff4d4d; }
+.fq-no .fq-val { color: #aaa; }
+.fq-score-row { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
+.fq-score { font-size: 22px; font-weight: bold; }
+.fq-veto { margin-top: 6px; font-size: 11px; color: #888; }
+.fq-risk-line { display: flex; align-items: center; gap: 6px; padding: 6px 0; font-size: 12px; color: #ffb74d; }
+.chanlun-card .sc-header { cursor: pointer; user-select: none; display: flex; align-items: center; }
+.chanlun-card.collapsed .sc-arrow { transform: rotate(-90deg); }
+.chanlun-card.collapsed > :not(.sc-header) { display: none !important; }
+.cs-details { padding: 6px 12px 10px; font-size: 12px; color: #888; }
+.cs-details summary { cursor: pointer; color: #aaa; }
+#sb-pane-tasks { display: none; flex: 1; flex-direction: column; min-height: 0; }
+#sb-pane-tasks.active { display: flex; }
+#sb-pane-archive { display: none; flex: 1; flex-direction: column; min-height: 0; }
+#sb-pane-archive.active { display: flex; }
+#sb-pane-archive .wp-panel { position: static; display: flex !important; width: 100%; max-height: none; height: 100%; border: none; border-radius: 0; box-shadow: none; background: #0d0d0d; }

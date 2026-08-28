@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/WorkStation/stockproject/qushi/.trae-cn/skills/comet/scripts/comet-hook-router.mjs\" --platform \"trae-cn\" --project-root \"D:/WorkStation/stockproject/qushi\"",
+            "command": "node \"D:/WorkStation/backless/stock-y7/.trae-cn/skills/comet/scripts/comet-hook-router.mjs\" --platform \"trae-cn\" --project-root \"D:/WorkStation/backless/stock-y7\"",
             "timeout": 30
           }
         ]

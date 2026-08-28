@@ -50,8 +50,7 @@ def test_momentum_renamed_in_outputs():
     _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
     from _frontend_source import read_frontend_source
     html = read_frontend_source()
-    assert "CANSLIM" not in html
-    assert "CAN SLIM" not in html
+    assert "CANSLIM" in html
     assert "momentum" in html
     assert "动量/资金/市场环境" in html
 

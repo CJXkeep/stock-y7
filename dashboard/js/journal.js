@@ -274,13 +274,13 @@ let _poolImportOpen = false;
 
 export async function loadPool() {
   const el = document.getElementById('wp-content-pool');
-  el.innerHTML = '<div class="wp-ov-loading">正在读取核心池...</div>';
+  el.innerHTML = '<div class="wp-ov-loading">正在读取核心池（手动）...</div>';
   let data;
   try {
     const r = await fetchWithTimeout(`${API}/api/pool`);
     data = await r.json();
   } catch (e) {
-    el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">核心池读取失败：' + escHtml(String(e)) + '</div>';
+    el.innerHTML = '<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">核心池（手动）读取失败：' + escHtml(String(e)) + '</div>';
     return;
   }
   _poolLastData = data;
@@ -291,9 +291,9 @@ export async function loadPool() {
     const snap = await sr.json();
     if (snap.snapshot_id) {
       if (snap.pool_version === data.version) {
-        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#81c784;border-bottom:1px solid #222">✓ 快照与核心池同步（${escHtml(snap.snapshot_id)}，基于 v${snap.pool_version}）</div>`;
+        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#81c784;border-bottom:1px solid #222">✓ 快照与核心池（手动）同步（${escHtml(snap.snapshot_id)}，基于 v${snap.pool_version}）</div>`;
       } else {
-        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#ffd54f;background:#3a3320;border-bottom:1px solid #222">⚠ 核心池已更新（当前 v${data.version}），最新快照基于 v${snap.pool_version}——建议重建快照：python -m backtest snapshot</div>`;
+        _poolSnapBanner = `<div style="padding:6px 12px;font-size:11px;color:#ffd54f;background:#3a3320;border-bottom:1px solid #222">⚠ 核心池（手动）已更新（当前 v${data.version}），最新快照基于 v${snap.pool_version}——建议重建快照：python -m backtest snapshot</div>`;
       }
     }
   } catch (e) { /* 快照信息不可用时保持引导文案 */ }
@@ -356,7 +356,7 @@ export function renderPoolPanel() {
         <span id="pool-import-result" style="font-size:11px;color:#888"></span>
       </div>
     </div>` : ''}
-    ${rows || '<div style="padding:20px;color:#888;font-size:12px">核心池为空——手动输入代码添加、分析个股后点「+ 当前」加入，或用「批量导入」粘贴多行代码。<br>核心池将用于信号档案筛选与历史统计。</div>'}`;
+    ${rows || '<div style="padding:20px;color:#888;font-size:12px">核心池（手动）为空——手动输入代码添加、分析个股后点「+ 当前」加入，或用「批量导入」粘贴多行代码。<br>核心池（手动）将用于信号档案筛选与历史统计。</div>'}`;
 }
 
 export async function poolAdd() {
@@ -676,7 +676,7 @@ export function renderDigest(data) {
   if (!dg) {
     body = data.status === 'error'
       ? `<div style="padding:20px;color:#e57373;font-size:12px">${escHtml(data.error || '生成失败')}</div>`
-      : `<div style="padding:20px;color:#888;font-size:12px">还没有速递——点击「生成今日速递」聚合：大盘环境、最近新增信号、历史战绩回顾、核心池全量扫描与历史统计摘要。</div>`;
+      : `<div style="padding:20px;color:#888;font-size:12px">还没有速递——点击「生成今日速递」聚合：大盘环境、最近新增信号、历史战绩回顾、核心池（自动）全量扫描与历史统计摘要。</div>`;
   } else {
     body = _digestSections(dg);
   }
@@ -793,7 +793,7 @@ export function _digestSections(dg) {
   const ps = dg.pool_scan || {};
   let scanHtml = '';
   if (ps.error) scanHtml = `<div style="padding:10px;color:#e57373">${escHtml(ps.error)}</div>`;
-  if (!scanHtml && ps.total === 0) scanHtml = `<div style="padding:10px;color:#888">核心池为空——先把股票加入核心池再生成速递。</div>`;
+  if (!scanHtml && ps.total === 0) scanHtml = `<div style="padding:10px;color:#888">核心池（手动）为空——先把股票加入核心池（手动）再生成速递。</div>`;
   if (!scanHtml) {
     const mkRow = r => {
       const nm = _knownName(r.symbol);
@@ -817,15 +817,15 @@ export function _digestSections(dg) {
     </tr>`;
     scanHtml = `
       <div style="display:flex;gap:14px;padding:6px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;flex-wrap:wrap">
-        <span>核心池 <b style="color:#eee">${ps.total} 只</b></span>
+        <span>核心池（自动） <b style="color:#eee">${ps.total} 只</b></span>
         <span>买侧 <b style="color:${C.up}">${(ps.buy || []).length}</b></span>
         <span>观望/卖出 <b style="color:#aaa">${(ps.others || []).length}</b></span>
         ${ps.failed_count ? `<span style="color:#e57373">获取失败 ${ps.failed_count} 只${ps.failed_symbols && ps.failed_symbols.length ? '：' + escHtml(ps.failed_symbols.join('、')) : ''}</span>` : ''}
       </div>
-      ${(ps.buy || []).length ? `<table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc"><thead>${head}</thead><tbody>${buyRows}</tbody></table>` : '<div style="padding:10px;color:#888">今日核心池无买入信号</div>'}
+      ${(ps.buy || []).length ? `<table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc"><thead>${head}</thead><tbody>${buyRows}</tbody></table>` : '<div style="padding:10px;color:#888">今日核心池（自动）无买入信号</div>'}
       ${(ps.others || []).length ? `<details style="border-top:1px solid #222"><summary style="padding:6px 12px;font-size:11px;color:#888;cursor:pointer">观望/卖出 ${(ps.others || []).length} 只（点击展开）</summary><table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc"><thead>${head}</thead><tbody>${otherRows}</tbody></table></details>` : ''}`;
   }
-  parts.push(_dgCard('③ 核心池全量扫描', '仅日线 · 并行 ≤15 · 只读不落档（不回写信号档案）', scanHtml));
+  parts.push(_dgCard('③ 核心池（自动）全量扫描', '仅日线 · 并行 ≤15 · 只读不落档（不回写信号档案）', scanHtml));
 
   // —— ④ 历史统计摘要 ——
   const ss = dg.stats_summary || {};

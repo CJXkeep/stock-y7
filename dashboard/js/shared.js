@@ -32,4 +32,5 @@ export const S = {
   _dailyChanlun: null,    // 缠论日线分析缓存
   _dailyFlows: null,      // 日级资金流缓存
   _flowMode: 'realtime',  // realtime | daily
+  _lastQuote: null,       // {code, q, ts} 当前股 2s quote，供自选批量复用
 };

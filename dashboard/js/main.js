@@ -3,7 +3,7 @@
 import { C, S } from './shared.js';
 import { API, fetchWithTimeout, isTimeoutError, explainError } from './api.js';
 import { escHtml, glossarize, _applyTermChips, explainRisks, riskBannerHtml, whyTextFor, toggleWhy, showToastMsg, showToast, DELEGATED_ACTIONS, countUpScore, fxCardStagger } from './ui.js';
-import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHistory, addHistory, migrateWatchlist, toggleStar, updateStarButton, updateBadges, openSbSection, toggleSbSection, toggleSidebar, sidebarLoadState, loadSbSection, renderSbSection, applySidebar, renderSidebar, renderWatchlist, exportWatchlist, importWatchlist, sbRefreshQuotes, sbSchedulePolling, removeFromWatchlist, registerResizeHook, clearCurrentTab, addGroupInline } from './watchlist.js';
+import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHistory, addHistory, migrateWatchlist, toggleStar, updateStarButton, updateBadges, openSbSection, toggleSbSection, toggleWatchOverview, toggleSidebar, sidebarLoadState, loadSbSection, renderSbSection, applySidebar, renderSidebar, renderWatchlist, exportWatchlist, importWatchlist, sbRefreshQuotes, sbSchedulePolling, removeFromWatchlist, registerResizeHook, clearCurrentTab, addGroupInline } from './watchlist.js';
 import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
 import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, clearScanArchive, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan } from './scan.js';
@@ -177,191 +177,148 @@ function buildBeginnerSegments(signal) {
 // glossarize(纯文本)：先 HTML 转义再加 chip；
 // _applyTermChips(已构建的HTML片段)：跳过标签只处理文本节点——否则片段内的 <b> 会被转义成可见文字（bug修复）
 
-// ===== 一句话总结（小白第一眼看的） =====
+// ===== 四问卡（L1，翻译现有字段） =====
+function renderDataMeta(meta) {
+  const el = document.getElementById('sum-meta');
+  if (!el) return;
+  if (!meta) { el.textContent = ''; return; }
+  if (typeof meta === 'string') { el.textContent = meta; return; }
+  const parts = [];
+  const t = meta.time || meta.timestamp || meta.date;
+  if (t) parts.push('时间 ' + t);
+  if (meta.period) parts.push('周期 ' + meta.period);
+  if (meta.source) parts.push('来源 ' + meta.source);
+  el.textContent = parts.length ? parts.join(' · ') : JSON.stringify(meta);
+}
 function renderSummary(signal) {
   const el = document.getElementById('sum-body');
-  const action = signal.action;
+  if (!el) return;
+  const isSimpleMode = S._mode === 'simple';
+  const tr = signal.trend || {};
+  const plan = signal.trade_plan || {};
+  const action = signal.action || '观望';
   const isBuy = action.includes('买入') && action !== '谨慎买入';
   const isCautious = action === '谨慎买入';
   const isSell = action.includes('卖出');
-  const badgeClass = isBuy ? 'sum-badge-buy' : isCautious ? 'sum-badge-cautious' : isSell ? 'sum-badge-sell' : 'sum-badge-watch';
-  const badgeText = action;
+  const isWatch = action === '观望' || (!isBuy && !isCautious && !isSell);
 
-  const strength = signal.signal_strength || '';
-  const sClass = strength === '强' ? 'strong' : strength === '中' ? 'medium' : 'weak';
-  const sText = strength ? `信号${strength}` : '';
+  // Q1: 趋势
+  const dir = tr.direction || '中性';
+  const strength = signal.signal_strength || tr.strength || '';
+  const stage = tr.stage || '';
+  let trendStr = dir;
+  if (strength) trendStr += ' · 强度' + strength;
+  if (stage) trendStr += ' · ' + stage;
 
+  // Q2:买
+  const buyable = isBuy || isCautious;
+  const entry = plan.entry_price || 0;
+  const stop = plan.stop_loss || 0;
+  const target = plan.target_price || 0;
+  const pos = plan.position_size || signal.position_advice || '';
+  let buyStr;
+  if (buyable) {
+    const parts = ['能'];
+    if (entry) parts.push('买点 ' + (+entry).toFixed(2));
+    if (pos) parts.push('仓位 ' + pos);
+    buyStr = parts.join(' · ');
+  } else {
+    const veto = signal.veto_reason || '';
+    buyStr = '不能' + (veto ? ' · ' + veto : '');
+  }
+
+  // Q3:卖
+  const sellSigs = signal.sell_signals || [];
+  let sellStr;
+  if (isSell) {
+    sellStr = '该' + (stop ? ' · 止损 ' + (+stop).toFixed(2) : '');
+  } else if (sellSigs.length) {
+    sellStr = '该 · ' + escHtml(sellSigs[0]);
+  } else if (stop && buyable) {
+    sellStr = '不该 · 止损 ' + (+stop).toFixed(2);
+  } else if (isWatch && !buyable) {
+    sellStr = '不该';
+  } else {
+    sellStr = '不该 ·目标 ' + (target ? (+target).toFixed(2) : '--');
+  }
+
+  // Q4:风险
   const risk = signal.risk_level || '';
+  const risks = isSimpleMode ? explainRisks(signal) : (signal.risk_warnings || []);
   const riskClass = risk === '低' ? 'low' : risk === '中' ? 'mid' : 'high';
 
+  // 综合分（唯一大数字）+ 后处理对比
   const score = signal.score || 0;
-  const scoreColor = isBuy ? C.up : isSell ? C.down : '#ffc107';
-
-  let summary = signal.plain_summary || '';
-  const isSimpleMode = S._mode === 'simple';
-  const risks = explainRisks(signal);
-  if (isSimpleMode) {
-    summary = buildBeginnerSegments(signal);   // 三段式（内部已做术语chip）
-  }
-
-  // 优化信号信息
   const origAction = signal.original_action || '';
   const vetoReason = signal.veto_reason || '';
-  const riskNotes = signal.risk_notes || [];
-  const posAdvice = signal.position_advice || '';
-  const riskReward = signal.risk_reward || 0;
-
-  // 如果信号被优化降级，显示对比标签
-  let optimizeHtml = '';
+  let vetoLine = '';
   if (origAction && origAction !== action) {
-    optimizeHtml = `<div style="margin-top:4px;font-size:11px;color:#888">
-      <span style="text-decoration:line-through;color:#888">${origAction}</span>
-      <span style="margin:0 2px">→</span>
-      <span style="color:${isCautious ? '#ffb74d' : '#ffc107'};font-weight:500">${action}</span>
-      ${vetoReason ? `<span style="margin-left:6px;color:#ff6b6b">⚠ ${vetoReason}</span>` : ''}
-    </div>`;
+    vetoLine = '<div class="fq-veto"><span style="text-decoration:line-through;color:#888">' + escHtml(origAction) + '</span> -> <b>' + escHtml(action) + '</b>' + (vetoReason ? ' <span style="color:#ff6b6b">⚠ ' + escHtml(vetoReason) + '</span>' : '') + '</div>';
   } else if (vetoReason) {
-    optimizeHtml = `<div style="margin-top:4px;font-size:11px;color:#ff6b6b">⚠ ${vetoReason}</div>`;
+    vetoLine = '<div class="fq-veto" style="color:#ff6b6b">⚠ ' + escHtml(vetoReason) + '</div>';
   }
 
-  // 风险提示
-  let riskNotesHtml = '';
-  if (riskNotes.length > 0) {
-    riskNotesHtml = `<div style="margin-top:6px;padding:6px 8px;background:rgba(255,152,0,0.08);border-radius:6px;border:1px solid rgba(255,152,0,0.15)">
-      ${riskNotes.map(n => `<div style="font-size:11px;color:#ffb74d;line-height:1.5">⚠ ${n}</div>`).join('')}
-    </div>`;
+  let riskLine = '';
+  if (risks && risks.length) {
+    if (isSimpleMode) riskLine = riskBannerHtml(risks);
+    else riskLine = '<div class="fq-risk-line"><span class="sum-risk-dot ' + riskClass + '"></span> 风险' + (risk ? ' · ' + escHtml(risk) : '') + '</div>';
   }
 
-  // 仓位建议
-  let posHtml = '';
-  if (posAdvice && posAdvice !== '空仓等待' && (isBuy || isCautious)) {
-    posHtml = `<div style="margin-top:4px;font-size:11px;color:#aaa">
-      <span style="color:#ff9800">建议仓位：</span><span style="color:#ddd">${posAdvice}</span>
-      ${riskReward ? `<span style="margin-left:8px;color:#888">盈亏比 ${riskReward}</span>` : ''}
-    </div>`;
-  }
-
-  el.innerHTML = `
-    ${isSimpleMode ? riskBannerHtml(risks) : ''}
-    <div class="sum-action-row">
-      <span class="sum-badge ${badgeClass}">${badgeText}</span>
-      ${sText ? `<span class="sum-strength ${sClass}">${sText}</span>` : ''}
-      <span class="sum-score-big" id="sum-score" style="color:${scoreColor}">${score}分</span>
-    </div>
-    <div class="sum-text">${summary}</div>
-    ${optimizeHtml}
-    ${posHtml}
-    ${riskNotesHtml}
-    <div class="sum-risk-row">
-      <span class="sum-risk-dot ${riskClass}"></span>
-      <span style="color:#888">风险等级：<span style="color:${risk==='低'?C.down:risk==='高'?C.up:'#ffc107'};font-weight:bold">${risk}</span></span>
-      <span style="color:#555;margin-left:auto">置信度 ${signal.confidence||0}%</span>
-    </div>
-  `;
+  el.innerHTML = 
+    '<div class="fq-row fq-trend"><span class="fq-label">趋势</span><span class="fq-val">当前为' + escHtml(trendStr) + '</span></div>' +
+    '<div class="fq-row fq-buy ' + (buyable ? 'fq-yes' : 'fq-no') + '"><span class="fq-label">买</span><span class="fq-val">' + escHtml(buyStr) + '</span></div>' +
+    '<div class="fq-row fq-sell"><span class="fq-label">卖</span><span class="fq-val">' + escHtml(sellStr) + '</span></div>' +
+    riskLine +
+    '<div class="fq-score-row"><span class="fq-score" id="sum-score" style="color:' + (isBuy?C.up:isSell?C.down:'#ffc107') + '">' + score + '分</span><span style="color:#555;margin-left:auto">置信度 ' + (signal.confidence||0) + '%</span></div>' +
+    vetoLine;
   if (fxEnabled()) countUpScore(score);
 }
-
-// ===== 数据元数据 =====
-function renderDataMeta(meta) {
-  const el = document.getElementById('sum-meta');
-  if (!meta || !el) return;
-  const parts = [];
-  if (meta.source) parts.push(`数据源:${meta.source}`);
-  if (meta.adjust) parts.push(`复权:${meta.adjust}`);
-  if (meta.latest_bar_date) parts.push(`最新bar:${meta.latest_bar_date}`);
-  if (meta.latest_bar_status) {
-    const statusLabels = { intraday: '盘中', closed: '已收盘', unknown: '未知' };
-    parts.push(`状态:${statusLabels[meta.latest_bar_status] || meta.latest_bar_status}`);
-  }
-  if (meta.calculated_at) parts.push(`计算:${meta.calculated_at}`);
-  el.innerHTML = parts.join(' | ') || '';
-}
-
-// ===== 操作计划 =====
+// ===== 操作计划（渲染进四问卡内） =====
 function renderTradePlan(signal) {
-  const card = document.getElementById('plan-card');
   const el = document.getElementById('plan-body');
-  const plan = signal.trade_plan;
-  if (!plan || !plan.action) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-
-  // 用优化后的action（如果有），否则用plan原始action
+  if (!el) return;
+  const plan = signal.trade_plan || {};
+  if (!plan || !plan.action) { el.innerHTML = ''; return; }
   const action = signal.action || plan.action;
   const isBuy = action.includes('买入') && action !== '谨慎买入';
   const isCautious = action === '谨慎买入';
   const isSell = action.includes('卖出');
   const isWatch = action === '观望';
-
-  const entry = plan.entry_price || 0;
-  const stop = plan.stop_loss || 0;
-  const target = plan.target_price || 0;
+  const entry = plan.entry_price || 0, stop = plan.stop_loss || 0, target = plan.target_price || 0;
   const rr = plan.risk_reward_ratio || 0;
   const lossPct = plan.max_loss_pct || 0;
-  const pos = plan.position_size || '';
+  const pos = plan.position_size || signal.position_advice || '';
   const period = plan.holding_period || '';
   const notes = plan.notes || '';
 
   if (isWatch) {
     const vetoReason = signal.veto_reason || '';
-    const vetoHtml = vetoReason ? `
-      <div style="padding:6px 8px;margin-bottom:6px;background:rgba(255,107,107,0.08);border-radius:6px;border:1px solid rgba(255,107,107,0.15);font-size:11px;color:#ff6b6b;line-height:1.5">
-        ⚠ ${vetoReason}
-      </div>` : '';
-    el.innerHTML = `
-      ${vetoHtml}
-      <div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">
-        <div style="margin-bottom:6px"><span style="color:#ffc107">当前建议：</span>${pos || signal.position_advice || '空仓等待'}</div>
-        <div style="margin-bottom:6px"><span style="color:#888">适合周期：</span>${period}</div>
-        <div class="plan-notes">${notes}</div>
-      </div>`;
+    const vetoHtml = vetoReason ? '<div style="padding:6px 8px;margin-bottom:6px;background:rgba(255,107,107,0.08);border-radius:6px;border:1px solid rgba(255,107,107,0.15);font-size:11px;color:#ff6b6b;line-height:1.5">⚠ ' + vetoReason + '</div>' : '';
+    el.innerHTML = vetoHtml + '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#ffc107">当前建议：</span>' + pos + '</div>' : '') + (period ? '<div style="margin-bottom:6px"><span style="color:#888">适合周期：</span>' + period + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>';
     return;
   }
 
   if (isSell) {
-    el.innerHTML = `
-      <div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">
-        <div style="margin-bottom:6px"><span style="color:${C.down}">操作建议：</span>${pos}</div>
-        <div class="plan-notes">${notes}</div>
-      </div>`;
+    el.innerHTML = '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#00b35c">操作建议：</span>' + pos + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>';
     return;
   }
 
-  // 买入计划：显示价格三件套
-  const cautionBanner = isCautious ? `
-    <div style="padding:6px 8px;margin-bottom:8px;background:rgba(255,152,0,0.1);border-radius:6px;border:1px solid rgba(255,152,0,0.2);font-size:11px;color:#ffb74d;line-height:1.5">
-      ⚠ 谨慎买入：信号存在风险因素，建议轻仓试探，严格执行止损
-    </div>` : '';
-  el.innerHTML = `
-    ${cautionBanner}
-    <div class="plan-prices">
-      <div class="plan-price-box">
-        <div class="plan-price-label">买入价 <span class="plan-tip">现价入手</span></div>
-        <div class="plan-price-val" style="color:${C.up}">${entry.toFixed(2)}</div>
-      </div>
-      <div class="plan-price-box">
-        <div class="plan-price-label">止损价 <span class="plan-tip">跌到这里就卖</span></div>
-        <div class="plan-price-val" style="color:${C.down}">${stop.toFixed(2)}</div>
-      </div>
-      <div class="plan-price-box">
-        <div class="plan-price-label">目标价 <span class="plan-tip">涨到这里就卖</span></div>
-        <div class="plan-price-val" style="color:#ff9800">${target.toFixed(2)}</div>
-      </div>
-    </div>
-    <div class="plan-rr">
-      <span class="plan-rr-item">盈亏比 <b>${rr || signal.risk_reward || 0}</b> <span class="plan-tip">冒1元风险可赚${rr || signal.risk_reward || 0}元</span></span>
-      <span class="plan-rr-item">最大亏损 <b style="color:${C.down}">${lossPct}%</b></span>
-    </div>
-    <div class="plan-row">
-      <span class="plan-label">建议仓位 <span class="plan-tip">投多少钱</span></span>
-      <span class="plan-val" style="color:#ff9800">${pos || signal.position_advice || ''}</span>
-    </div>
-    <div class="plan-row">
-      <span class="plan-label">持有周期 <span class="plan-tip">大概持多久</span></span>
-      <span class="plan-val">${period}</span>
-    </div>
-    <div class="plan-notes">${notes}</div>
-  `;
+  const cautionBanner = isCautious ? '<div style="padding:6px 8px;margin-bottom:8px;background:rgba(255,152,0,0.1);border-radius:6px;border:1px solid rgba(255,152,0,0.2);font-size:11px;color:#ffb74d;line-height:1.5">⚠ 谨慎买入：信号存在风险因素，建议轻仓试探，严格执行止损</div>' : '';
+  el.innerHTML = cautionBanner +
+    '<div class="plan-prices">' +
+    '<div class="plan-price-box"><div class="plan-price-label">买入价 <span class="plan-tip">现价入手</span></div><div class="plan-price-val" style="color:#ff2d2d">' + entry.toFixed(2) + '</div></div>' +
+    '<div class="plan-price-box"><div class="plan-price-label">止损价 <span class="plan-tip">跌到这里就卖</span></div><div class="plan-price-val" style="color:#00b35c">' + stop.toFixed(2) + '</div></div>' +
+    '<div class="plan-price-box"><div class="plan-price-label">目标价 <span class="plan-tip">涨到这里就卖</span></div><div class="plan-price-val" style="color:#ff9800">' + target.toFixed(2) + '</div></div>' +
+    '</div>' +
+    '<div class="plan-rr">' +
+    '<span class="plan-rr-item">盈亏比 <b>' + (rr || signal.risk_reward || 0) + '</b> <span class="plan-tip">冒1元风险可赚' + (rr || signal.risk_reward || 0) + '元</span></span>' +
+    '<span class="plan-rr-item">最大亏损 <b style="color:#00b35c">' + lossPct + '%</b></span>' +
+    '</div>' +
+    '<div class="plan-row"><span class="plan-label">建议仓位 <span class="plan-tip">投多少钱</span></span><span class="plan-val" style="color:#ff9800">' + (pos || '') + '</span></div>' +
+    '<div class="plan-row"><span class="plan-label">持有周期 <span class="plan-tip">大概持多久</span></span><span class="plan-val">' + period + '</span></div>' +
+    (notes ? '<div class="plan-notes">' + notes + '</div>' : '');
 }
+
 
 // ===== 信号面板 =====
 // 信号文本 → 对应点位预览/点击跳转图表
@@ -452,14 +409,7 @@ function renderSignal(signal) {
     else return `<div class="sig-item sig-sell"${jumpAttr}>▼ ${body}${ptHtml}${coreTag}${why}</div>`;
   }).join('') || '<div style="color:#555;font-size:12px;padding:8px">暂无信号</div>';
 
-  // 风险
-  const rc = document.getElementById('risk-card');
-  const rl = document.getElementById('risk-list');
-  const risks = signal.risk_warnings || [];
-  if (risks.length) {
-    rc.style.display = 'block';
-    rl.innerHTML = risks.map(w => `<div class="sig-item sig-risk">⚠ ${w}</div>`).join('');
-  } else { rc.style.display = 'none'; }
+  // 风险已收进四问卡（L1）
 }
 
 // ===== 动量/资金/市场环境综合分 =====
@@ -485,7 +435,7 @@ function renderMomentum(cs) {
     </div>`;
   }).join('');
 
-  // 小白模式简化显示
+  // 简化模式：详情折叠显示
   const totalScore = Math.round((cs.c_score + cs.a_score + cs.n_score + cs.s_score + cs.l_score + cs.i_score + cs.m_score) / 7);
   const tColor = totalScore >= 65 ? C.up : totalScore >= 45 ? '#ffc107' : C.down;
   const tLabel = totalScore >= 65 ? '良好' : totalScore >= 45 ? '一般' : '较差';
@@ -769,6 +719,7 @@ async function refreshQuote(symbol) {
     const q = await r.json();
     if (!q.error) {
       updateQuote(q);
+      S._lastQuote = { code: symbol, q: q, ts: Date.now() };
       // K线最后一根蜡烛跟随实时行情更新
       refreshKlineLastCandle(q);
       if (S.currentView === 'minute') {
@@ -908,28 +859,33 @@ let _lastSymbol = '';
 try { _lastSymbol = localStorage.getItem('qs_last_symbol') || ''; } catch(e) {}
 if (_lastSymbol) analyze(_lastSymbol);
 
-// ===== 小白/专业模式切换 =====
+// ===== 完整/简化密度档 =====
 function loadMode() {
   try { S._mode = localStorage.getItem('qs_mode') || 'pro'; } catch(e) { S._mode = 'pro'; }
   applyMode();
+  applyDensity();
 }
 export function setMode(mode) {
   S._mode = mode;
   try { localStorage.setItem('qs_mode', mode); } catch(e) {}
   applyMode();
-  // 小白模式：折叠部分卡片（风险卡不折叠——小白必须看到风险，frontend-ux-v42 A18）
-  if (mode === 'simple') {
-    collapseCard('momentum', true);
-    collapseCard('levels', true);
-    collapseCard('chanlun-daily', true);
-    collapseCard('chanlun-minute', true);
-    collapseCard('accuracy', true);
-  } else {
-    // 专业模式：全部展开
-    document.querySelectorAll('.signal-card.collapsed, .chanlun-card.collapsed').forEach(c => c.classList.remove('collapsed'));
-  }
-  // 模式切换即时生效：用缓存的上次信号数据重渲染结论与信号列表（无需重新请求）
+  applyDensity();
+  // 模式切换即时生效
   if (S._lastSignalData) { renderSummary(S._lastSignalData); }
+}
+function applyDensity() {
+  const l2 = document.querySelectorAll('[data-layer="l2"]');
+  const l3 = document.querySelectorAll('[data-layer="l3"]');
+  const labels = document.querySelectorAll('.layer-label');
+  if (S._mode === 'simple') {
+    l2.forEach(c => c.classList.add('collapsed'));
+    l3.forEach(c => c.classList.add('collapsed'));
+    labels.forEach(x => x.style.display = 'none');
+  } else {
+    l2.forEach(c => c.classList.remove('collapsed'));
+    l3.forEach(c => c.classList.add('collapsed'));
+    labels.forEach(x => x.style.display = x.dataset.layer === 'l3' ? 'none' : '');
+  }
 }
 function applyMode() {
   document.body.classList.remove('mode-pro', 'mode-simple');
@@ -964,7 +920,7 @@ function collapseCard(cardName, collapse) {
 // ==================== 静态 inline handler 的显式全局暴露清单（spec §14/A88 过渡期约定） ====================
 Object.assign(window, {
   analyze, setMode, toggleSettings, closeSettings, setFx, doLogout,
-  toggleStar, toggleSbSection, toggleSidebar, addGroupInline, clearCurrentTab,
+  toggleStar, toggleSbSection, toggleWatchOverview, toggleSidebar, addGroupInline, clearCurrentTab,
   switchIndicator, switchFlowMode, toggleCard, exportWatchlist, importWatchlist,
   closeScan, openScan, startScan, renderScanIdle, clearScanArchive,
   renderScanArchiveList, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan,

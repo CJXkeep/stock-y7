@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/WorkStation/stockproject/qushi/.agents/skills/comet/scripts/comet-hook-router.mjs\" --platform \"codex\" --project-root \"D:/WorkStation/stockproject/qushi\""
+            "command": "node \"D:/WorkStation/backless/stock-y7/.agents/skills/comet/scripts/comet-hook-router.mjs\" --platform \"codex\" --project-root \"D:/WorkStation/backless/stock-y7\""
           }
         ]
       }

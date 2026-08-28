@@ -3,7 +3,7 @@
 import { C, S } from './shared.js';
 import { API, fetchWithTimeout } from './api.js';
 import { analyze, setMode, toggleSettings, doLogout, fxEnabled } from './main.js';
-import { toggleStar, openSbSection, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
+import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
 import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
 import { poolNote, poolMove, poolRemove, poolAddCurrent } from './journal.js';
 export const RISK_EXPLAIN = [
@@ -310,9 +310,16 @@ DELEGATED_ACTIONS.toggleMoreMenu = () => {
   if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
 };
 DELEGATED_ACTIONS.moreStar = () => { closeMoreMenu(); toggleStar(); };
-DELEGATED_ACTIONS.moreHistory = () => { closeMoreMenu(); openSbSection('history'); };
-DELEGATED_ACTIONS.moreScan = () => { closeMoreMenu(); openScan(); };
 DELEGATED_ACTIONS.moreSettings = () => { closeMoreMenu(); toggleSettings(); };
+DELEGATED_ACTIONS.openArchiveSeg = (el) => {
+  const seg = el && el.dataset && el.dataset.seg;
+  if (seg) openSbSection(seg);
+};
+DELEGATED_ACTIONS.openTaskSeg = (el) => {
+  const seg = el && el.dataset && el.dataset.seg;
+  if (seg) openSbSection(seg);
+};
+DELEGATED_ACTIONS.openWatchOverview = () => { toggleWatchOverview(); };
 DELEGATED_ACTIONS.moreLogout = () => { closeMoreMenu(); doLogout(); };
 document.addEventListener('click', e => {
   if (!e.target.closest('.more-wrap')) closeMoreMenu();
