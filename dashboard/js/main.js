@@ -223,23 +223,24 @@ function renderSummary(signal) {
     if (pos) parts.push('仓位 ' + pos);
     buyStr = parts.join(' · ');
   } else {
-    const veto = signal.veto_reason || '';
-    buyStr = '不能' + (veto ? ' · ' + veto : '');
+    // 「不能」要给原因：后处理否决优先，否则回退风险提示前两条（均为 A26 口径内现有字段）
+    const reason = signal.veto_reason || (signal.risk_warnings || []).slice(0, 2).join('、');
+    buyStr = '不能' + (reason ? ' · ' + reason : '');
   }
 
-  // Q3:卖
-  const sellSigs = signal.sell_signals || [];
+  // Q3:卖——持仓与空仓答案不同：持仓给防守位，空仓不存在「卖」
+  const holding = (signal.buy_signals || []).some(t => typeof t === 'string' && /系统.+持仓/.test(t));
+  const lastClose = (S._klineData && S._klineData.length) ? (S._klineData[S._klineData.length - 1].close || 0) : 0;
   let sellStr;
   if (isSell) {
-    sellStr = '该' + (stop ? ' · 止损 ' + (+stop).toFixed(2) : '');
-  } else if (sellSigs.length) {
-    sellStr = '该 · ' + escHtml(sellSigs[0]);
-  } else if (stop && buyable) {
-    sellStr = '不该 · 止损 ' + (+stop).toFixed(2);
+    sellStr = '该卖' + (stop ? ' · 止损 ' + (+stop).toFixed(2) : '');
+  } else if (holding) {
+    if (stop && lastClose && lastClose < stop) sellStr = '该卖 · 已破止损 ' + (+stop).toFixed(2);
+    else sellStr = '持有' + (stop ? ' · 止损 ' + (+stop).toFixed(2) : '');
   } else if (isWatch && !buyable) {
-    sellStr = '不该';
+    sellStr = '未持仓';
   } else {
-    sellStr = '不该 ·目标 ' + (target ? (+target).toFixed(2) : '--');
+    sellStr = '不该' + (stop ? ' · 止损 ' + (+stop).toFixed(2) : ' · 目标 ' + (target ? (+target).toFixed(2) : '--'));
   }
 
   // Q4:风险
@@ -269,7 +270,7 @@ function renderSummary(signal) {
     '<div class="fq-row fq-buy ' + (buyable ? 'fq-yes' : 'fq-no') + '"><span class="fq-label">买</span><span class="fq-val">' + escHtml(buyStr) + '</span></div>' +
     '<div class="fq-row fq-sell"><span class="fq-label">卖</span><span class="fq-val">' + escHtml(sellStr) + '</span></div>' +
     riskLine +
-    '<div class="fq-score-row"><span class="fq-score" id="sum-score" style="color:' + (isBuy?C.up:isSell?C.down:'#ffc107') + '">' + score + '分</span><span style="color:#555;margin-left:auto">置信度 ' + (signal.confidence||0) + '%</span></div>' +
+    '<div class="fq-score-row"><span class="fq-score" id="sum-score" style="color:' + (isBuy?C.up:isSell?C.down:'#ffc107') + '" title="综合分：五模块加权得分（0-100），明细见「为什么 → 评分总览」">综合 ' + score + '分</span><span style="color:#555;margin-left:auto" title="置信度：本次结论的可信程度（0-100%），越低越保守">置信度 ' + (signal.confidence||0) + '%</span></div>' +
     vetoLine;
   if (fxEnabled()) countUpScore(score);
 }
@@ -689,6 +690,7 @@ export async function analyze(symbol) {
 
     // 缠论日线/周线分析
     document.getElementById('chanlun-daily-label').textContent = S.currentView === 'week' ? '缠论周线分析' : '缠论日线分析';
+    S._currentSignalAction = _sAction || '';   // 供缠论卡做证据-结论桥接
     if (S._dailyChanlun && !S._dailyChanlun.error) {
       renderChanlunDaily(S._dailyChanlun);
       applyChanlunDailyOverlay(S._dailyChanlun);

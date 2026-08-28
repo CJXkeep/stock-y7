@@ -52,6 +52,7 @@ _scan_state = {
     "elapsed": 0,
     "failed_total": 0,       # 本次扫描失败个股总数（optimization-round2）
     "failed_symbols": [],     # 失败明细（code/name/period/reason，内存上限 1000 条）
+    "daily_total": 0,         # 日K阶段实际扫描总数（周K阶段会重置 total/scanned，归档用本字段）
 }
 _scan_lock = threading.Lock()
 _SCAN_STATE_SCHEMA = "v5.scan.latest.v1"
@@ -210,6 +211,7 @@ def _run_scan(max_stocks: int = 1000):
                 "error": "",
                 "failed_total": 0,
                 "failed_symbols": [],
+                "daily_total": 0,
                 "start_time": time.time(),
                 "elapsed": 0,
             })
@@ -246,6 +248,7 @@ def _run_scan(max_stocks: int = 1000):
 
         with _scan_lock:
             _scan_state["total"] = total_stage1
+            _scan_state["daily_total"] = total_stage1   # 归档口径：日K真实扫描数（total 在周K阶段会被重置）
             _scan_state["stage"] = f"日K扫描({total_stage1}只)..."
 
         # ---- 3. 预获取共享数据 ----
@@ -392,6 +395,7 @@ def handle_scan(params: dict) -> dict:
                 "total": 0, "scanned": 0, "found": 0,
                 "results": [], "error": "",
                 "failed_total": 0, "failed_symbols": [],
+                "daily_total": 0,
                 "elapsed": 0,
             })
         # 启动后台线程
@@ -415,6 +419,7 @@ def handle_scan(params: dict) -> dict:
         "total": state["total"],
         "scanned": state["scanned"],
         "found": state["found"],
+        "daily_total": state.get("daily_total", 0),
         "results": state["results"],
         "error": state.get("error", ""),
         "failed_total": failed_total,

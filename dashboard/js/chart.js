@@ -745,10 +745,23 @@ export function renderChanlunDaily(data) {
       }
     }
   }
-  html += `<div class="cl-plain-summary"><b>白话总结：</b>${plainSummary}</div>`;
+  html += `<div class="cl-plain-summary"><b>白话总结：</b>${glossarize(plainSummary)}</div>`;
 
   if (stateText) {
-    html += `<div class="cl-state" style="border-left-color:#7F77DD">${stateText}</div>`;
+    html += `<div class="cl-state" style="border-left-color:#7F77DD">${glossarize(stateText)}</div>`;
+  }
+
+  // 证据-结论桥接：缠论最新信号与综合结论方向冲突时点明，避免「缠论说买、四问说不买」的困惑。
+  // 证据保留不删（不简化），只说明口径不同：缠论是单一证据，四问是叠加大盘/风控约束后的最终结论。
+  // 后端 signals 不保证按日期倒序，桥接按日期取真正最新的一条。
+  const act = S._currentSignalAction || '';
+  if (act && signals.length) {
+    const latestSig = signals.reduce((a, b) => (String(b.date || '') > String(a.date || '') ? b : a), signals[0]);
+    const sigIsBuy = String(latestSig.type || '').startsWith('buy');
+    const actBuy = act.includes('买入') && act !== '谨慎买入';
+    if (sigIsBuy !== actBuy) {
+      html += `<div class="cl-bridge">⚠ 缠论最新为${escHtml(latestSig.type_name || '')}（${escHtml(latestSig.date || '')}），与综合结论「${escHtml(act)}」方向不一致：结论已叠加大盘环境与风控约束。操作以四问卡为准，本卡仅作证据参考。</div>`;
+    }
   }
 
   // 信号列表
@@ -760,7 +773,7 @@ export function renderChanlunDaily(data) {
       const tagCls = sig.type;
       html += `<div class="cl-signal-item ${cls}">
         <span class="cl-signal-tag ${tagCls}">${sig.type_name}</span>
-        <span class="cl-signal-desc">${sig.description}</span>
+        <span class="cl-signal-desc">${glossarize(sig.description || '')}</span>
         <span class="cl-signal-time">${sig.date}</span>
       </div>`;
     }

@@ -277,7 +277,7 @@ def test_frontend_accuracy_renamed_and_disclosed():
     _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
     from _frontend_source import read_frontend_source
     html = read_frontend_source()
-    assert "相邻查看方向一致率" in html
+    assert "上次信号回看 · 方向一致率" in html
     assert "非策略胜率/回测准确率" in html
     assert "信号准确率" not in html
 

@@ -331,6 +331,10 @@ body {
   padding: 6px 8px; background: #0a0a0a; border-radius: 4px;
   border-left: 3px solid #ff9800;
 }
+.cl-bridge {
+  font-size: 11px; color: #ffcf7a; line-height: 1.6; margin: 6px 0;
+  padding: 6px 8px; background: #241a08; border: 1px solid #ff980044; border-radius: 4px;
+}
 .cl-signals { display: flex; flex-direction: column; gap: 4px; }
 .cl-signal-item {
   display: flex; align-items: center; gap: 8px;
@@ -616,7 +620,7 @@ body.mode-simple .it-help { display: inline-block; }
 
 /* ===== 左侧工作台（自选窄栏 / 其余分区宽面板） ===== */
 body { --sb-w: 260px; }
-body:not(.sb-section-watch) { --sb-w: clamp(320px, calc(100vw - 470px), 780px); }
+body:not(.sb-section-watch) { --sb-w: clamp(320px, calc(100vw - 470px), 600px); }
 .sidebar {
   position: fixed; left: 0; top: 49px; bottom: 0; width: var(--sb-w);
   background: #0d0d0d; border-right: 1px solid #222;

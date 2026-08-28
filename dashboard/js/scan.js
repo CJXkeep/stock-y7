@@ -36,7 +36,8 @@ export function archiveScanRun(data) {
     id: 's' + now,
     finishedAt: now,
     elapsed: elapsed,
-    scannedTotal: data.scanned || null,
+    // daily_total=日K阶段真实扫描数；周K阶段 total/scanned 会被重置，不能直接用 data.scanned
+    scannedTotal: data.daily_total || data.scanned || null,
     marketTotal: data.total || null,
     sig: sig,
     count: results.length,

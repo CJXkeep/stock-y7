@@ -160,11 +160,12 @@ export function toggleWhy(el) {
 export function countUpScore(target) {
   const el = document.getElementById('sum-score');
   if (!el) return;
-  if (!fxEnabled() || document.hidden) { el.textContent = target + '分'; return; }
+  const prefix = (el.textContent || '').replace(/\d+.*$/, '');   // 保留「综合 」等前缀
+  if (!fxEnabled() || document.hidden) { el.textContent = prefix + target + '分'; return; }
   const t0 = performance.now(), dur = 600;
   function step(t) {
     const p = Math.min(1, (t - t0) / dur);
-    el.textContent = Math.round(target * p) + '分';
+    el.textContent = prefix + Math.round(target * p) + '分';
     if (p < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
