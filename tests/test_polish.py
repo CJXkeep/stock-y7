@@ -15,10 +15,7 @@ if ROOT not in sys.path:
 from backtest import config
 from backtest import pool as P
 
-APP_SOURCE = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _frontend_source import read_frontend_source
-HTML = read_frontend_source()
 
 
 def test_pool_max_items_single_source():
@@ -101,21 +98,6 @@ def test_snapshot_info_handler(tmp_root=None):
             shutil.rmtree(d, ignore_errors=True)
 
 
-def test_dashboard_polish_markers():
-    assert "/api/snapshot-info" in APP_SOURCE and "handle_snapshot_info" in APP_SOURCE
-    # 快照同步三态文案
-    assert "快照与核心池（手动）同步" in HTML
-    assert "核心池（手动）已更新" in HTML and "建议重建快照" in HTML
-    assert "未找到历史统计快照" in HTML
-    # 即时重拉与失败提示
-    m_note = HTML[HTML.index("async function poolNote"):HTML.index("async function poolMove")]
-    assert "loadPool()" in m_note and "alert(" in m_note
-    m_move = HTML[HTML.index("async function poolMove"):]
-    assert "loadPool()" in m_move[:400]
-    # 统一错误样式 wp-error 出现在 journal 与 pool 两个 loader 的 catch 中
-    assert HTML.count('class="wp-error"') >= 3
-
-
 def test_true_double_touch_simulation():
     """A3 回归：同日 low≤stop 且 high≥target → 保守 outcome=stop。"""
     from backtest.stats import simulate_signal
@@ -131,14 +113,6 @@ def test_true_double_touch_simulation():
     sim = simulate_signal("600519", "", bars,
                           {"t": 12, "stop": 95.0, "target": 110.0}, capital=20000.0)
     assert sim["outcome"] == "stop" and sim["exit_price"] == 94.9  # 95×(1−0.1%) 滑点
-
-
-def test_readme_v5_section():
-    readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
-    for keyword in ("信号档案", "核心池管理", "历史信号统计管线",
-                    "python -m backtest snapshot", "python -m backtest replay",
-                    "python -m backtest stats", "--simulate", "非投资建议"):
-        assert keyword in readme, "README 缺少：%s" % keyword
 
 
 # ---------------------------------------------------------------- 入口

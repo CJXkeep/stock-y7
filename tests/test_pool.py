@@ -89,7 +89,6 @@ def test_duplicate_add_rejected_without_write():
         assert not ok and "已存在" in msg
         after = json.load(open(path, encoding="utf-8"))
         assert before == after, "幂等拒绝不得写盘"
-        assert pool["items"][0].get("note") is not None or True
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

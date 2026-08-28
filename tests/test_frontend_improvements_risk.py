@@ -97,7 +97,6 @@ def test_required_mappings_present():
 def test_pro_mode_raw_list_untouched():
     """专业模式维持原文展示：explainRisks 只服务小白横幅渲染链路。"""
     assert "function explainRisks(signal)" in APP_JS
-    assert 'body.mode-simple' in open(os.path.join(ROOT, "dashboard", "style.css"), encoding="utf-8").read() or True
 
 
 def test_run():

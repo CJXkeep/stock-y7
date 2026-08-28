@@ -96,23 +96,8 @@ def test_node_link_check_passes():
         f"模块链接检查失败:\n{r.stdout}\n{r.stderr}"
 
 
-def test_node_crossref_check_passes():
-    """跨模块裸引用检查：引用他模块导出名但未导入 → 运行时 ReferenceError 地雷。"""
-    checker = os.path.join(ROOT, "tools", "check_crossref.mjs")
-    assert os.path.isfile(checker), "缺少 tools/check_crossref.mjs"
-    try:
-        r = subprocess.run([sys.executable, "-c", "import shutil;print(shutil.which('node') or '')"],
-                           capture_output=True, text=True, timeout=30)
-        node = (r.stdout or "").strip()
-    except Exception:
-        node = ""
-    if not node:
-        print("SKIP: 环境无 node，跳过跨模块检查")
-        return
-    r = subprocess.run([node, checker], capture_output=True, text=True,
-                       cwd=ROOT, timeout=60)
-    assert r.returncode == 0 and "CROSSREF OK" in (r.stdout or ""), \
-        f"跨模块检查失败:\n{r.stdout}\n{r.stderr}"
+# 跨模块裸引用检查已由 test_frontend_symbols.py 的骨架扫描覆盖（更强：连同文件内
+# 未定义符号一起抓），此处不再重复跑 tools/check_crossref.mjs（已随本测试删除）。
 
 
 if __name__ == "__main__":

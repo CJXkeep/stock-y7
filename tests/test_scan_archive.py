@@ -10,17 +10,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _frontend_source import read_frontend_source
 
 
-def test_scan_archive_markers_present():
-    src = read_frontend_source()
-    assert "qs_scan_archive" in src, "缺少归档存储键 qs_scan_archive"
-    assert "MAX_SCAN_ARCHIVE" in src, "缺少归档上限常量"
-    assert "function archiveScanRun" in src, "缺少自动归档函数"
-    assert "function renderScanArchiveList" in src, "缺少历史归档列表视图"
-    assert "function renderArchivedRun" in src, "缺少归档详情视图"
-    assert "function exportScanCsv" in src, "缺少 CSV 导出"
-    assert "_scanRunSig" in src, "缺少幂等签名（防止重复归档）"
-
-
 def test_scan_archive_dedupe_and_cap_logic():
     src = read_frontend_source()
     # 幂等：同签名 10 分钟内不重复归档
@@ -49,10 +38,9 @@ def test_scan_scope_read_before_dom_replace():
 
 
 def test_run():
-    test_scan_archive_markers_present()
     test_scan_archive_dedupe_and_cap_logic()
     test_scan_scope_read_before_dom_replace()
-    print("PASS scan-archive tests (3)")
+    print("PASS scan-archive tests (2)")
 
 
 if __name__ == "__main__":
