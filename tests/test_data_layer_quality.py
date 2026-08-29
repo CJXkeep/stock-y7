@@ -422,6 +422,45 @@ def test_digest_ctx_passes_snapshot_row():
     assert captured["live_ts"] != ""
 
 
+def test_weekly_depth_fallback_on_truncated_daily():
+    """日K被行情源截断（约640根）时，周K聚合不足请求数 → 回退网络周期源直取。"""
+    with tempfile.TemporaryDirectory() as tmp,             _StoreEnv(KLINE_STORE="1", KLINE_STORE_DB=os.path.join(tmp, "k.db")):
+        _reset_fetcher_cache()
+        dates = _dates_ending(640, "2026-03-13")   # 模拟腾讯单请求截断后的库深
+        _prefill("600020", dates)
+        ks.set_depth_floor("600020", "qfq", 1300)
+        ks.set_meta("exhausted:600020:qfq", "640")
+        ks.set_meta("exhausted_ask:600020:qfq", "1300")
+        net_calls = []
+
+        def fake_net(symbol, count, period, adjust, use_disk=None, cache_result=True, **kw):
+            net_calls.append((period, count))
+            if period == "week":
+                out = []
+                for i in range(count):
+                    out.append(kf.Kline(date=f"2026-w{i:03d}", open=10, close=10.1,
+                                        high=10.2, low=9.9, volume=1000,
+                                        source="tencent", adjust="qfq"))
+                return out
+            return []
+
+        with _Patch(kf, "_market_dates", lambda: ("2026-03-13", "2026-03-12")),                 _Patch(kf, "_fetch_kline_network", fake_net):
+            result = kf.fetch_kline("600020", count=250, period="week", adjust="qfq")
+        assert len(result) == 250, "周K深度不足应回退网络周期源直取"
+        assert ("week", 250) in net_calls
+        assert ks.last_date("600020", "qfq") == "2026-03-13", "周K回退结果不落日K库"
+
+        # 对照：日K深度足够时周K仍由本地聚合（网络不走 period=week）
+        _reset_fetcher_cache()
+        deep = _dates_ending(1300, "2026-03-13")
+        _prefill("600021", deep)
+        net_calls.clear()
+        with _Patch(kf, "_market_dates", lambda: ("2026-03-13", "2026-03-12")),                 _Patch(kf, "_fetch_kline_network", fake_net):
+            agg = kf.fetch_kline("600021", count=250, period="week", adjust="qfq")
+        assert not any(p == "week" for p, _ in net_calls), "深度足够时不应回退"
+        assert len(agg) == 250
+
+
 def test_run():
     fns = [
         test_due_scheduled_market_day_semantics,
@@ -435,6 +474,7 @@ def test_run():
         test_in_trading_session_shanghai,
         test_store_thread_local_connection,
         test_digest_ctx_passes_snapshot_row,
+        test_weekly_depth_fallback_on_truncated_daily,
     ]
     for fn in fns:
         fn()

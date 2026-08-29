@@ -844,7 +844,13 @@ def _get_derived_klines(symbol: str, count: int, period: str, adjust: str,
     daily = _get_day_klines(symbol, needed_daily, adjust, live_bar)
     if not daily or len(daily) < 30:
         return []
-    return _aggregate_daily(daily, period)[-needed:]
+    agg = _aggregate_daily(daily, period)[-needed:]
+    if len(agg) < needed:
+        # 聚合结果不足请求数（kline-fix：日K单请求被行情源截断时，聚合出的周/月K
+        # 会比旧版直取周期K浅——如腾讯日K单次约640根封顶）。回退网络周期源直取，
+        # 保证周/月K历史深度不低于旧版；年轻股两条路径结果一致，仅多一次请求。
+        return []
+    return agg
 
 
 def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str = "qfq",

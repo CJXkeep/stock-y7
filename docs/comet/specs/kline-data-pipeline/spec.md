@@ -50,7 +50,7 @@
 
 ## 7. 周/月K
 
-- 由日K本地聚合（ISO 周 / 自然月，组标签=组内最后交易日，volume/amount/turnover 求和，pct 对上一组收盘）；日K深度不足时回退网络周期源。聚合深度上限 `KLINE_AGG_MAX_DAILY`（默认 6000）。
+- 由日K本地聚合（ISO 周 / 自然月，组标签=组内最后交易日，volume/amount/turnover 求和，pct 对上一组收盘）；日K深度不足、或聚合结果不足请求数（如日K单请求被行情源截断，见 kline-fix）时回退网络周期源直取，保证周/月K深度不低于旧版直取路径。聚合深度上限 `KLINE_AGG_MAX_DAILY`（默认 6000）。
 
 ## 8. 收盘同步服务（kline_sync）
 
