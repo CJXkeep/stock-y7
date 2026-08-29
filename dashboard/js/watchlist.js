@@ -304,7 +304,13 @@ export function updateBadges() {
 
 
 // 阻止面板内点击冒泡导致关闭
-document.getElementById('wp-panel').addEventListener('click', e => e.stopPropagation());
+// wp-panel 内点击默认不冒泡（防误触 document 级关闭逻辑），
+// 但必须放行 [data-act] 委托动作——否则面板内所有委托按钮（档案子页签/
+// 任务扫描速递切换/核心池管理等）全部失效（fe-smoke 发现，kline-fix）。
+document.getElementById('wp-panel').addEventListener('click', e => {
+  if (e.target.closest('[data-act]')) return;
+  e.stopPropagation();
+});
 
 // 跟踪当前股票名称（用于自选时获取名称）
 
