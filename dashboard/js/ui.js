@@ -208,6 +208,7 @@ const HOT_STOCKS = [
   { code: '000001', name: '平安银行' },
 ];
 export function showHotStocksPanel() {
+  if (document.activeElement !== searchInput) return;   // 失焦后迟到的渲染不再打开联想
   clearTimeout(searchTimer);
   searchResults.innerHTML =
     '<div class="sr-hot-title">热门股票</div>' +
@@ -231,14 +232,22 @@ searchInput.addEventListener('keydown', e => {
   }
 });
 
+// blur 延迟收起联想（fe-smoke：联想下拉右缘会盖住周期工具栏，误点联想项
+// 会分析错误的股票；150ms 延迟保证联想项自身的 click 先于隐藏执行）。
+searchInput.addEventListener('blur', () => {
+  setTimeout(() => { searchResults.style.display = 'none'; }, 150);
+});
+
 document.addEventListener('click', e => {
   if (!e.target.closest('.search-wrap')) searchResults.style.display = 'none';
 });
 
 export async function doSuggest(kw) {
+  if (document.activeElement !== searchInput) return;   // 失焦后迟到的联想响应不再打开下拉
   try {
     const r = await fetchWithTimeout(`${API}/api/search?keyword=${encodeURIComponent(kw)}`);
     const data = await r.json();
+    if (document.activeElement !== searchInput) return; // 响应等待期间已失焦同理
     if (data.results && data.results.length) {
       searchResults.innerHTML = data.results.map(s =>
         `<div class="sr-item" data-act="selectStock" data-code="${escHtml(s.code)}" data-name="${escHtml(s.name)}">
