@@ -36,6 +36,11 @@ REVIEW_QUARTER_WINDOW_DAYS = 91    # T4 环境转差：最近窗口（自然日�
 REVIEW_ENV_HORIZON = "r20"         # T4 检查的视界
 REVIEW_ENV_BENCH_HORIZON = "r60_excess"  # T3 检查的视界（超额口径）
 
+# ---- 策略矫正执行器（I8.5 correct；门槛数字来自设计文档 §5.1，改动须留痕） ----
+CORRECT_PARAM_SAMPLE_GATE = 50     # param_change：两档各 ≥ 此笔数
+CORRECT_PARAM_NEIGHBORHOOD = 5     # param_change：邻域稳健性半径（±N）
+CORRECT_USAGE_FLAGS = {"push_review_required": bool}  # usage_flag 白名单
+
 # 买侧信号类型（汇总"买入后 N 日上涨比例"的口径）
 BUY_SIDE_TYPES = ("buy", "strong_buy", "cautious_buy")
 

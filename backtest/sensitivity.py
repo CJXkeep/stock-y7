@@ -203,6 +203,10 @@ def render_sensitivity(snapshot_id: str, groups: list, has_bench: bool,
     lines.append("")
     lines.append("## 口径声明")
     lines.append("")
+    lines.append("- 生效分档阈值：强=%d / 买=%d%s" % (
+        STRONG_SCORE, MEDIUM_SCORE,
+        "（params_override 覆盖生效）"
+        if (STRONG_SCORE, MEDIUM_SCORE) != (75, 60) else ""))
     lines.append("- 快照 id：`%s`（pool.version=%s）；生成时间：%s；参与统计笔数（锚点口径）：**%d**（去重窗口 %d 交易日，落盘 %d 笔）" % (
         snapshot_id, pool_version,
         datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),

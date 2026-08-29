@@ -51,6 +51,14 @@ def render_report(summary: dict, manifest: dict) -> str:
         meta.get("snapshot_id") or manifest.get("snapshot_id"),
         datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
     lines.append("- 重放：滚动最近 **250 根**（指数 60 根）与实盘一致，逐日无前视；信号为原始 `run_analysis` 输出，**不含 app 后处理与本地化**——与信号日志的最终动作口径存在差异，两者不可直接混用")
+    try:
+        from analysis.signal_engine import MEDIUM_SCORE, STRONG_SCORE
+        override_note = ("（params_override 覆盖生效）"
+                         if (STRONG_SCORE, MEDIUM_SCORE) != (75, 60) else "")
+        lines.append("- 生效分档阈值：强=%d / 买=%d%s" % (
+            STRONG_SCORE, MEDIUM_SCORE, override_note))
+    except Exception:
+        pass
     lines.append("- 去重：同股同类信号 %s **交易日**窗口内仅取首条参与统计（去重前 %d 笔 → 去重后 %d 笔）；窗口间隔按交易日计数（I8.1 起，bar 序列日历）" % (
         meta.get("dedupe_window_days"), meta.get("raw_count", 0), meta.get("visible_count", 0)))
     lines.append("- 预热期：距快照起始不足 250 根的信号默认排除（本轮排除 %d 笔%s）" % (

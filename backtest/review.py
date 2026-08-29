@@ -46,6 +46,11 @@ def load_result_rows(snapshot_id: str, results_root: str = None) -> list:
         for raw in csv.DictReader(fh):
             row = {"date": raw.get("date", ""), "symbol": raw.get("symbol", ""),
                    "action": raw.get("action", "")}
+            score = raw.get("score")
+            try:
+                row["score"] = float(score) if score not in (None, "") else None
+            except ValueError:
+                row["score"] = None
             for key in float_keys:
                 value = raw.get(key)
                 row[key] = float(value) if value not in (None, "") else None
@@ -275,7 +280,27 @@ def render_review(snapshot_id: str, evaluated: dict, state: dict,
                               if isinstance(state.get("last_stats_count"), int) else None),
                          config.REVIEW_NEW_SAMPLE_GATE))
     lines.append("- 响应菜单 %s" % MENU_V1)
+    try:
+        from analysis.signal_engine import MEDIUM_SCORE, STRONG_SCORE
+        override_note = ("（params_override 覆盖生效）"
+                         if (STRONG_SCORE, MEDIUM_SCORE) != (75, 60) else "")
+        lines.append("- 生效分档阈值：强=%d / 买=%d%s" % (
+            STRONG_SCORE, MEDIUM_SCORE, override_note))
+    except Exception:
+        pass
     lines.append("- 本检查**只匹配呈现、不执行任何改动**；实际响应须由人拍板并登记决策日志")
+    usage_path = os.path.join(config.ROOT, "data", "usage-state.json")
+    if os.path.exists(usage_path):
+        try:
+            with open(usage_path, "r", encoding="utf-8") as fh:
+                usage = json.load(fh)
+            flags = usage.get("flags") or {}
+            if flags:
+                flag_text = "，".join("%s=%s" % (k, v) for k, v in sorted(flags.items()))
+                lines.append("- 当前使用方式矫正：%s（来源 %s）" % (
+                    flag_text, usage.get("last_plan", {}).get("rule") or "矫正计划"))
+        except (OSError, ValueError):
+            pass
     lines.append("- 统计为信号与市场环境的复合结果，非因果；自用参考，**非投资建议**")
     lines.append("")
     lines.append("## 逐规则状态")

@@ -23,12 +23,53 @@ RISK_MEDIUM = 3     # risk_points>=3 → 中风险
 STRONG_SCORE = 75   # score>=75   → 强信号 / 正常仓位
 MEDIUM_SCORE = 60   # score>=60   → 中信号
 
+# I8.5 策略矫正：data/params_override.json 覆盖分档阈值（数据覆盖层，不改代码常量；
+# 缺文件/损坏 = 默认 75/60；写入后下次进程启动生效）。测试可替换 PARAMS_OVERRIDE_PATH。
+import os as _os
+import json as _json
 
-def action_from_score(score, th_strong=STRONG_SCORE, th_buy=MEDIUM_SCORE):
+PARAMS_OVERRIDE_PATH = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+    "data", "params_override.json")
+
+
+def load_params_override(path: str = None) -> dict:
+    """读参数覆盖文件并覆盖模块级阈值常量；返回生效覆盖 dict（无覆盖返回 {}）。"""
+    path = path or PARAMS_OVERRIDE_PATH
+    if not _os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = _json.load(fh)
+        for key in ("th_strong", "th_buy"):
+            value = data[key]
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("%s 必须为整数（拒绝 %r）" % (key, value))
+        if data["th_strong"] < data["th_buy"] or data["th_buy"] < 0:
+            raise ValueError("th_strong 必须 ≥ th_buy ≥ 0")
+        globals()["STRONG_SCORE"] = data["th_strong"]
+        globals()["MEDIUM_SCORE"] = data["th_buy"]
+        return {"th_strong": data["th_strong"], "th_buy": data["th_buy"]}
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "params_override 载入失败，使用默认阈值 75/60: %s", exc)
+        return {}
+
+
+load_params_override()
+
+
+def action_from_score(score, th_strong=None, th_buy=None):
     """综合分 → 动作三档（I8.3 单源：run_analysis 与 backtest.sensitivity 共用）。
 
     score >= th_strong → 强烈买入；th_buy <= score < th_strong → 买入；否则观望。
+    I8.5：默认参数哨兵化（None → 读当前模块全局），params_override 覆盖后自动生效。
     """
+    if th_strong is None:
+        th_strong = STRONG_SCORE
+    if th_buy is None:
+        th_buy = MEDIUM_SCORE
     if score >= th_strong:
         return "强烈买入"
     if score >= th_buy:

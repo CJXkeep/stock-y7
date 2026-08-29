@@ -9,6 +9,7 @@
   python -m backtest sensitivity <snapshot_id> [--thresholds "强,买" ...]
         [--allow-stale] [--root DIR]
   python -m backtest review <snapshot_id> [--root DIR]
+  python -m backtest correct --plan <file> [--dry-run] [--rollback ACTION] [--root DIR]
 
 --root 同时覆盖快照与结果目录（测试/多盘位使用；生产默认 data/snapshots、data/results）。
 """
@@ -54,6 +55,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_rev = sub.add_parser("review", help="评估响应规则检查（预承诺规则表 T1-T6，只呈现不执行）")
     p_rev.add_argument("snapshot_id")
+
+    p_cor = sub.add_parser("correct", help="策略矫正执行器（封闭菜单，门槛校验，留痕可回滚）")
+    p_cor.add_argument("--plan", default=None, help="矫正计划 JSON（schema v5.correction-plan.v1）")
+    p_cor.add_argument("--dry-run", action="store_true",
+                       help="只校验门槛并展示结果，不写任何文件")
+    p_cor.add_argument("--rollback", default=None, metavar="ACTION",
+                       help="恢复该动作最近一次备份（pool_add/pool_remove/usage_flag/param_change）")
     return parser
 
 
@@ -137,6 +145,30 @@ def main(argv=None) -> int:
             print("%s: %s%s" % (rid, rule.get("status"),
                                 (" → " + rule["action"]) if rule.get("action") else ""))
         print("review: %s" % result.get("outputs", {}).get("review_md"))
+        return 0
+
+    if args.command == "correct":
+        from backtest.correct import CorrectionError, rollback, run_correct
+        try:
+            if args.rollback:
+                result = rollback(args.rollback, root=root)
+                print("rollback %s: %s" % (args.rollback, result.get("detail")))
+                return 0
+            if not args.plan:
+                print("correct 需要 --plan <矫正计划.json> 或 --rollback <ACTION>")
+                return 1
+            result = run_correct(args.plan, root=root, dry_run=args.dry_run)
+        except CorrectionError as exc:
+            print("拒绝：%s" % exc)
+            return 1
+        print("action=%s status=%s gate_ok=%s" % (
+            result.get("action"), result.get("status"), result.get("gate_ok")))
+        for check in result.get("gate_checks") or []:
+            print("  - %s" % check)
+        if result.get("status") == "executed":
+            print("target: %s" % (result.get("applied") or {}).get("target"))
+            print("detail: %s" % (result.get("applied") or {}).get("detail"))
+            print("log: %s" % result.get("log"))
         return 0
     return 1
 
