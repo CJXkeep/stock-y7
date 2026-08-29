@@ -23,6 +23,10 @@ DEDUPE_WINDOW_DAYS = 10
 # 补记视界（交易日，按该股自身日线 bar 计数）
 HORIZONS = (5, 10, 20, 60)
 
+# 超额收益基准（I8.2 评估模块）：快照内指数键为 _idx_<code>；缺失时统计自动退化为绝对口径
+BENCHMARK_SYMBOL = "000300"
+BENCHMARK_NAME = "沪深300"
+
 # 买侧信号类型（汇总"买入后 N 日上涨比例"的口径）
 BUY_SIDE_TYPES = ("buy", "strong_buy", "cautious_buy")
 

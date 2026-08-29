@@ -161,8 +161,9 @@ def test_replay_rolling_window_and_no_lookahead_sentinel():
 
 # ---------------------------------------------------------------- A4 去重双口径
 
-def _run_mini_stats(signals, bars, dates, include_warmup=True, simulate=False, capital=None):
-    """构造单股票迷你快照目录后跑 run_stats。"""
+def _run_mini_stats(signals, bars, dates, include_warmup=True, simulate=False, capital=None,
+                    index_bars=None):
+    """构造单股票迷你快照目录后跑 run_stats；index_bars 提供 _idx_000300 日线（I8.2 超额）。"""
     from backtest.stats import run_stats
     d = tempfile.mkdtemp(prefix="stats_run_")
     try:
@@ -171,6 +172,9 @@ def _run_mini_stats(signals, bars, dates, include_warmup=True, simulate=False, c
         os.makedirs(snap_dir)
         with open(os.path.join(snap_dir, "bars.jsonl"), "w", encoding="utf-8") as fh:
             fh.write(json.dumps({"symbol": "600519", "bars": bars}, ensure_ascii=False) + "\n")
+            if index_bars is not None:
+                fh.write(json.dumps({"symbol": "_idx_000300", "bars": index_bars},
+                                    ensure_ascii=False) + "\n")
         manifest = {"schema": "v5.snapshot.v1", "snapshot_id": sid,
                     "created_at": "", "pool_version": 3,
                     "config": {"replay_window": 250, "index_window": 60},
@@ -189,6 +193,9 @@ def _run_mini_stats(signals, bars, dates, include_warmup=True, simulate=False, c
         import csv as _csv
         with open(rows_path, encoding="utf-8-sig") as fh:
             summary["_rows"] = list(_csv.DictReader(fh))
+        report_path = summary["outputs"]["report_md"]
+        with open(report_path, encoding="utf-8") as fh:
+            summary["_report"] = fh.read()
         return summary
     finally:
         shutil.rmtree(d, ignore_errors=True)
@@ -677,6 +684,189 @@ def test_cli_stats_end_to_end_on_synthetic_snapshot():
         assert "参与统计笔数" in md and "非投资建议" in md
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- I8.2 超额基准与档位单调性
+
+def _expected_bench_ret(bench_dates, bench_closes, start, end):
+    """测试内独立实现的自然日区间对齐基准收益（不复用被测 _bench_return）。"""
+    base = endc = None
+    for d, c in zip(bench_dates, bench_closes):
+        if d <= start:
+            base = c
+        if d <= end:
+            endc = c
+        else:
+            break
+    if not base or endc is None:
+        return None
+    return (endc - base) / base * 100.0
+
+
+def test_excess_hand_calc_and_suspension_alignment():
+    """A1：超额 = 个股同视界收益 − 指数同自然日区间收益，手算精确一致。
+
+    个股在日期轴中段停牌 8 个交易日：r5/r10 的结束 bar 日期因此后移，
+    基准必须跨同样的日历区间（若错误按指数自身 bar 计数会得到不同数值）。
+    """
+    from backtest.stats import compute_forward_returns
+    dates_all = _dates(40, start="2024-01-02")
+    # 个股停牌：缺 dates[8..15]，其序列与日期轴整体后移
+    stock_dates = dates_all[:8] + dates_all[16:]
+    closes = [100.0] * len(stock_dates)
+    closes[10] = 110.0   # r5 结束 bar（stock idx 10 → dates_all[18]）
+    closes[15] = 90.0    # r10（stock idx 15 → dates_all[23]）
+    closes[25] = 120.0   # r20（stock idx 25 → dates_all[33]）
+
+    bench_dates = list(dates_all)
+    bench_closes = [3000.0] * len(dates_all)
+    bench_closes[18] = 3180.0   # r5 区间基准收益 = 6%
+    bench_closes[23] = 3450.0   # r10 = 15%
+    bench_closes[33] = 3600.0   # r20 = 20%
+    # 干扰值：若实现错误地按指数 bar 计数（t+5 → dates_all[10]）会取到 4000
+    bench_closes[10] = 4000.0
+
+    fwd = compute_forward_returns(closes, 5, dates=stock_dates,
+                                  bench_closes=bench_closes, bench_dates=bench_dates)
+    assert fwd["r5"] == 10.0 and fwd["r10"] == -10.0 and fwd["r20"] == 20.0
+    assert fwd["r60"] is None and fwd["r60_excess"] is None
+    for h, stock_ret in ((5, 10.0), (10, -10.0), (20, 20.0)):
+        exp_bench = _expected_bench_ret(bench_dates, bench_closes,
+                                        stock_dates[5], stock_dates[5 + h])
+        assert exp_bench is not None
+        assert fwd["r%d_excess" % h] == round(stock_ret - exp_bench, 4), (h, fwd, exp_bench)
+    assert fwd["r5_excess"] == 4.0 and fwd["r10_excess"] == -25.0 and fwd["r20_excess"] == 0.0
+
+    # 基准未覆盖信号日（基准序列起点晚于信号日）→ 超额缺失而非报错
+    fwd2 = compute_forward_returns(closes, 5, dates=stock_dates,
+                                   bench_closes=[3000.0, 3100.0],
+                                   bench_dates=["2030-01-02", "2030-01-03"])
+    assert fwd2["r5_excess"] is None
+
+
+def test_stats_with_bench_end_to_end():
+    """I8.2 集成：带基准快照跑 run_stats → meta/CSV/报告三处产出超额口径。"""
+    dates = _dates(80, start="2024-03-01")
+    closes = [100.0] * len(dates)
+    bars = [[dt, c, c * 1.01, c * 0.99, c, 1000.0] for dt, c in zip(dates, closes)]
+    idx_bars = [[dt, 3000.0, 3010.0, 2990.0, 3000.0, 100.0] for dt in dates]  # 基准恒 0 收益
+    sigs = [{"symbol": "600519", "t": 10, "date": dates[10], "action": "买入",
+             "score": 70.0, "level": "day", "signal_type": "buy", "warmup": False},
+            {"symbol": "600519", "t": 40, "date": dates[40], "action": "买入",
+             "score": 70.0, "level": "day", "signal_type": "buy", "warmup": False}]
+    summary = _run_mini_stats(sigs, bars, dates, index_bars=idx_bars)
+    meta = summary["meta"]
+    assert meta["benchmark_symbol"] == "000300" and meta["benchmark_name"] == "沪深300"
+    assert "r20_excess" in summary["overall"]
+    # 基准恒平 → 超额 == 绝对
+    for row in summary["_rows"]:
+        if row["r20"]:
+            assert float(row["r20_excess"]) == float(row["r20"])
+    md = summary["_report"]
+    for kw in ("基准=沪深300(000300)", "自然日区间", "超额表现（相对沪深300(000300)",
+               "档位单调性", "超额均值·相对沪深300(000300)", "幸存者口径", "不做显著性结论"):
+        assert kw in md, "报告缺少：%s" % kw
+
+
+def test_stats_without_bench_degrades():
+    """A2：快照缺指数日线 → 整体退化绝对口径，报告头披露，不报错。"""
+    dates = _dates(60, start="2024-03-01")
+    closes = [100.0] * len(dates)
+    bars = [[dt, c, c * 1.01, c * 0.99, c, 1000.0] for dt, c in zip(dates, closes)]
+    sigs = [{"symbol": "600519", "t": 10, "date": dates[10], "action": "买入",
+             "score": 70.0, "level": "day", "signal_type": "buy", "warmup": False}]
+    summary = _run_mini_stats(sigs, bars, dates, index_bars=[])
+    meta = summary["meta"]
+    assert meta["benchmark_symbol"] is None and meta["benchmark_name"] is None
+    assert "r20_excess" not in summary["overall"]
+    assert all(row["r20_excess"] == "" for row in summary["_rows"])
+    md = summary["_report"]
+    assert "本轮无基准" in md and "仅绝对口径" in md
+    assert "超额表现（相对" not in md
+    # 单调性退化为绝对判据；单档样本 → ⚠样本不足
+    assert "档位单调性（判据：绝对均值·无基准）" in md
+    assert "⚠样本不足" in md
+
+
+def test_tier_monotonicity_three_states_and_render():
+    """A3：单调/不单调/⚠样本不足三态 + 缺档注明；渲染含判据口径。"""
+    from backtest.stats import tier_monotonicity, aggregate
+    from backtest.report import render_report
+
+    def by_action(strong_avg, strong_n, buy_avg, buy_n):
+        return {
+            "强烈买入": {"n": strong_n,
+                        "r20_excess": {"n": strong_n, "avg_return": strong_avg,
+                                       "stderr": 1.0, "insufficient_sample": strong_n < 10}},
+            "买入": {"n": buy_n,
+                     "r20_excess": {"n": buy_n, "avg_return": buy_avg,
+                                    "stderr": 0.5, "insufficient_sample": buy_n < 10}},
+        }
+
+    mono = tier_monotonicity(by_action(5.0, 12, 1.0, 10), horizons=(20,), excess=True)
+    assert mono["r20"]["marker"] == "单调" and mono["r20"]["diffs"] == [4.0]
+    mono = tier_monotonicity(by_action(-1.0, 12, 2.0, 10), horizons=(20,), excess=True)
+    assert mono["r20"]["marker"] == "不单调"
+    mono = tier_monotonicity(by_action(5.0, 3, 1.0, 10), horizons=(20,), excess=True)
+    assert mono["r20"]["marker"] == "⚠样本不足"
+    # 缺档：仅单一档位 → 无法比较
+    mono = tier_monotonicity({"买入": {"n": 10, "r20_excess": {"n": 10, "avg_return": 1.0,
+                                                              "stderr": 0.5}}},
+                             horizons=(20,), excess=True)
+    assert mono["r20"]["marker"] == "⚠样本不足"
+
+    # 渲染：有基准 → 判据标题为超额；无基准 → 绝对均值
+    meta_base = {"raw_count": 22, "visible_count": 22, "deduped_count": 0,
+                 "excluded_warmup": 0, "included_warmup": 0, "stats_count": 22,
+                 "dedupe_window_days": 10, "dedupe_unit": "trading_day",
+                 "include_warmup": False, "simulate": False, "capital": 100000.0,
+                 "usable_symbols": 22, "total_symbols": 22, "pool_version": 1,
+                 "snapshot_id": "S-MONO", "stale_used": False}
+    agg = aggregate([
+        {"symbol": "A", "date": "2024-01-05", "action": "强烈买入",
+         "r5": 5.0, "r10": None, "r20": None, "r60": None,
+         "r5_excess": 4.0, "r10_excess": None, "r20_excess": None, "r60_excess": None},
+    ] * 12 + [
+        {"symbol": "B", "date": "2024-02-05", "action": "买入",
+         "r5": 1.0, "r10": None, "r20": None, "r60": None,
+         "r5_excess": 0.5, "r10_excess": None, "r20_excess": None, "r60_excess": None},
+    ] * 10)
+    mono = tier_monotonicity(agg["by_action"], excess=True)
+    summary = {"meta": dict(meta_base, benchmark_symbol="000300", benchmark_name="沪深300"),
+               "overall": agg["overall"], "by_action": agg["by_action"],
+               "by_year": agg["by_year"], "by_symbol": {},
+               "aggregate_raw": agg, "tier_monotonicity": mono}
+    md = render_report(summary, {"snapshot_id": "S-MONO", "pool_version": 1})
+    assert "档位单调性（判据：超额均值·相对沪深300(000300)）" in md
+    assert "单调" in md and "观望档无 forward return 样本" in md and "谨慎买入" in md
+    summary_nb = {"meta": dict(meta_base), "overall": agg["overall"],
+                  "by_action": agg["by_action"], "by_year": agg["by_year"],
+                  "by_symbol": {}, "aggregate_raw": agg,
+                  "tier_monotonicity": tier_monotonicity(agg["by_action"], excess=False)}
+    md_nb = render_report(summary_nb, {"snapshot_id": "S-MONO", "pool_version": 1})
+    assert "档位单调性（判据：绝对均值·无基准）" in md_nb
+
+
+def test_report_benchmark_disclosure_lines():
+    """口径声明：有基准三行齐全；无基准时退化行 + 幸存者/单调性行仍在。"""
+    from backtest.report import render_report
+    manifest = {"snapshot_id": "SID", "pool_version": 1}
+    base = {"raw_count": 1, "visible_count": 1, "deduped_count": 0,
+            "excluded_warmup": 0, "included_warmup": 0, "stats_count": 1,
+            "dedupe_window_days": 10, "include_warmup": False,
+            "simulate": False, "capital": 100000.0,
+            "usable_symbols": 1, "total_symbols": 1,
+            "pool_version": 1, "snapshot_id": "SID"}
+    summary = {"meta": dict(base, benchmark_symbol="000300", benchmark_name="沪深300"),
+               "overall": {}, "by_action": {}, "by_year": {}, "by_symbol": {}}
+    md = render_report(summary, manifest)
+    for kw in ("基准=沪深300(000300)", "自然日区间", "档位单调性：逐视界比较相邻档",
+               "不做显著性结论", "幸存者口径", "自选池"):
+        assert kw in md, "口径声明缺少：%s" % kw
+    summary_nb = {"meta": dict(base), "overall": {}, "by_action": {},
+                  "by_year": {}, "by_symbol": {}}
+    md_nb = render_report(summary_nb, manifest)
+    assert "本轮无基准" in md_nb and "幸存者口径" in md_nb and "不做显著性结论" in md_nb
 
 
 # ---------------------------------------------------------------- 入口

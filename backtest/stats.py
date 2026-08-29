@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""历史信号统计与单信号独立模拟（I7.4；口径收敛 I8.1）。
+"""历史信号统计与单信号独立模拟（I7.4；口径收敛 I8.1；超额基准与档位单调性 I8.2）。
 
-口径（设计稿 §7.4–§7.6 / §13，v5.1 修订）：
+口径（设计稿 §7.4–§7.6 / §13，v5.1 修订；评估模块设计 §5.1–§5.2）：
 - forward return：close-to-close，按该股自身 bar 计数（停牌自然顺延），不足视界记缺失；
 - 去重：复用 dedupe.mark_window，**交易日口径**（传快照日历），报告给去重前后两套汇总；
 - warmup 信号默认排除并单独披露（--include-warmup 保留）；
+- 超额（I8.2）：基准=沪深300（快照 _idx_000300），按**自然日区间对齐**——
+  起点取 ≤ 信号日的最后一个指数收盘、终点取 ≤ 个股该视界结束日的最后一个指数收盘，
+  不按指数自身 bar 计数；指数缺失时整体退化为绝对口径并在报告头披露；
+- 档位单调性（I8.2）：逐视界比较相邻档（强烈买入→买入）判据均值，三态标记，
+  只披露差值与 stderr、不做显著性结论；判据优先超额均值，无基准退化绝对均值；
 - 模拟：T+1 开盘入场（开盘涨停顺延，上限 EXIT_POSTPONE_LIMIT 日→unfilled）、
   滑点 SLIPPAGE_RATE 双边对称不利方向（0.01 元步进）、stop/target **盘中触价即时成交**（保守）、
   卖出日收盘跌停顺延（连续 EXIT_POSTPONE_LIMIT 日第 N 日收盘强平标 forced）、
@@ -13,6 +18,7 @@
 """
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import math
@@ -28,21 +34,57 @@ from backtest.snapshot import load_snapshot, snapshot_dir, verify_snapshot
 _log = logging.getLogger("backtest.stats")
 
 HORIZONS = config.HORIZONS
+BENCH_KEY = "_idx_" + config.BENCHMARK_SYMBOL
+# 档位强度从高到低；单调性比较相邻档判据均值（强档 − 弱档 ≥ 0 视为不降）
+TIER_ORDER = ("强烈买入", "买入", "谨慎买入")
 
 
 # ---------------------------------------------------------------- forward returns
 
-def compute_forward_returns(closes: list, t: int, horizons=None) -> dict:
-    """t 日收盘 → 各视界收益(%)；越界为 None。"""
+def _bench_return(bench_closes: list, bench_dates: list,
+                  start_date: str, end_date: str):
+    """[start_date, end_date] 自然日区间对齐的基准 close-to-close 收益(%)。
+
+    起点取日期 ≤ start_date 的最后一个指数收盘，终点取日期 ≤ end_date 的
+    最后一个指数收盘；日期均为 ISO 字符串可直接比较。基准未覆盖区间 → None。
+    """
+    if not bench_closes or not bench_dates:
+        return None
+    i = bisect.bisect_right(bench_dates, start_date) - 1
+    if i < 0:
+        return None
+    j = bisect.bisect_right(bench_dates, end_date) - 1
+    if j < i:
+        return None
+    base = bench_closes[i]
+    if not base:
+        return None
+    return (bench_closes[j] - base) / base * 100.0
+
+
+def compute_forward_returns(closes: list, t: int, horizons=None,
+                            dates=None, bench_closes=None, bench_dates=None) -> dict:
+    """t 日收盘 → 各视界收益(%)；越界为 None。
+
+    I8.2：同时传 dates（个股 bar 日期）与基准序列时，额外产出 r{h}_excess
+    （个股同视界收益 − 基准同自然日区间收益）；基准未覆盖该区间记 None。
+    """
+    use_bench = dates is not None and bench_closes is not None and bench_dates is not None
     out = {}
     total = len(closes)
     for h in (horizons or HORIZONS):
         idx = cal.next_bar(total, t, h)
         if idx is None:
             out["r%d" % h] = None
-        else:
-            base = closes[t]
-            out["r%d" % h] = round((closes[idx] - base) / base * 100.0, 4)
+            if use_bench:
+                out["r%d_excess" % h] = None
+            continue
+        base = closes[t]
+        ret = round((closes[idx] - base) / base * 100.0, 4)
+        out["r%d" % h] = ret
+        if use_bench:
+            bench = _bench_return(bench_closes, bench_dates, dates[t], dates[idx])
+            out["r%d_excess" % h] = None if bench is None else round(ret - bench, 4)
     return out
 
 
@@ -63,18 +105,33 @@ def _summary(rows: dict) -> dict:
 
 
 def aggregate(rows: list) -> dict:
-    """rows: [{symbol,date,action,r5,r10,r20,r60,...}] → 总体/按动作/按年份/按股票。"""
+    """rows: [{symbol,date,action,r5,r10,r20,r60,...}] → 总体/按动作/按年份/按股票。
+
+    I8.2：行内含 r{h}_excess 时，overall 与 by_action 同步给出超额摘要
+    （同一 _summary 结构，win_rate 即超额胜率）；by_year/by_symbol 仅绝对口径。
+    """
 
     def pick(row, key):
         return row.get(key)
 
+    def has_key(key):
+        return any(key in r for r in rows)
+
     overall = {}
     for h in HORIZONS:
         overall["r%d" % h] = _summary([pick(r, "r%d" % h) for r in rows])
+        k = "r%d_excess" % h
+        if has_key(k):
+            overall[k] = _summary([pick(r, k) for r in rows])
     by_action = {}
     for action in sorted({r.get("action", "") for r in rows}):
         sub = [r for r in rows if r.get("action") == action]
-        by_action[action or "unknown"] = {("r%d" % h): _summary([pick(r, "r%d" % h) for r in sub]) for h in HORIZONS}
+        block = {("r%d" % h): _summary([pick(r, "r%d" % h) for r in sub]) for h in HORIZONS}
+        for h in HORIZONS:
+            k = "r%d_excess" % h
+            if has_key(k):
+                block[k] = _summary([pick(r, k) for r in sub])
+        by_action[action or "unknown"] = block
         by_action[action or "unknown"]["n"] = len(sub)
     by_year = {}
     for year in sorted({cal.year_of(r.get("date", "")) for r in rows}, key=lambda y: (y is None, y)):
@@ -89,6 +146,43 @@ def aggregate(rows: list) -> dict:
         by_symbol[symbol]["n"] = len(sub)
     return {"overall": overall, "by_action": by_action,
             "by_year": by_year, "by_symbol": by_symbol}
+
+
+def tier_monotonicity(by_action: dict, horizons=None, excess: bool = True) -> dict:
+    """档位单调性（I8.2）：逐视界比较相邻档判据均值，三态标记。
+
+    判据 = r{h}_excess（excess=True）或 r{h}；档位按 TIER_ORDER 强→弱取实际出现的档。
+    标记：任一参与档 n < SAMPLE_MIN 或判据均值缺失 → ⚠样本不足；
+    相邻档（强−弱）判据均值全部 ≥ 0 → 单调；否则 → 不单调。
+    只返回数值与标记，不做显著性结论（判读留给人）。
+    """
+    horizons = horizons or HORIZONS
+    tiers = [t for t in TIER_ORDER if t in (by_action or {})]
+    out = {}
+    for h in horizons:
+        key = "r%d_excess" % h if excess else "r%d" % h
+        rows = []
+        for t in tiers:
+            block = (by_action.get(t) or {}).get(key) or {}
+            rows.append({"tier": t, "n": block.get("n") or 0,
+                         "avg": block.get("avg_return"),
+                         "stderr": block.get("stderr")})
+        diffs = []
+        for a, b in zip(rows, rows[1:]):
+            if a["avg"] is None or b["avg"] is None:
+                diffs.append(None)
+            else:
+                diffs.append(round(a["avg"] - b["avg"], 4))
+        if len(rows) < 2 or any(r["n"] < config.SAMPLE_MIN for r in rows) \
+                or any(d is None for d in diffs):
+            marker = "⚠样本不足"
+        elif all(d >= 0 for d in diffs):
+            marker = "单调"
+        else:
+            marker = "不单调"
+        out["r%d" % h] = {"judged_key": key, "tiers": rows,
+                          "diffs": diffs, "marker": marker}
+    return out
 
 
 # ---------------------------------------------------------------- 单信号独立模拟
@@ -289,6 +383,11 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
                 stat_signals.append(s)
 
     names = {sym: meta.get("name", "") for sym, meta in manifest.get("symbols", {}).items()}
+    # I8.2 超额基准：快照内指数 bars；缺失/为空 → 退化绝对口径（报告头披露）
+    bench_bars = [b for b in (bars_by_symbol.get(BENCH_KEY) or []) if b]
+    bench_closes = [float(b[4]) for b in bench_bars]
+    bench_dates = [str(b[0]) for b in bench_bars]
+    has_bench = bool(bench_closes)
     rows = []
     rows_all = []          # 去重前（全部落盘信号，含 deduped/warmup）
     insufficient_capital_count = 0
@@ -299,7 +398,13 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         if not bars or s["t"] >= len(bars):
             continue
         closes = [b[4] for b in bars]
-        fwd = compute_forward_returns(closes, s["t"])
+        if has_bench:
+            stock_dates = [str(b[0]) for b in bars]
+            fwd = compute_forward_returns(closes, s["t"], dates=stock_dates,
+                                          bench_closes=bench_closes,
+                                          bench_dates=bench_dates)
+        else:
+            fwd = compute_forward_returns(closes, s["t"])
         row_all = {
             "symbol": s["symbol"], "date": s["date"], "action": s["action"],
             "score": s.get("score"), "warmup": bool(s.get("warmup")),
@@ -323,6 +428,8 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     summary = aggregate(rows)
     summary["aggregate_raw"] = aggregate(rows_all)
     summary["simulation"] = summarize_simulation(simulated_rows) if simulate else None
+    summary["tier_monotonicity"] = tier_monotonicity(summary.get("by_action") or {},
+                                                     excess=has_bench)
     summary["meta"] = {
         "raw_count": raw_count,
         "visible_count": len(visible),
@@ -340,6 +447,8 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         "forced_exits": sum(1 for r in simulated_rows if r.get("forced")),
         "pool_version": manifest.get("pool_version"),
         "snapshot_id": manifest.get("snapshot_id"),
+        "benchmark_symbol": config.BENCHMARK_SYMBOL if has_bench else None,
+        "benchmark_name": config.BENCHMARK_NAME if has_bench else None,
         "usable_symbols": sum(1 for m in manifest.get("symbols", {}).values()
                               if not m.get("insufficient") and not m.get("ohlc_invalid")),
         "total_symbols": manifest.get("total_symbols"),
