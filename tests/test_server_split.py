@@ -31,6 +31,7 @@ EXPECTED_GET_ROUTES = {
     "/api/kline", "/api/minute", "/api/chanlun_minute", "/api/chanlun_daily",
     "/api/realtime_flow", "/api/journal", "/api/pool", "/api/watchlist",
     "/api/snapshot-info", "/api/scan", "/api/digest", "/api/notify",
+    "/api/kline-store",
 }
 
 

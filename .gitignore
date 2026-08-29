@@ -17,6 +17,7 @@ data/digest/
 data/scan/
 data/notify_state.json
 data/cache/
+data/kline/
 data/watchlist.json
 
 # 工作区与日志

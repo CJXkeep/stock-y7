@@ -18,6 +18,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+# 本文件直接 mock 内部网络抓取函数断言磁盘缓存/限速行为：关闭本地K线存储层，
+# 保证 fetch_kline 走纯网络路径（run_all_tests 按子进程运行，环境变量不外泄）。
+os.environ["KLINE_STORE"] = "0"
+
 import requests  # noqa: E402
 from data import kline_fetcher as kf  # noqa: E402
 

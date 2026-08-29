@@ -55,7 +55,7 @@ from backtest.journal import (
 )
 from analysis.signal_engine import run_analysis
 from server.signal_pipeline import signal_to_dict, _apply_signal_optimization
-from data.kline_fetcher import fetch_kline, fetch_quote, fetch_fund_flow
+from data.kline_fetcher import fetch_kline, fetch_quote, fetch_fund_flow, in_trading_session as _market_trading_session
 
 log = logging.getLogger("trend_app")
 
@@ -493,12 +493,12 @@ def watchlist_codes(watchlist_dir: str = None) -> list:
 
 
 def _in_watch_session(now=None) -> bool:
-    """本地时间是否处于 A 股交易时段（与 app._in_trading_session 同一口径）。"""
-    t = time.localtime() if now is None else now
-    if t.tm_wday >= 5:
-        return False
-    m = t.tm_hour * 60 + t.tm_min
-    return (9 * 60 + 15 <= m <= 11 * 60 + 35) or (12 * 60 + 55 <= m <= 15 * 60 + 5)
+    """是否处于 A 股交易时段（kline-dq：收口到统一上海时区实现；now 参数保留给测试）。"""
+    if now is not None:
+        if hasattr(now, "weekday"):
+            return _market_trading_session(now)
+        return _market_trading_session()
+    return _market_trading_session()
 
 
 def _analyze_one(symbol: str, index_klines, breadth) -> dict:

@@ -32,7 +32,7 @@ sys.path.insert(0, ROOT)
 from data.kline_fetcher import (
     fetch_kline, fetch_quote, fetch_fund_flow, search_stock, fetch_minute,
     fetch_realtime_flow, fetch_all_a_shares, fetch_index_kline, fetch_market_breadth,
-    fetch_industry,
+    fetch_industry, in_trading_session as _market_trading_session,
     Kline, Quote, FundFlow, MinuteData, MinuteFlow
 )
 from analysis.signal_engine import run_analysis, SignalEngineResult
@@ -62,6 +62,8 @@ from server.signal_pipeline import (
 from server.scan_engine import handle_scan
 from server.digest_service import handle_digest
 from server.notify_service import handle_notify_get, handle_notify_post, start_watcher
+from server.kline_sync import (handle_kline_store_get, handle_kline_store_post,
+                               start_sync_service)
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -251,16 +253,9 @@ def handle_snapshot_info(params: dict) -> dict:
 
 # ---- API处理 ----
 def _in_trading_session() -> bool:
-    """本地时间是否处于A股交易时段（含集合竞价与收盘前后几分钟缓冲）。
-
-    仅按星期与时刻判断，不含节假日表：节假日因行情日期非当日，
-    quote.timestamp 为空串，自然落到 closed，不会误报盘中。
-    """
-    t = time.localtime()
-    if t.tm_wday >= 5:  # 周六日
-        return False
-    m = t.tm_hour * 60 + t.tm_min
-    return (9 * 60 + 15 <= m <= 11 * 60 + 35) or (12 * 60 + 55 <= m <= 15 * 60 + 5)
+    """是否处于A股交易时段（kline-dq：收口到 kline_fetcher.in_trading_session，
+    统一上海时区口径，app/notify 不再各持副本）。"""
+    return _market_trading_session()
 
 
 # ---- /api/analyze 并发去重（optimization-round2）：同 (symbol, period) 并发只执行一次分析 ----
@@ -570,6 +565,7 @@ _GET_ROUTES = {
     "/api/scan": handle_scan,
     "/api/digest": handle_digest,
     "/api/notify": handle_notify_get,
+    "/api/kline-store": handle_kline_store_get,
 }
 
 class Handler(BaseHTTPRequestHandler):
@@ -792,7 +788,7 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH_ENABLED and not self._is_authed():
             self._json({"error": "未授权"}, 401)
             return
-        if path not in ("/api/pool", "/api/watchlist", "/api/notify"):
+        if path not in ("/api/pool", "/api/watchlist", "/api/notify", "/api/kline-store"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -811,6 +807,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(watchlist_store.save(body))
             elif path == "/api/notify":
                 self._json(handle_notify_post(body))
+            elif path == "/api/kline-store":
+                self._json(handle_kline_store_post(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:
@@ -824,6 +822,8 @@ def main():
     _kick_journal_backfill(min_interval_sec=0.0)
     # 启动钉钉推送 watcher（内部按配置判断启用与否，未配置时静默待机）
     start_watcher()
+    # 启动K线收盘同步服务（kline-store：交易日15:30增量同步，启动时落后先追赶）
+    start_sync_service()
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

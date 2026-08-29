@@ -17,7 +17,7 @@ if ROOT not in sys.path:
 from data.kline_fetcher import (
     fetch_kline, fetch_quote, fetch_fund_flow, search_stock, fetch_minute,
     fetch_realtime_flow, fetch_all_a_shares, fetch_index_kline, fetch_market_breadth,
-    fetch_industry,
+    fetch_industry, _market_latest_date, shanghai_now, in_trading_session,
     Kline, Quote, FundFlow, MinuteData, MinuteFlow
 )
 from analysis.signal_engine import run_analysis, SignalEngineResult
@@ -85,8 +85,23 @@ def _digest_make_ctx() -> dict:
     except Exception as exc:
         log.warning("速递宽度预取失败: %s", exc)
 
+    # 快路径（kline-dq）：预取一次全A快照，池扫描的行情与当日bar都取自快照行，
+    # 免逐股 fetch_quote；口径与 _run_scan 一致（非今日/时段歧义时放弃合成）。
+    rows_by_code = {}
+    try:
+        rows_by_code = {r["code"]: r for r in fetch_all_a_shares()}
+    except Exception as exc:
+        log.warning("速递全A快照预取失败（退化为逐股行情）: %s", exc)
+    market_date = _market_latest_date() or (index_klines[-1].date[:10] if index_klines else "")
+    today = shanghai_now().strftime("%Y-%m-%d")
+    if market_date != today and in_trading_session():
+        market_date = ""
+    live_ts = shanghai_now().strftime("%H:%M") if market_date == today else ""
+
     def scan_one(symbol: str):
-        return _scan_one_stock(symbol, "day", index_klines, breadth)
+        return _scan_one_stock(symbol, "day", index_klines, breadth,
+                               row=rows_by_code.get(str(symbol).strip().zfill(6)),
+                               market_date=market_date, live_ts=live_ts)
 
     def fetch_index(symbol: str, count: int = 60):
         if index_klines is not None:

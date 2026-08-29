@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import random
@@ -29,6 +30,8 @@ if os.path.isdir(_LIBS_DIR):
     sys.path.insert(0, _LIBS_DIR)
 
 import requests
+
+from data import kline_store as _kstore
 
 log = logging.getLogger("trend_data")
 
@@ -94,16 +97,22 @@ _ua_idx = 0
 
 _cache: Dict[str, Tuple[Any, float]] = {}
 _CACHE_TTL = 15
-# 2C2G 防内存膨胀：内存缓存条数上限（环境变量 KLINE_CACHE_MAX 可调），超限清理最旧 25%
+# 2C2G 防内存膨胀：内存缓存条数上限（环境变量 KLINE_CACHE_MAX 可调），超限按 LRU 淘汰最旧 25%
 _CACHE_MAX = int(os.environ.get("KLINE_CACHE_MAX", "1500"))
 
 
 def _prune_cache() -> None:
-    """缓存超上限时，丢弃最旧的 25% 条目（TTL 语义不变）。"""
+    """缓存超上限时，按时间戳（LRU）淘汰最旧的 25% 条目（TTL 语义不变）。
+
+    旧实现按 dict 插入序淘汰（FIFO）：热点 key 覆盖写入后位置不变反而先被逐出，
+    造成热点反复回源；这里按时间戳排序，保证真正淘汰最久未写入的条目。
+    """
     if len(_cache) > _CACHE_MAX:
         keep = _CACHE_MAX * 3 // 4
-        for k in list(_cache.keys())[: max(0, len(_cache) - keep)]:
-            _cache.pop(k, None)
+        evict = len(_cache) - keep
+        if evict > 0:
+            for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][1])[:evict]:
+                _cache.pop(k, None)
 
 
 def _get_session() -> requests.Session:
@@ -129,9 +138,10 @@ def _rotate_ua() -> None:
     _get_session().headers["User-Agent"] = UA_POOL[_ua_idx]
 
 
-def _cached(key: str) -> Optional[Any]:
+def _cached(key: str, ttl: float = _CACHE_TTL) -> Optional[Any]:
+    """带 TTL 的缓存读取（未命中返回 None）。"""
     e = _cache.get(key)
-    if e and time.time() - e[1] < _CACHE_TTL:
+    if e and time.time() - e[1] < ttl:
         return e[0]
     return None
 
@@ -141,17 +151,57 @@ def _set_cache(key: str, val: Any) -> None:
     _prune_cache()
 
 
-def _cache_get(key: str, ttl: float) -> Optional[Any]:
-    """带自定义TTL的缓存读取，None表示未命中。"""
-    e = _cache.get(key)
-    if e and time.time() - e[1] < ttl:
-        return e[0]
-    return None
+# 兼容别名：历史上两对完全重复的缓存辅助，统一到上面的实现。
+_cache_get = _cached
+_cache_set = _set_cache
 
 
-def _cache_set(key: str, val: Any) -> None:
-    _cache[key] = (val, time.time())
-    _prune_cache()
+# ---- 失败负缓存（kline-dq）：完全失败的结果短 TTL 记账，避免对死代码反复打满 host 池 ----
+_NEG_TTL = float(os.environ.get("KLINE_NEG_TTL", "60"))
+_neg_cache: Dict[str, float] = {}
+
+
+def _neg_fresh(key: str) -> bool:
+    ts = _neg_cache.get(key)
+    return ts is not None and time.time() - ts < _NEG_TTL
+
+
+def _neg_mark(key: str) -> None:
+    if len(_neg_cache) > 2000:
+        now = time.time()
+        for k in [k for k, ts in _neg_cache.items() if now - ts >= _NEG_TTL]:
+            _neg_cache.pop(k, None)
+        if len(_neg_cache) > 2000:
+            _neg_cache.clear()
+    _neg_cache[key] = time.time()
+
+
+# ---- 市场时间口径（kline-dq）：交易日/时段统一按上海时区，容器 TZ 不再影响判定 ----
+try:
+    from zoneinfo import ZoneInfo
+    _CN_TZ = ZoneInfo("Asia/Shanghai")
+except Exception:  # Windows 便携环境无 tzdata 等场景：回退系统本地时间
+    _CN_TZ = None
+
+
+def shanghai_now() -> datetime.datetime:
+    """上海时区当前时刻（naive 本地墙钟语义）；zoneinfo 不可用时回退系统本地时间。"""
+    if _CN_TZ is not None:
+        return datetime.datetime.now(_CN_TZ).replace(tzinfo=None)
+    return datetime.datetime.now()
+
+
+def in_trading_session(now: Optional[datetime.datetime] = None) -> bool:
+    """上海时间是否处于A股交易时段（含集合竞价与收盘前后缓冲），周六日 False。
+
+    仅按星期与时刻判断，不含节假日表：节假日因行情日期非当日，quote.timestamp
+    为空串，上层自然落到 closed，不会误报盘中。
+    """
+    t = now or shanghai_now()
+    if t.weekday() >= 5:
+        return False
+    m = t.hour * 60 + t.minute
+    return (9 * 60 + 15 <= m <= 11 * 60 + 35) or (12 * 60 + 55 <= m <= 15 * 60 + 5)
 
 
 def _to_float(v: Any) -> Optional[float]:
@@ -166,29 +216,30 @@ def _to_float(v: Any) -> Optional[float]:
 # ---- 限速 / 退避 ----
 _rate_lock = threading.Lock()
 _req_timestamps: List[float] = []
+# 滑动窗口固定 1.0 秒：任意 1s 窗口内最多 burst 次请求（修复旧实现把清理窗口
+# 写成 min_interval 导致的 25 req/s 突发——线程间隙会让队列反复清空重置）。
+_RATE_WINDOW = 1.0
 
 
 def _rate_acquire() -> None:
-    """请求前限速：模块级锁 + 时间戳队列，保证滑动窗口内不超过 KLINE_REQ_PER_SEC。"""
+    """请求前限速：模块级锁 + 1 秒滑动窗口时间戳队列，保证窗口内不超过 KLINE_REQ_PER_SEC。"""
     rate = KLINE_REQ_PER_SEC
     if rate <= 0:
         return
-    min_interval = 1.0 / float(rate)
-    # 允许整数倍突发：每秒 5 次时最多同时保留 5 个时间戳。
-    burst = max(1, int(rate) + (1 if rate > int(rate) else 0))
+    burst = max(1, int(rate + 0.999))  # 窗口容量 = 速率向上取整
     with _rate_lock:
         now = time.time()
-        # 清理窗口外的旧时间戳
-        while _req_timestamps and now - _req_timestamps[0] >= min_interval:
+        # 清理滑出 1 秒窗口的旧时间戳
+        while _req_timestamps and now - _req_timestamps[0] >= _RATE_WINDOW:
             _req_timestamps.pop(0)
         if len(_req_timestamps) < burst:
             _req_timestamps.append(now)
             return
-        wait = min_interval - (now - _req_timestamps[0])
+        wait = _RATE_WINDOW - (now - _req_timestamps[0])
         if wait > 0:
             time.sleep(wait)
-        # 若 sleep 被测试 mock 成 no-op，仍按最早请求+interval 推进虚拟时间，避免死循环。
-        now = _req_timestamps[0] + min_interval
+        # 若 sleep 被测试 mock 成 no-op，仍按最早请求+窗口推进虚拟时间，避免死循环。
+        now = _req_timestamps[0] + _RATE_WINDOW
         _req_timestamps.pop(0)
         _req_timestamps.append(now)
 
@@ -267,7 +318,7 @@ def symbol_to_tencent(symbol: str) -> str:
 
 
 # ---- K线 ----
-@dataclass
+@dataclass(slots=True)
 class Kline:
     date: str
     open: float
@@ -278,7 +329,7 @@ class Kline:
     amount: float = 0.0  # 成交额(元)
     pct: float = 0.0  # 涨跌幅(%)
     turnover: float = 0.0  # 换手率(%)
-    source: str = ""  # 数据源：tencent / sina / eastmoney
+    source: str = ""  # 数据源：tencent / sina / eastmoney / quote / snapshot / local-agg
     adjust: str = ""  # 复权口径：qfq / hfq / none
 
 
@@ -406,31 +457,477 @@ def _disk_cache_store(key: str, data: List[Kline]) -> None:
         log.debug(f"磁盘缓存写入失败 {path}: {e}")
 
 
-def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str = "qfq") -> List[Kline]:
-    """获取K线数据。
+# ---- 本地K线存储（kline-store）：日K落地 + 周/月本地聚合 + 当日bar桥接 ----
+# 全量补抓深度：一次网络请求多取些历史存入库（覆盖 750 根日K图表与 250 根周K聚合）。
+STORE_BARS = int(os.environ.get("KLINE_STORE_BARS", "1300"))
+# 周月聚合允许使用的日K深度上限：超过则回退网络周期源（如 250 根月K≈5510 根日K）。
+_AGG_MAX_DAILY = int(os.environ.get("KLINE_AGG_MAX_DAILY", "6000"))
+# 空尾验证时间窗：补尾未发现新数据（长期停牌等）后，窗内不再重复补尾。
+_EMPTY_CHECK_TTL = float(os.environ.get("KLINE_EMPTY_CHECK_TTL", "600"))
+# 交易日探测缓存：交易时段短TTL（及时识别开盘），其余长TTL。
+_MARKET_PROBE_TTL_SESSION = 45.0
+_MARKET_PROBE_TTL_IDLE = 300.0
+_market_probe: Dict[str, Any] = {"ts": 0.0, "final": "", "prev_final": "", "latest": ""}
+_market_probe_lock = threading.Lock()
 
-    多源fallback：腾讯→东财，均保持请求的复权口径；不复权的新浪源不再作为
-    qfq/hfq 的静默回退，避免同一策略在不同数据源之间静默切换复权口径。
+
+def _store_load_klines(symbol: str, adjust: str, limit: int) -> List[Kline]:
+    """本地存储读取并转回 Kline；未启用/为空返回 []。"""
+    records = _kstore.load_bars(symbol, adjust or "none", limit)
+    out: List[Kline] = []
+    for d in records:
+        k = _dict_to_kline(d)
+        if k is not None:
+            out.append(k)
+    return out
+
+
+def _store_upsert_klines(symbol: str, adjust: str, klines: List[Kline]) -> int:
+    if not klines:
+        return 0
+    try:
+        return _kstore.upsert_bars(symbol, adjust or "none",
+                                   [_kline_to_dict(k) for k in klines])
+    except Exception as exc:
+        log.warning(f"K线写入本地存储失败 {symbol}: {exc}")
+        return 0
+
+
+def _mark_exhausted(symbol: str, adjust_key: str, got: int, asked: int) -> None:
+    """记录"全量已取尽"标记：got<asked 表示历史不足请求深度，避免每次重复全量补抓。"""
+    _kstore.set_meta(f"exhausted:{symbol}:{adjust_key}", str(max(int(got), 0)))
+    _kstore.set_meta(f"exhausted_ask:{symbol}:{adjust_key}", str(max(int(asked), 0)))
+
+
+def _exhausted_satisfied(symbol: str, adjust_key: str, needed: int) -> bool:
+    """历史是否已取尽到覆盖 needed：仅当本次深度不超过当初取尽的请求深度时才可信。"""
+    try:
+        got = int(_kstore.get_meta(f"exhausted:{symbol}:{adjust_key}") or 0)
+        asked = int(_kstore.get_meta(f"exhausted_ask:{symbol}:{adjust_key}") or 0)
+    except (TypeError, ValueError):
+        return False
+    return got > 0 and needed <= asked and got < needed
+
+
+def _calendar_gap_days(from_date: str, to_date: str) -> Optional[int]:
+    try:
+        d1 = datetime.date.fromisoformat(str(from_date)[:10])
+        d2 = datetime.date.fromisoformat(str(to_date)[:10])
+    except (TypeError, ValueError):
+        return None
+    return (d2 - d1).days
+
+
+def _tail_count(stored_last: str) -> int:
+    """按存储最后日期到今天的环境自然日间隔估算补尾根数（≈交易日×1.6+缓冲），10..250。"""
+    gap = _calendar_gap_days(stored_last, time.strftime("%Y-%m-%d"))
+    if gap is None:
+        return 30
+    return max(10, min(250, int(gap * 1.6) + 10))
+
+
+def _append_live(klines: List[Kline], live: Optional[Kline]) -> List[Kline]:
+    """把当日合成bar接到序列末尾（存储已含该日期时以存储的最终bar为准）。"""
+    if live and (not klines or live.date[:10] > klines[-1].date[:10]):
+        return klines + [live]
+    return klines
+
+
+def _clock_final_date(today: str, is_weekday: bool, hhmm: int) -> str:
+    """交易日时钟回退估计（探测失败时用）。"""
+    try:
+        d = datetime.date.fromisoformat(today)
+    except ValueError:
+        return today
+    if is_weekday and hhmm >= 1505:
+        return today
+    d -= datetime.timedelta(days=1 if is_weekday else 0)
+    while d.weekday() >= 5:
+        d -= datetime.timedelta(days=1)
+    return d.isoformat()
+
+
+def _market_dates() -> Tuple[str, str]:
+    """返回 (final, prev_final)：最近/次新一个已收盘交易日，本地K线新鲜度判据。
+
+    用上证指数日K探测（独立内存缓存：交易时段45s/其余300s——不复用 fetch_index_kline
+    的300s磁盘缓存，否则开盘后几分钟内会把"今天"误判为未开盘）。探测带 single-flight
+    锁（TTL 失效瞬间的并发调用只放一个探测请求，其余等待共享结果）。时钟口径为上海
+    时区；探测失败回退本地时钟估计——节假日会误判"今天是交易日"，后果只是多一次
+    空尾请求并被 empty 标记抑制。
     """
-    cache_key = f"kline_{symbol}_{count}_{period}_{adjust}"
-    cached = _cached(cache_key)
-    if cached:
-        return cached
+    now = time.time()
+    st = shanghai_now()
+    today = st.strftime("%Y-%m-%d")
+    hhmm = st.hour * 100 + st.minute
+    is_weekday = st.weekday() < 5
+    ttl = _MARKET_PROBE_TTL_SESSION if (is_weekday and 900 <= hhmm <= 1510) else _MARKET_PROBE_TTL_IDLE
+    if _market_probe["final"] and now - _market_probe["ts"] < ttl:
+        return _market_probe["final"], _market_probe["prev_final"]
 
-    # 第二层磁盘缓存：只接入日线/周线 K 线抓取
-    if period in ("day", "week"):
+    with _market_probe_lock:
+        # 双检：等锁期间可能已被其他线程探测完成
+        if _market_probe["final"] and time.time() - _market_probe["ts"] < ttl:
+            return _market_probe["final"], _market_probe["prev_final"]
+
+        final = prev_final = latest = ""
+        try:
+            params = {
+                "secid": "1.000001",
+                "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": "101",
+                "fqt": "0",
+                "lmt": "5",
+                "end": "20500101",
+            }
+            data = _get_json_eastmoney("/api/qt/stock/kline/get", params, EM_KLINE_HOSTS)
+            lines = ((data or {}).get("data") or {}).get("klines") or []
+            dates = [str(x).split(",")[0] for x in lines if x]
+            if dates:
+                latest = dates[-1]
+                if latest == today and hhmm < 1505:
+                    # 盘中：今天的bar是活的，最近已收盘日是它前一根
+                    final = dates[-2] if len(dates) >= 2 else ""
+                    prev_final = dates[-3] if len(dates) >= 3 else ""
+                else:
+                    final = latest
+                    prev_final = dates[-2] if len(dates) >= 2 else ""
+        except Exception as exc:
+            log.debug(f"交易日探测失败: {exc}")
+
+        if not final:
+            final = _clock_final_date(today, is_weekday, hhmm)
+            prev_final = _clock_final_date(final, True, 0)
+            latest = latest or final
+
+        _market_probe.update(ts=time.time(), final=final, prev_final=prev_final, latest=latest)
+        return final, prev_final
+
+
+def _market_latest_date() -> str:
+    """市场最新交易日（含盘中当日活bar），供扫描快照行合成当日bar定日期。
+
+    依赖 _market_dates 的探针缓存（上海时区、45s/300s TTL、single-flight）；
+    探针从未成功时返回空串，调用方回退指数末根日期。
+    """
+    if not _market_probe.get("latest") or time.time() - _market_probe["ts"] > _MARKET_PROBE_TTL_IDLE:
+        try:
+            _market_dates()
+        except Exception:
+            return ""
+    return str(_market_probe.get("latest") or "")
+    return final, prev_final
+
+
+def synthesize_bar_from_quote(quote: Optional["Quote"], market_date: str = "") -> Optional[Kline]:
+    """由实时行情合成当日bar（kline-store 桥接用）。
+
+    仅当行情更新时间属于今天（quote.timestamp 非空，_quote_intraday_time 已保证）
+    才合成；qfq/不复权口径下当日复权价=原始价可直接使用，hfq（历史基准放大）不适用。
+    """
+    if quote is None or not getattr(quote, "timestamp", ""):
+        return None
+    o, c = quote.open, quote.price
+    if not c or c <= 0 or not o or o <= 0 or not quote.volume or quote.volume <= 0:
+        return None
+    date = shanghai_now().strftime("%Y-%m-%d")
+    if market_date and str(market_date)[:10] != date:
+        return None
+    return Kline(
+        date=date, open=o, close=c,
+        high=max(quote.high or c, c), low=min(quote.low or c, c),
+        volume=quote.volume, amount=quote.amount or 0,
+        turnover=quote.turnover or 0, pct=quote.pct or 0,
+        source="quote", adjust="",
+    )
+
+
+def synthesize_bar_from_row(row: Optional[dict], market_date: str = "") -> Optional[Kline]:
+    """由全A快照行合成当日bar（扫描提速：一次 clist 快照替代逐股行情/K线请求）。
+
+    market_date 传"当日有效交易日"（一般取扫描预取指数的最新bar日期，与快照同刻，
+    日期口径天然一致）；为空或价格/成交量非法时不合成。
+    """
+    if not row or not market_date:
+        return None
+    price = _to_float(row.get("price"))
+    op = _to_float(row.get("open"))
+    vol = _to_float(row.get("volume"))
+    if not price or price <= 0 or not op or op <= 0 or not vol or vol <= 0:
+        return None
+    high = _to_float(row.get("high")) or price
+    low = _to_float(row.get("low")) or price
+    return Kline(
+        date=str(market_date)[:10],
+        open=op, close=price, high=max(high, price), low=min(low, price),
+        volume=vol, amount=_to_float(row.get("amount")) or 0,
+        turnover=_to_float(row.get("turnover")) or 0,
+        pct=_to_float(row.get("pct")) or 0,
+        source="snapshot", adjust="",
+    )
+
+
+def _aggregate_daily(daily: List[Kline], period: str) -> List[Kline]:
+    """日K → 周K/月K 本地聚合（与网络周期K同口径）。
+
+    周=ISO周分组，月=自然月分组；组标签取组内最后一个交易日；open/close 取组内
+    首末根，high/low 取极值，volume/amount/turnover 求和（turnover≈区间成交量/
+    流通盘），pct 相对上一组收盘。输入须为正序（旧→新）、同复权口径的日K。
+    """
+    if period not in ("week", "month") or not daily:
+        return []
+    groups: Dict[Any, List[Kline]] = {}
+    for k in daily:
+        d = str(k.date)[:10]
+        try:
+            if period == "week":
+                iso = datetime.date.fromisoformat(d).isocalendar()
+                key = (iso[0], iso[1])
+            else:
+                key = d[:7]
+        except ValueError:
+            continue
+        groups.setdefault(key, []).append(k)
+    out: List[Kline] = []
+    prev_close = 0.0
+    for bars in groups.values():
+        first, last = bars[0], bars[-1]
+        agg = Kline(
+            date=last.date, open=first.open, close=last.close,
+            high=max(b.high for b in bars), low=min(b.low for b in bars),
+            volume=sum(b.volume for b in bars),
+            amount=sum(b.amount for b in bars),
+            turnover=sum(b.turnover for b in bars),
+            source="local-agg", adjust=last.adjust,
+        )
+        if prev_close:
+            agg.pct = round((agg.close - prev_close) / prev_close * 100, 2)
+        prev_close = agg.close
+        out.append(agg)
+    return out
+
+
+def _merge_into_store(symbol: str, adjust_key: str, stored: List[Kline],
+                      fetched: List[Kline], needed: int) -> Tuple[Optional[List[Kline]], int]:
+    """增量尾部并入存储；返回 (合并后最近needed根, 新增根数)。
+
+    merged=None 表示需要全量重取：尾部与存储不衔接（长期停牌缺口），或重叠bar收盘
+    偏差超阈值（除权导致复权基准漂移，旧存量整体作废）。阈值取 max(0.1%, 0.02元)：
+    0.1% 相对偏差捕捉真实除权（旧实现 0.5% 会漏掉小额分红并让新旧基准混存），
+    0.02 元绝对下限吸收行情源对低价股两位小数的舍入噪声，避免误判频繁全量重取。
+    """
+    stored_last = stored[-1].date[:10]
+    overlap = [k for k in fetched if k.date[:10] <= stored_last]
+    if not overlap:
+        return None, 0
+    by_date = {k.date[:10]: k for k in stored}
+    checked = 0
+    for ov in reversed(overlap):  # 从新到旧全量采样比对（最多30根）
+        if checked >= 30:
+            break
+        checked += 1
+        old = by_date.get(ov.date[:10])
+        if old and old.close > 0 and ov.close > 0:
+            tol = max(0.001 * old.close, 0.02)
+            if abs(ov.close - old.close) > tol:
+                log.info(f"K线复权基准变化，触发全量重取 {symbol} {ov.date}: {old.close} -> {ov.close}")
+                return None, 0
+    added = sum(1 for k in fetched if k.date[:10] > stored_last)
+    # 重叠bar也重写：顺带修正盘中曾存过的残缺bar与缺失的成交额/换手率
+    _store_upsert_klines(symbol, adjust_key, fetched)
+    merged = _store_load_klines(symbol, adjust_key, needed)
+    return merged, added
+
+
+def _get_day_klines(symbol: str, count: int, adjust: str,
+                    live_bar: Optional[Kline] = None, bridge: bool = True) -> List[Kline]:
+    """日K主路径（kline-store）：本地存储优先 → 当日bar桥接 → 增量补尾/全量重取。
+
+    新鲜度分层（final=最近已收盘交易日，见 _market_dates）：
+      1) 存储覆盖到 final → 零网络直接返回；
+      2) 存储只差"今天"（覆盖到 prev_final）→ 用 live_bar（调用方合成）或实时行情
+         桥接当日bar，不拉K线；无当日bar且空尾验证时间窗内（长期停牌）也直接用存量；
+      3) 更陈旧 → 增量补尾（按自然日间隔估算根数），出现空洞/复权基准变化时全量重取。
+    存储新鲜但深度不足时全量补抓一次（之后由 exhausted 标记放行短序列）。
+    """
+    needed = max(int(count or 0), 30)
+    adjust_key = adjust or "none"
+    full_depth = max(needed, STORE_BARS)
+    stored = _store_load_klines(symbol, adjust_key, needed)
+    stored_last = stored[-1].date[:10] if stored else ""
+    final, prev_final = _market_dates()
+    exhausted = _exhausted_satisfied(symbol, adjust_key, needed)
+
+    def live_ok(bar: Optional[Kline]) -> bool:
+        return bar is not None and (not stored_last or bar.date[:10] > stored_last)
+
+    live = live_bar if live_ok(live_bar) else None
+
+    if stored and final:
+        effective_last = live.date[:10] if live else stored_last
+        if effective_last >= final:
+            if len(stored) >= needed or exhausted:
+                return _append_live(stored, live)
+            # 新鲜但深度不足：全量补抓到目标深度（一次性）
+            fetched = _fetch_kline_network(symbol, full_depth, "day", adjust, use_disk=False, cache_result=False)
+            if fetched:
+                _kstore.set_depth_floor(symbol, adjust_key, full_depth)
+                _mark_exhausted(symbol, adjust_key, len(fetched), full_depth)
+                _store_upsert_klines(symbol, adjust_key, fetched)
+                merged = _store_load_klines(symbol, adjust_key, needed)
+                return _append_live(merged, live)
+            return _append_live(stored, live)
+        # 分层2：只缺"今天"——桥接当日bar，避免逐股拉K线
+        if prev_final and stored_last >= prev_final:
+            if live is None and bridge and adjust_key in ("", "none", "qfq"):
+                q = fetch_quote(symbol)
+                cand = synthesize_bar_from_quote(q)
+                if live_ok(cand):
+                    live = cand
+            if live is not None:
+                return _append_live(stored, live)
+            empty_ts = _to_float(_kstore.get_meta(f"empty:{symbol}:{adjust_key}")) or 0.0
+            if time.time() - empty_ts < _EMPTY_CHECK_TTL:
+                return stored
+        # 否则落到下面的增量补尾
+
+    if not stored:
+        fetched = _fetch_kline_network(symbol, full_depth, "day", adjust, use_disk=False, cache_result=False)
+        if fetched:
+            _kstore.set_depth_floor(symbol, adjust_key, full_depth)
+            _mark_exhausted(symbol, adjust_key, len(fetched), full_depth)
+            _store_upsert_klines(symbol, adjust_key, fetched)
+            merged = _store_load_klines(symbol, adjust_key, needed)
+            return _append_live(merged, live_bar)
+        return [live_bar] if live_bar else []
+
+    fetched = _fetch_kline_network(symbol, _tail_count(stored_last), "day", adjust, use_disk=False, cache_result=False)
+    if fetched:
+        merged, added = _merge_into_store(symbol, adjust_key, stored, fetched, needed)
+        if merged is not None:
+            if added == 0:
+                _kstore.set_meta(f"empty:{symbol}:{adjust_key}", str(time.time()))
+            return _append_live(merged, live_bar)
+        # 空洞/复权基准变化 → 全量重取
+        full = _fetch_kline_network(symbol, full_depth, "day", adjust, use_disk=False, cache_result=False)
+        if full:
+            _kstore.drop_symbol(symbol, adjust_key)
+            _kstore.set_depth_floor(symbol, adjust_key, full_depth)
+            _mark_exhausted(symbol, adjust_key, len(full), full_depth)
+            _store_upsert_klines(symbol, adjust_key, full)
+            merged = _store_load_klines(symbol, adjust_key, needed)
+            return _append_live(merged, live_bar)
+    else:
+        # 网络失败：标记空尾验证时间，时间窗内分层2不再重复补尾
+        _kstore.set_meta(f"empty:{symbol}:{adjust_key}", str(time.time()))
+    merged = _store_load_klines(symbol, adjust_key, needed)
+    if merged:
+        log.warning(f"K线补尾失败，回退本地存量 {symbol}: last={stored_last}")
+        return _append_live(merged, live_bar)
+    return [live_bar] if live_bar else []
+
+
+def _get_derived_klines(symbol: str, count: int, period: str, adjust: str,
+                        live_bar: Optional[Kline] = None) -> List[Kline]:
+    """周K/月K：由日K本地聚合（口径=网络周期K，组标签=组内最后交易日）。
+
+    日K深度不够（聚合异常/历史不足30根）时返回 []，由 fetch_kline 回退网络周期源。
+    """
+    needed = max(int(count or 0), 10)
+    mult = 5 if period == "week" else 22
+    needed_daily = needed * mult + 10
+    if needed_daily > min(_AGG_MAX_DAILY, STORE_BARS):
+        # 超过本地库同步深度/聚合上限：回退网络周期源（该周期无store覆盖）
+        return []
+    daily = _get_day_klines(symbol, needed_daily, adjust, live_bar)
+    if not daily or len(daily) < 30:
+        return []
+    return _aggregate_daily(daily, period)[-needed:]
+
+
+def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str = "qfq",
+                live_bar: Optional[Kline] = None, bridge: bool = True) -> List[Kline]:
+    """获取K线数据（kline-store 后：本地存储优先，网络只补缺口）。
+
+    网络路径多源fallback：腾讯→东财，均保持请求的复权口径；不复权的新浪源不再作为
+    qfq/hfq 的静默回退，避免同一策略在不同数据源之间静默切换复权口径。
+
+    - period=day：日K读本地存储（data/kline/kline.db，可用 KLINE_STORE=0 关闭退回
+      纯网络），新鲜则零网络；只缺"今天"时用 live_bar/实时行情桥接当日bar；更陈旧
+      才增量补尾（出现空洞或除权导致基准漂移时自动全量重取）。
+    - period=week/month：优先由日K本地聚合，日K深度不足时回退腾讯/东财周期源。
+    - live_bar：调用方合成的当日bar（如扫描用全A快照行合成）；bridge=False 禁止
+      内部用实时行情桥接（调用方已有当日数据来源时使用，避免逐股行情请求）。
+    """
+    period = period if period in ("day", "week", "month") else "day"
+    count = max(int(count or 0), 1)
+    cache_key = f"kline_{symbol}_{count}_{period}_{adjust}"
+    if live_bar is None:
+        # 带当日bar的调用不读内存缓存（kline-dq）：15s 窗口内可能拿到缺当日bar的旧条目
+        cached = _cached(cache_key)
+        if cached:
+            return cached
+
+    klines: List[Kline] = []
+    if _kstore.enabled() and count <= STORE_BARS:
+        # 深请求绕行（kline-dq）：count>STORE_BARS 的显式深历史不进本地库——
+        # 库深度有界（≤max(KEEP, STORE_BARS)），深请求行为与旧版一致（即时网络取数）。
+        try:
+            if period == "day":
+                klines = _get_day_klines(symbol, count, adjust, live_bar, bridge=bridge)
+            else:
+                klines = _get_derived_klines(symbol, count, period, adjust, live_bar)
+                if not klines:
+                    # 日K深度不足/聚合失败 → 网络周期源兜底（周期K无store覆盖，保留磁盘缓存）
+                    klines = _fetch_kline_network(symbol, count, period, adjust, use_disk=True)
+        except Exception as exc:
+            log.warning(f"本地K线存储路径异常，回退网络源 {symbol}: {exc}")
+            klines = _fetch_kline_network(symbol, count, period, adjust, use_disk=True)
+    else:
+        klines = _fetch_kline_network(symbol, count, period, adjust, use_disk=True)
+
+    if not klines or len(klines) < 10:
+        log.error(f"所有K线源均失败 {symbol}, 获取{len(klines)}条")
+        return klines if klines else []
+
+    _set_cache(cache_key, klines)
+    return klines
+
+
+def _fetch_kline_network(symbol: str, count: int, period: str, adjust: str,
+                         use_disk: Optional[bool] = None,
+                         cache_result: bool = True) -> List[Kline]:
+    """多源网络链路（原 fetch_kline 网络部分，行为冻结）：腾讯→(不复权新浪)→东财
+    + 数据校验 + 东财补成交额/换手率 + 磁盘缓存。
+
+    use_disk 是否读第二层磁盘缓存；None=自动（存储层停用时读——存储启用后该层
+    职责由 kline-store 承担，避免拿到 ≤300s 前的旧数据干扰增量补尾）。
+    cache_result=False 时不写内存缓存：store 路径的全量补抓（1300根整段）只进
+    本地库，不驻留进程内存（2C2G 防 OOM，见 spec 内存缓存一节）。
+    """
+    if use_disk is None:
+        use_disk = not _kstore.enabled()
+    if _neg_fresh(f"kline:{symbol}:{adjust or 'none'}"):
+        log.debug(f"K线负缓存命中（近期完全失败），跳过网络 {symbol}")
+        return []
+    if use_disk and period in ("day", "week"):
         disk_key = f"{symbol}:{period}:{adjust}"
         disk_klines = _disk_cache_load(disk_key)
         if disk_klines:
-            _set_cache(cache_key, disk_klines)
+            if cache_result:
+                _set_cache(f"kline_{symbol}_{count}_{period}_{adjust}", disk_klines)
             log.debug(f"磁盘K线缓存命中 {symbol}: {len(disk_klines)}条 period={period} adjust={adjust}")
             return disk_klines
 
     klines: List[Kline] = []
+    source = ""
 
     # 1. 优先腾讯API（支持 qfq/hfq/none，价格准确）
     klines = _fetch_kline_tencent(symbol, count, period, adjust)
     if klines:
+        source = "tencent"
         _set_kline_meta(klines, "tencent", adjust or "none")
         log.debug(f"腾讯K线成功 {symbol}: {len(klines)}条 source=tencent adjust={adjust or 'none'}")
     else:
@@ -438,6 +935,7 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
         if adjust in ("", "none", "bfq"):
             klines = _fetch_kline_sina(symbol, count, period)
             if klines:
+                source = "sina"
                 _set_kline_meta(klines, "sina", "none")
                 log.debug(f"新浪K线成功 {symbol}: {len(klines)}条 source=sina adjust=none")
 
@@ -446,6 +944,7 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
             klines = _fetch_kline_eastmoney(symbol, count, period)
             if klines:
                 if adjust == "qfq":
+                    source = "eastmoney"
                     _set_kline_meta(klines, "eastmoney", "qfq")
                     log.debug(f"东财K线成功 {symbol}: {len(klines)}条 source=eastmoney adjust=qfq")
                 else:
@@ -456,15 +955,18 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
 
     if not klines or len(klines) < 10:
         log.error(f"所有K线源均失败 {symbol}, 获取{len(klines)}条")
+        _neg_mark(f"kline:{symbol}:{adjust or 'none'}")  # 完全失败/空数据 → 负缓存短窗记账
         return klines if klines else []
 
-    # 数据校验：过滤异常价格（价格<0或>10000的可能是脏数据）
+    # 数据校验：过滤异常价格（价格<0或>10000的可能是脏数据）。
+    # close<10000 上限仅对非 hfq 生效：后复权历史价格合法破万，按脏数据过滤会清空整条序列。
+    price_cap = None if (adjust or "").lower() == "hfq" else 10000.0
     valid_klines = []
     for k in klines:
         if k.close > 0 and k.high > 0 and k.low > 0 and k.open > 0:
             if k.high >= k.low and k.high >= k.close and k.high >= k.open:
                 if k.low <= k.close and k.low <= k.open:
-                    if k.close < 10000:  # 合理价格上限
+                    if price_cap is None or k.close < price_cap:
                         valid_klines.append(k)
                         continue
         log.warning(f"异常K线数据被过滤 {symbol} {k.date}: O={k.open} H={k.high} L={k.low} C={k.close}")
@@ -472,10 +974,12 @@ def fetch_kline(symbol: str, count: int = 250, period: str = "day", adjust: str 
         log.warning(f"过滤{len(klines)-len(valid_klines)}条异常K线 {symbol}")
     klines = valid_klines
 
-    # 补充成交额和换手率（东财API，按日期匹配）
-    _enrich_from_eastmoney(symbol, count, klines)
+    # 补充成交额和换手率（东财API，按日期匹配）；东财本身是源时数据已含，跳过冗余请求
+    if source != "eastmoney":
+        _enrich_from_eastmoney(symbol, count, klines)
 
-    _set_cache(cache_key, klines)
+    if cache_result:
+        _set_cache(f"kline_{symbol}_{count}_{period}_{adjust}", klines)
 
     # 写磁盘缓存（空列表不覆盖，由上面 len<10 分支保证已不会走到这里）
     if period in ("day", "week") and klines:
@@ -491,6 +995,7 @@ def _fetch_kline_tencent(symbol: str, count: int, period: str, adjust: str) -> L
 
     try:
         s = _get_session()
+        _rate_acquire()  # 腾讯也统一限速（WAF 风控现实存在，见头部拦截检测）
         r = s.get(TENCENT_KLINE, params=params, timeout=10)
         # WAF拦截检测：先尝试JSON解析，只有解析失败或返回HTML验证页才判定拦截
         # 腾讯API返回Content-Type=text/html但内容可能是有效JSON，不能仅靠Content-Type判断
@@ -566,6 +1071,7 @@ def _fetch_kline_sina(symbol: str, count: int, period: str) -> List[Kline]:
 
     try:
         s = _get_session()
+        _rate_acquire()
         r = s.get(SINA_KLINE, params=params, timeout=10)
         if r.status_code != 200:
             return []
@@ -649,10 +1155,14 @@ def _fetch_kline_eastmoney(symbol: str, count: int, period: str) -> List[Kline]:
 
 
 def _enrich_from_eastmoney(symbol: str, count: int, klines: List[Kline]) -> None:
-    """从东财K线API补充成交额和换手率。按日期匹配。请求比K线多50%以确保日期覆盖。"""
+    """从东财K线API补充成交额和换手率。按日期匹配。
+
+    请求深度跟随实际根数（kline-dq）：旧实现封顶 500 导致 STORE_BARS=1300 的入库
+    序列只有最新约 500 根带 amount/turnover，周/月聚合随之失真。
+    """
     secid = symbol_to_secid(symbol)
     # 多请求一些数据以确保日期覆盖（东财可能缺少部分历史数据）
-    request_count = min(count + 60, 500)
+    request_count = min(int(count) + 100, STORE_BARS + 200)
     params = {
         "secid": secid,
         "ut": "fa5fd1943c7b386f172d6893dbfba10b",
@@ -709,7 +1219,7 @@ class Quote:
 def _quote_intraday_time(raw: Any) -> str:
     """解析东财f86更新时间为"HH:MM"；非当日的行情返回空串。
 
-    f86为Unix秒级时间戳（兼容毫秒）。仅当行情日期是今天时才返回时间，
+    f86为Unix秒级时间戳（兼容毫秒）。仅当行情日期是"今天"（上海时区）时才返回时间，
     避免周末/隔夜的最后一次成交时间被误判为盘中实时。
     """
     ts = _to_float(raw)
@@ -717,6 +1227,11 @@ def _quote_intraday_time(raw: Any) -> str:
         return ""
     if ts > 1e12:  # 毫秒时间戳
         ts /= 1000.0
+    if _CN_TZ is not None:
+        lt = datetime.datetime.fromtimestamp(ts, _CN_TZ).replace(tzinfo=None)
+        if lt.strftime("%Y-%m-%d") != shanghai_now().strftime("%Y-%m-%d"):
+            return ""
+        return lt.strftime("%H:%M")
     lt = time.localtime(ts)
     if time.strftime("%Y-%m-%d", lt) != time.strftime("%Y-%m-%d"):
         return ""
@@ -724,11 +1239,17 @@ def _quote_intraday_time(raw: Any) -> str:
 
 
 def fetch_quote(symbol: str) -> Optional[Quote]:
-    """实时行情。东财stock/get，fltt=2价格不除100。2秒缓存保证秒级实时性。"""
+    """实时行情。东财stock/get，fltt=2价格不除100。2秒缓存保证秒级实时性。
+
+    完全失败写 60s 负缓存（KLINE_NEG_TTL）：死代码/断网时避免每次都打满 host 池重试。
+    """
     cache_key = f"quote_{symbol}"
     cached = _cache_get(cache_key, _RT_CACHE_TTL)
     if cached:
         return cached
+    if _neg_fresh(f"quote:{symbol}"):
+        log.debug(f"行情负缓存命中（近期失败），跳过网络 {symbol}")
+        return None
 
     secid = symbol_to_secid(symbol)
     params = {
@@ -759,7 +1280,36 @@ def fetch_quote(symbol: str) -> Optional[Quote]:
         q.timestamp = _quote_intraday_time(d.get("f86"))
         _cache_set(cache_key, q)
         return q
+    _neg_mark(f"quote:{symbol}")
     return None
+
+
+def quote_from_row(symbol: str, row: Optional[dict], ts: str = "") -> Optional[Quote]:
+    """全A快照行 → Quote（扫描提速：一次 clist 全量快照替代逐股行情请求）。
+
+    缺价格或行非法返回 None，调用方回退 fetch_quote；ts 由调用方按"快照数据是否
+    属于今日"决定（盘中为当前 HH:MM，否则空串），供量比盘中时间进度归一化使用。
+    """
+    if not row:
+        return None
+    price = _to_float(row.get("price"))
+    if not price or price <= 0:
+        return None
+    return Quote(
+        symbol=str(symbol),
+        name=str(row.get("name") or ""),
+        price=price,
+        pct=_to_float(row.get("pct")) or 0,
+        change=_to_float(row.get("change")) or 0,
+        high=_to_float(row.get("high")) or price,
+        low=_to_float(row.get("low")) or price,
+        open=_to_float(row.get("open")) or price,
+        pre_close=_to_float(row.get("pre_close")) or 0,
+        volume=_to_float(row.get("volume")) or 0,
+        amount=_to_float(row.get("amount")) or 0,
+        turnover=_to_float(row.get("turnover")) or 0,
+        timestamp=str(ts or ""),
+    )
 
 
 # ---- 资金流 ----
@@ -1141,6 +1691,7 @@ def _fetch_kline_tencent_index(index_code: str, count: int) -> List[Kline]:
     params = {"param": f"{tc_symbol},day,,,{count},"}
     try:
         s = _get_session()
+        _rate_acquire()
         r = s.get(TENCENT_KLINE, params=params, timeout=10)
         text = r.text.strip()
         if text.startswith("<!DOCTYPE") or text.startswith("<html"):
@@ -1177,6 +1728,25 @@ def _fetch_kline_tencent_index(index_code: str, count: int) -> List[Kline]:
 
 
 # ---- 市场宽度（涨跌家数）----
+_CLIST_PATH = "/api/qt/clist/get"
+
+
+def _clist_page(base_params: dict, pn: int) -> tuple:
+    """clist 分页请求（全A列表/市场宽度共用）：host 轮换，返回 (diff, total)。"""
+    params = dict(base_params, pn=str(pn))
+    s = _get_session()
+    for host in QUOTE_HOSTS:
+        try:
+            r = s.get(host + _CLIST_PATH, params=params, timeout=8)
+            if r.status_code == 200:
+                data = r.json()
+                if data and data.get("data"):
+                    return data["data"].get("diff") or [], data["data"].get("total", 0)
+        except Exception:
+            continue
+    return [], 0
+
+
 def fetch_market_breadth() -> Optional[dict]:
     """获取A股全市场宽度（涨跌家数）。
 
@@ -1191,7 +1761,6 @@ def fetch_market_breadth() -> Optional[dict]:
 
     import concurrent.futures
 
-    CLIST_PATH = "/api/qt/clist/get"
     base_params = {
         "po": "1",
         "np": "1",
@@ -1202,38 +1771,13 @@ def fetch_market_breadth() -> Optional[dict]:
     }
 
     def _fetch_page(pn: int) -> list:
-        params = dict(base_params, pn=str(pn))
-        s = _get_session()
-        for host in QUOTE_HOSTS:
-            try:
-                url = host + CLIST_PATH
-                r = s.get(url, params=params, timeout=8)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data and data.get("data"):
-                        return data["data"].get("diff") or []
-            except Exception:
-                continue
-        return []
+        return _clist_page(base_params, pn)[0]
 
-    # 先取第一页，拿到总数算页数
-    first_page = _fetch_page(1)
+    # 先取第一页，同一响应里拿 diff 与 total（kline-dq：不再重复请求第一页）
+    first_page, total_stocks = _clist_page(base_params, 1)
     if not first_page:
         log.warning("市场宽度获取失败: 第一页为空")
         return None
-
-    # 从第一页响应中拿total
-    total_stocks = 0
-    for host in QUOTE_HOSTS:
-        try:
-            s = _get_session()
-            r = s.get(host + CLIST_PATH, params=dict(base_params, pn="1"), timeout=8)
-            if r.status_code == 200:
-                total_stocks = r.json().get("data", {}).get("total", 0)
-                if total_stocks:
-                    break
-        except Exception:
-            continue
 
     total_pages = (total_stocks + 99) // 100 if total_stocks else 59
     log.info(f"市场宽度: {total_stocks}只A股, {total_pages}页, 开始全量抓取")
@@ -1285,10 +1829,10 @@ def fetch_market_breadth() -> Optional[dict]:
 
 
 def fetch_all_a_shares() -> List[Dict]:
-    """获取全A股列表（代码+名称+价格+涨跌幅+成交额）。
+    """获取全A股列表（代码+名称+价格+涨跌幅+成交额+当日OHLC等）。
 
-    用于扫描功能预过滤。全量抓取~5800只，10线程并发，约0.5秒完成。
-    60秒缓存。
+    用于扫描功能预过滤与当日bar合成（kline-store 提速：快照行直接当行情/当日bar用）。
+    全量抓取~5800只，10线程并发，约0.5秒完成。60秒缓存。
     """
     cache_key = "all_a_shares"
     cached = _cache_get(cache_key, 60)
@@ -1297,33 +1841,20 @@ def fetch_all_a_shares() -> List[Dict]:
 
     import concurrent.futures
 
-    CLIST_PATH = "/api/qt/clist/get"
     base_params = {
         "po": "1",
         "np": "1",
         "fltt": "2",
-        "fields": "f2,f3,f6,f12,f14",
+        # f12代码 f14名称 f2最新 f3涨跌幅 f4涨跌额 f5成交量(手) f6成交额 f8换手率
+        # f15最高 f16最低 f17今开 f18昨收 —— 后六个供快照行合成当日bar/Quote
+        "fields": "f2,f3,f4,f5,f6,f8,f12,f14,f15,f16,f17,f18",
         "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
         "pz": "100",
     }
 
     def _fetch_page(pn: int) -> tuple:
         """返回 (page_data, total)"""
-        params = dict(base_params, pn=str(pn))
-        s = _get_session()
-        for host in QUOTE_HOSTS:
-            try:
-                url = host + CLIST_PATH
-                r = s.get(url, params=params, timeout=8)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data and data.get("data"):
-                        diff = data["data"].get("diff") or []
-                        total = data["data"].get("total", 0)
-                        return diff, total
-            except Exception:
-                continue
-        return [], 0
+        return _clist_page(base_params, pn)
 
     # 第一页拿总数
     first_diff, total_stocks = _fetch_page(1)
@@ -1351,6 +1882,13 @@ def fetch_all_a_shares() -> List[Dict]:
                     "price": price,
                     "pct": pct,
                     "amount": amount,
+                    "change": _to_float(d.get("f4")) or 0,
+                    "volume": _to_float(d.get("f5")) or 0,
+                    "turnover": _to_float(d.get("f8")) or 0,
+                    "high": _to_float(d.get("f15")) or 0,
+                    "low": _to_float(d.get("f16")) or 0,
+                    "open": _to_float(d.get("f17")) or 0,
+                    "pre_close": _to_float(d.get("f18")) or 0,
                 })
         return result
 

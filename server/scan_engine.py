@@ -17,7 +17,8 @@ if ROOT not in sys.path:
 from data.kline_fetcher import (
     fetch_kline, fetch_quote, fetch_fund_flow, search_stock, fetch_minute,
     fetch_realtime_flow, fetch_all_a_shares, fetch_index_kline, fetch_market_breadth,
-    fetch_industry,
+    fetch_industry, quote_from_row, synthesize_bar_from_row,
+    _market_latest_date, shanghai_now, in_trading_session,
     Kline, Quote, FundFlow, MinuteData, MinuteFlow
 )
 from analysis.signal_engine import run_analysis, SignalEngineResult
@@ -171,17 +172,27 @@ def _run_signal(symbol: str, klines, quote, flows, index_klines, breadth, period
     }
 
 
-def _scan_one_stock(symbol: str, period: str, index_klines, breadth, name: str = "") -> dict:
+def _scan_one_stock(symbol: str, period: str, index_klines, breadth, name: str = "",
+                    row: dict = None, market_date: str = "", live_ts: str = "") -> dict:
     """分析单只股票，返回简化结果。失败记录到 failed_*，不中断扫描。
 
     日K走两阶段资金流：初筛无资金流 → 候选（买入动作/分数≥阈值）才补拉资金流重算；
     周K保持现状（不拉资金流）。
+
+    kline-store 提速：传入 row（全A快照行）时，行情与当日bar都取自快照、K线读本地
+    存储（bridge=False 禁止内部逐股行情桥接）——盘中扫描除候选股资金流外零逐股请求。
     """
     try:
-        klines = fetch_kline(symbol, count=250, period=period)
+        if row:
+            quote = quote_from_row(symbol, row, ts=live_ts)
+            live_bar = synthesize_bar_from_row(row, market_date=market_date)
+            klines = fetch_kline(symbol, count=250, period=period,
+                                 live_bar=live_bar, bridge=False)
+        else:
+            klines = fetch_kline(symbol, count=250, period=period)
+            quote = fetch_quote(symbol)
         if len(klines) < 30:
             return None
-        quote = fetch_quote(symbol)
         if period == "week":
             return _run_signal(symbol, klines, quote, [], index_klines, breadth, "week")
         # 日K：两阶段资金流
@@ -264,6 +275,16 @@ def _run_scan(max_stocks: int = 1000):
         except Exception:
             pass
 
+        # 当日有效交易日与快照行情时间戳：与指数同刻的全A快照可直接当行情/当日bar用。
+        # kline-dq：market_date 优先取45s新鲜度探针的市场最新交易日；探针失败回退指数末根，
+        # 且结果非今天而时钟处于交易时段时放弃合成（宁缺当日bar，不错误标注日期）。
+        market_date = _market_latest_date() or (index_klines[-1].date[:10] if index_klines else "")
+        today = shanghai_now().strftime("%Y-%m-%d")
+        if market_date != today and in_trading_session():
+            market_date = ""
+        live_ts = shanghai_now().strftime("%H:%M") if market_date == today else ""
+        rows_by_code = {s["code"]: s for s in filtered}
+
         # ---- 4. 并发日K扫描 ----
         daily_buy = []
         scanned_count = 0
@@ -271,7 +292,8 @@ def _run_scan(max_stocks: int = 1000):
         def scan_daily(stock):
             nonlocal scanned_count
             code = stock["code"]
-            r = _scan_one_stock(code, "day", index_klines, breadth, stock.get("name", ""))
+            r = _scan_one_stock(code, "day", index_klines, breadth, stock.get("name", ""),
+                                row=stock, market_date=market_date, live_ts=live_ts)
             with _scan_lock:
                 scanned_count += 1
                 _scan_state["scanned"] = scanned_count
@@ -309,7 +331,9 @@ def _run_scan(max_stocks: int = 1000):
             nonlocal weekly_scanned
             code = stock["symbol"]
             r = _scan_one_stock(code, "week", index_klines, breadth,
-                                stock.get("name") or stock.get("daily_name", ""))
+                                stock.get("name") or stock.get("daily_name", ""),
+                                row=rows_by_code.get(code), market_date=market_date,
+                                live_ts=live_ts)
             with _scan_lock:
                 weekly_scanned += 1
                 _scan_state["scanned"] = weekly_scanned
