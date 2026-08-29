@@ -87,6 +87,34 @@ WAL 模式），周K/月K由日K在内存聚合派生（口径与网络周期K�
 - **口径提醒**：库内为前复权（qfq）日线；除权日会自动检测基准漂移并全量重取该股历史。
   磁盘缓存/腾讯→东财多源链路原样保留，作为存储层的兜底。
 
+## 评估与响应闭环（I8.2–I8.4）
+
+评估对象是**信号质量**（信号后价格通常往哪走、分档是否有增量信息、结论对参数扰动是否稳健），
+不是组合账户收益；设计详见 `docs/评估模块设计.md` 与 `docs/信号响应闭环设计.md`，
+首次实盘基线见 `docs/评估基线-2026-08-29.md`。
+
+```bash
+python -m backtest snapshot                       # 抓取核心池+指数日线 → data/snapshots/<id>/
+python -m backtest replay <id> --workers 8        # 无前视重放 → signals.jsonl（score 已落盘）
+python -m backtest stats <id>                     # 胜率/均值/超额/单调性 → report.md + results.csv
+python -m backtest sensitivity <id> --thresholds "70,65" --thresholds "85,75"
+                                                  # 分档阈值敏感性对照 → sensitivity.md
+python -m backtest review <id>                    # 预承诺规则表 T1-T6 检查 → review.md
+```
+
+- **超额口径**（stats 默认）：基准沪深300，按**自然日区间对齐**（个股停牌基准区间同步拉长）；
+  指数缺失自动退化绝对口径并披露。超额胜率 = 跑赢基准的比例。
+- **档位单调性**（report.md 小节）：强烈买入 vs 买入 的超额均值逐视界对比，
+  三态标记 单调/不单调/⚠样本不足；只披露差值与 stderr，不做显著性结论。
+- **敏感性对照**（sensitivity.md）：事件集合固定（重分档不增删信号），
+  每组阈值给出 绝对+超额 × 每档 × 4 视界；判读指引三条，结论人工判读。
+- **review 规则检查**（review.md）：对照预先承诺的触发规则表 T1–T6 输出触发状态与响应菜单建议
+  （菜单 v1 = 池调整/使用方式调整/样本积累/记录；**参数调整已推迟**）；
+  维护 `data/decisions/review-state.json` 支持"连续两次评估"判定。
+  **只匹配呈现、不执行任何改动**——实际响应由人拍板并登记决策日志。
+- **口径提醒**：重放为原始 run_analysis 输出，与信号档案的最终 action 口径不可混用；
+  分组 n<10 标「⚠样本不足」不下结论；统计为信号与市场环境的复合结果，非因果，自用参考非投资建议。
+
 ## 测试
 
 ```bash

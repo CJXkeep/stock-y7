@@ -226,7 +226,14 @@ def test_run_review_end_to_end_and_zero_side_effects():
         out_dir = _write_results_csv(d, "SNAP1", rows)
         before = {name: open(os.path.join(out_dir, name), "rb").read()
                   for name in os.listdir(out_dir)}
-        pool_before = None
+        # 全根目录文件清单快照：review 只允许新增 review.md 与 review-state.json
+        def walk_files(base):
+            found = set()
+            for dirpath, _dirs, files in os.walk(base):
+                for name in files:
+                    found.add(os.path.relpath(os.path.join(dirpath, name), base))
+            return found
+        before_all = walk_files(d)
         result = run_review("SNAP1", results_root=os.path.join(d, "results"),
                             decisions_dir=os.path.join(d, "decisions"),
                             now=datetime.datetime(2024, 9, 2, 10, 0, 0))
@@ -244,14 +251,20 @@ def test_run_review_end_to_end_and_zero_side_effects():
         assert state["first_review"] is False
         assert state["last_stats_count"] == len(rows)
         assert state["last_snapshot_id"] == "SNAP1"
-        # A3：零副作用——stats 产物逐字节不变；未触碰 pool/notify
+        # A3：零副作用——全根目录仅新增 review.md 与 review-state.json，
+        # 不出现 pool.json/notify.json 等任何执行面文件
+        after_all = walk_files(d)
+        new_files = after_all - before_all
+        allowed = {os.path.relpath(md_path, d),
+                   os.path.relpath(state_path, d)}
+        assert new_files <= allowed, "review 产生了预期外的文件变更：%s" % (new_files - allowed)
+        # A3：stats 产物逐字节不变
         after = {name: open(os.path.join(out_dir, name), "rb").read()
                  for name in os.listdir(out_dir)}
         assert set(after) == set(before) | {"review.md"}
         for name in before:
             assert after[name] == before[name], name
         assert not os.path.exists(os.path.join(d, "results", "SNAP1", "sensitivity.md"))
-        assert pool_before is None
         # 第二次 review：消费上次状态（新增 0 笔 → T1 未触发；状态刷新）
         result2 = run_review("SNAP1", results_root=os.path.join(d, "results"),
                              decisions_dir=os.path.join(d, "decisions"),

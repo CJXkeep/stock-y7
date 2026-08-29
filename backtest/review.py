@@ -166,12 +166,13 @@ def evaluate_rules(rows: list, state: dict, now: datetime.datetime = None) -> di
                      "note": "本轮统计无基准（快照缺指数日线），超额口径不可用"}
     else:
         ordered = _sorted_rows(rows)[-config.REVIEW_ROLLING_WINDOW:]
-        avg, n = _mean([r.get("r60_excess") for r in ordered])
+        bench_key = config.REVIEW_ENV_BENCH_HORIZON
+        avg, n = _mean([r.get(bench_key) for r in ordered])
         hit = avg is not None and avg < 0
         by_symbol_avg = {}
         for row in ordered:
             by_symbol_avg.setdefault(row.get("symbol", ""), []).append(
-                row.get("r60_excess"))
+                row.get(bench_key))
         by_symbol_avg = {k: _mean(v)[0] for k, v in sorted(by_symbol_avg.items())
                          if _mean(v)[0] is not None}
         out["T3"] = {
@@ -180,9 +181,9 @@ def evaluate_rules(rows: list, state: dict, now: datetime.datetime = None) -> di
             "evidence": {"window_n": n, "window_cap": config.REVIEW_ROLLING_WINDOW,
                          "r60_excess_avg": None if avg is None else round(avg, 4),
                          "by_symbol_r60_excess": by_symbol_avg},
-            "note": ("最近 %d 笔 r60 超额均值为负——按 by_symbol 对照定位："
-                     "个别拖累→R1 池调整；普遍→R2 降信任" % n if hit
-                     else "滚动窗口 r60 超额均值未转负"),
+            "note": ("最近 %d 笔 %s 均值为负——按 by_symbol 对照定位："
+                     "个别拖累→R1 池调整；普遍→R2 降信任" % (n, bench_key) if hit
+                     else "滚动窗口 %s 均值未转负" % bench_key),
         }
 
     # ---- T4 环境转差 → R2（v1 仅报告层） ----
@@ -194,15 +195,17 @@ def evaluate_rules(rows: list, state: dict, now: datetime.datetime = None) -> di
         recent = [r for r in rows if r.get("date", "")[:10] > cutoff]
     else:
         recent = []
-    avg20, n20 = _mean([r.get("r20") for r in recent])
+    avg20, n20 = _mean([r.get(config.REVIEW_ENV_HORIZON) for r in recent])
     t4_hit = avg20 is not None and avg20 < 0 and n20 >= config.SAMPLE_MIN
     out["T4"] = {
         "status": "触发" if t4_hit else "未触发",
         "action": "R2（报告层）" if t4_hit else None,
         "evidence": {"window_days": config.REVIEW_QUARTER_WINDOW_DAYS,
-                     "window_n": n20, "r20_avg": None if avg20 is None else round(avg20, 4)},
-        "note": ("最近窗口信号 r20 均值为负——近期环境适配差，建议推送/执行前人工复核"
-                 "（v1 仅提示，不改推送服务）" if t4_hit else "最近窗口未触发环境转差"),
+                     "window_n": n20,
+                     "r20_avg": None if avg20 is None else round(avg20, 4)},
+        "note": ("最近窗口信号 %s 均值为负——近期环境适配差，建议推送/执行前人工复核"
+                 "（v1 仅提示，不改推送服务）" % config.REVIEW_ENV_HORIZON
+                 if t4_hit else "最近窗口未触发环境转差"),
     }
 
     # ---- T5 高档样本不足 → 参数观察标记 / 观察 ----
@@ -289,12 +292,14 @@ def render_review(snapshot_id: str, evaluated: dict, state: dict,
         elif rid == "T2":
             basis = "标记=%s，档位n=%s" % (evidence.get("markers"), evidence.get("tier_n"))
         elif rid == "T3":
-            basis = "窗口 %s/%s 笔，r60超额均值=%s" % (
+            basis = "窗口 %s/%s 笔，%s均值=%s" % (
                 evidence.get("window_n"), evidence.get("window_cap"),
+                config.REVIEW_ENV_BENCH_HORIZON,
                 _fmt(evidence.get("r60_excess_avg")))
         elif rid == "T4":
-            basis = "近 %s 天 n=%s，r20均值=%s" % (
+            basis = "近 %s 天 n=%s，%s均值=%s" % (
                 evidence.get("window_days"), evidence.get("window_n"),
+                config.REVIEW_ENV_HORIZON,
                 _fmt(evidence.get("r20_avg")))
         elif rid == "T5":
             basis = "各档n=%s，低于门槛=%s" % (evidence.get("tier_n"),
