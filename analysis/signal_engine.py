@@ -24,6 +24,18 @@ STRONG_SCORE = 75   # score>=75   → 强信号 / 正常仓位
 MEDIUM_SCORE = 60   # score>=60   → 中信号
 
 
+def action_from_score(score, th_strong=STRONG_SCORE, th_buy=MEDIUM_SCORE):
+    """综合分 → 动作三档（I8.3 单源：run_analysis 与 backtest.sensitivity 共用）。
+
+    score >= th_strong → 强烈买入；th_buy <= score < th_strong → 买入；否则观望。
+    """
+    if score >= th_strong:
+        return "强烈买入"
+    if score >= th_buy:
+        return "买入"
+    return "观望"
+
+
 @dataclass
 class SignalEngineResult:
     action: str
@@ -337,12 +349,8 @@ def run_analysis(
     )
 
     # 加密版 action 仅三档：>=75 强烈买入，>=60 买入，否则观望（8/8 A/B 反推，无"谨慎买入"档）
-    if score >= 75:
-        action = "强烈买入"
-    elif score >= 60:
-        action = "买入"
-    else:
-        action = "观望"
+    # I8.3：分档抽为模块级 action_from_score，引擎与 backtest.sensitivity 共用（行为等价）
+    action = action_from_score(score)
 
     # 置信度（加密版反推）：confidence = max(10, int(score*0.8) + 12*n - 40)
     # 其中 n = 五个模块中模块分>=60 的数量（达标模块越多，置信度越高）

@@ -6,6 +6,8 @@
   python -m backtest replay <snapshot_id> [--workers N] [--root DIR]
   python -m backtest stats <snapshot_id> [--dedupe-window N]
         [--include-warmup] [--simulate] [--capital X] [--root DIR]
+  python -m backtest sensitivity <snapshot_id> [--thresholds "强,买" ...]
+        [--allow-stale] [--root DIR]
 
 --root 同时覆盖快照与结果目录（测试/多盘位使用；生产默认 data/snapshots、data/results）。
 """
@@ -39,6 +41,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--capital", type=float, default=None)
     p_stats.add_argument("--allow-stale", action="store_true",
                          help="池版本不一致时放行（报告将披露 stale）")
+
+    p_sens = sub.add_parser("sensitivity",
+                            help="综合分分档阈值敏感性对照（I8.3）")
+    p_sens.add_argument("snapshot_id")
+    p_sens.add_argument("--thresholds", action="append", default=None,
+                        metavar="强,买",
+                        help="分档阈值组（如 '85,80'），可重复多组；缺省 75,60（当前锚点）")
+    p_sens.add_argument("--allow-stale", action="store_true",
+                        help="池版本不一致时放行（报告将披露 stale）")
     return parser
 
 
@@ -93,6 +104,22 @@ def main(argv=None) -> int:
             meta.get("excluded_warmup", 0), overall.get("n"),
             overall.get("win_rate"), overall.get("avg_return")))
         print("report: %s" % summary.get("outputs", {}).get("report_md"))
+        return 0
+
+    if args.command == "sensitivity":
+        from backtest.sensitivity import run_sensitivity
+        expected = _expected_pool_version(root)
+        result = run_sensitivity(
+            args.snapshot_id, threshold_sets=args.thresholds, root=root,
+            results_root=(args.root + "/results") if args.root else None,
+            expected_pool_version=expected, allow_stale=args.allow_stale)
+        for group in result.get("groups", []):
+            th_strong, th_buy = group["thresholds"]
+            print("thresholds=%d,%d stats_count=%d dist=%s" % (
+                th_strong, th_buy, group["stats_count"],
+                dict(sorted(group["action_dist"].items(),
+                            key=lambda kv: -kv[1]))))
+        print("sensitivity: %s" % result.get("outputs", {}).get("sensitivity_md"))
         return 0
     return 1
 
