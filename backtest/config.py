@@ -27,6 +27,15 @@ HORIZONS = (5, 10, 20, 60)
 BENCHMARK_SYMBOL = "000300"
 BENCHMARK_NAME = "沪深300"
 
+# ---- 信号响应闭环（I8.4 review；规则阈值集中此处，改动须按设计文档 §4 留痕） ----
+DECISIONS_DIR = os.path.join(ROOT, "data", "decisions")
+REVIEW_NEW_SAMPLE_GATE = 50        # T1 节奏：两次评估间新增样本门槛（笔）
+REVIEW_QUARTER_DAYS = 91           # 季度节奏（自然日，提示用）
+REVIEW_ROLLING_WINDOW = 100        # T3 超额转负：按日期排序的滚动窗口（笔）
+REVIEW_QUARTER_WINDOW_DAYS = 91    # T4 环境转差：最近窗口（自然日）
+REVIEW_ENV_HORIZON = "r20"         # T4 检查的视界
+REVIEW_ENV_BENCH_HORIZON = "r60_excess"  # T3 检查的视界（超额口径）
+
 # 买侧信号类型（汇总"买入后 N 日上涨比例"的口径）
 BUY_SIDE_TYPES = ("buy", "strong_buy", "cautious_buy")
 

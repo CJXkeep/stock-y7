@@ -8,6 +8,7 @@
         [--include-warmup] [--simulate] [--capital X] [--root DIR]
   python -m backtest sensitivity <snapshot_id> [--thresholds "强,买" ...]
         [--allow-stale] [--root DIR]
+  python -m backtest review <snapshot_id> [--root DIR]
 
 --root 同时覆盖快照与结果目录（测试/多盘位使用；生产默认 data/snapshots、data/results）。
 """
@@ -50,6 +51,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="分档阈值组（如 '85,80'），可重复多组；缺省 75,60（当前锚点）")
     p_sens.add_argument("--allow-stale", action="store_true",
                         help="池版本不一致时放行（报告将披露 stale）")
+
+    p_rev = sub.add_parser("review", help="评估响应规则检查（预承诺规则表 T1-T6，只呈现不执行）")
+    p_rev.add_argument("snapshot_id")
     return parser
 
 
@@ -120,6 +124,19 @@ def main(argv=None) -> int:
                 dict(sorted(group["action_dist"].items(),
                             key=lambda kv: -kv[1]))))
         print("sensitivity: %s" % result.get("outputs", {}).get("sensitivity_md"))
+        return 0
+
+    if args.command == "review":
+        from backtest.review import run_review
+        result = run_review(
+            args.snapshot_id,
+            results_root=(args.root + "/results") if args.root else None,
+            decisions_dir=(args.root + "/decisions") if args.root else None)
+        for rid in ("T1", "T2", "T3", "T4", "T5", "T6"):
+            rule = (result.get("rules") or {}).get(rid) or {}
+            print("%s: %s%s" % (rid, rule.get("status"),
+                                (" → " + rule["action"]) if rule.get("action") else ""))
+        print("review: %s" % result.get("outputs", {}).get("review_md"))
         return 0
     return 1
 

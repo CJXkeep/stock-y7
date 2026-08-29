@@ -16,6 +16,7 @@ data/results/
 data/digest/
 data/scan/
 data/notify_state.json
+data/decisions/
 data/cache/
 data/kline/
 data/watchlist.json
