@@ -147,6 +147,9 @@ def _build_performance(ctx):
                         "horizon": f.get("horizon"),
                         "asof": asof,
                         "return_pct": f.get("return_pct"),
+                        # 溯源字段（digest-clarity）：信号日与信号价，前端 tooltip 展示对照
+                        "signal_date": str(rec.get("trigger_date") or ""),
+                        "signal_close": rec.get("snapshot_close"),
                     })
         matured.sort(key=lambda x: (x["asof"], x["symbol"], x["horizon"] or 0), reverse=True)
         out["matured"] = matured[:200]  # 防超长

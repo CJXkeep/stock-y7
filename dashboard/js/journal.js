@@ -754,40 +754,53 @@ export function _digestSections(dg) {
   let perfHtml = '';
   if (pf.error) perfHtml = `<div style="padding:10px;color:#e57373">${escHtml(pf.error)}</div>`;
   const ov = pf.overview || {};
-  const winStr = ov.buy_20d_win_rate_pct == null ? '--' : ov.buy_20d_win_rate_pct.toFixed(1) + '%';
-  const avgStr = ov.buy_20d_avg_return_pct == null ? '--' : (ov.buy_20d_avg_return_pct > 0 ? '+' : '') + ov.buy_20d_avg_return_pct.toFixed(2) + '%';
+  const winStr = ov.buy_20d_win_rate_pct == null ? '样本不足' : ov.buy_20d_win_rate_pct.toFixed(1) + '%';
+  const avgStr = ov.buy_20d_avg_return_pct == null ? '样本不足' : (ov.buy_20d_avg_return_pct > 0 ? '+' : '') + ov.buy_20d_avg_return_pct.toFixed(2) + '%';
+  const noBuy20 = (ov.buy_20d_count || 0) === 0;
   const ovHtml = pf.overview ? `
-    <div style="display:flex;gap:14px;padding:6px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;flex-wrap:wrap">
-      <span>总信号 <b style="color:#eee">${ov.total || 0}</b></span>
-      <span>买侧20日样本 <b style="color:#eee">${ov.buy_20d_count || 0}</b></span>
-      <span>20日上涨比例 <b style="color:${(ov.buy_20d_win_rate_pct || 0) >= 50 ? C.up : C.down}">${winStr}</b></span>
-      <span>20日平均收益 <b style="color:${(ov.buy_20d_avg_return_pct || 0) >= 0 ? C.up : C.down}">${avgStr}</b></span>
-      ${pf.window_days ? `<span>到期窗口：最近 ${pf.window_days} 个自然日</span>` : ''}
+    <div style="padding:6px 12px 2px;font-size:11px;color:#aaa;line-height:1.8">
+      档案信号（去重后）<b style="color:#eee">${ov.total || 0}</b> 条 ·
+      买入类已满20日 <b style="color:#eee">${ov.buy_20d_count || 0}</b> 条 ·
+      20日上涨比例 <b style="color:${(ov.buy_20d_win_rate_pct || 0) >= 50 ? C.up : C.down}">${winStr}</b> ·
+      20日平均收益 <b style="color:${(ov.buy_20d_avg_return_pct || 0) >= 0 ? C.up : C.down}">${avgStr}</b>
+      ${noBuy20 ? '<div style="color:#888;font-size:10px">买入类信号要持满 20 个交易日才计入胜率——这类样本还没到期，先显示「样本不足」，到期后自动填上。</div>' : ''}
     </div>` : '';
   const matured = pf.matured || [];
   let maturedHtml;
-  if (matured.length === 0) maturedHtml = `<div style="padding:10px;color:#888">窗口内没有到期的信号战绩（生成前已自动补记）</div>`;
+  if (matured.length === 0) maturedHtml = `<div style="padding:10px;color:#888;line-height:1.7">最近 7 天没有到期的信号验证。每个信号发出后，会在第 5 / 10 / 20 / 60 个<b>交易日</b>自动验证一次收益并出现在这里——无需手动操作。</div>`;
   else {
     const rows = matured.map(r => {
       const nm = _knownName(r.symbol);
-      return `<tr>
-        <td style="padding:4px 6px"><a href="#" data-act="analyze" data-code="${escHtml(r.symbol)}" style="color:#ff9800;text-decoration:none">${escHtml(r.symbol)}</a>${nm ? `<div style="color:#888;font-size:10px">${escHtml(nm)}</div>` : ''}</td>
+      const tip = r.signal_date
+        ? `信号日 ${r.signal_date}${r.signal_close != null ? ` 收盘 ${r.signal_close}` : ''} → 发出后第 ${r.horizon} 个交易日（${r.asof}）收盘对照信号价 = ${r.return_pct == null ? '--' : (r.return_pct > 0 ? '+' : '') + r.return_pct.toFixed(2) + '%'}；按该股自身交易日计数，停牌顺延`
+        : `验证日 ${r.asof} 收盘对照信号价`;
+      return `<tr title="${escHtml(tip)}">
+        <td style="padding:4px 6px"><a href="#" data-act="analyze" data-code="${escHtml(r.symbol)}" style="color:var(--c-accent);text-decoration:none">${escHtml(r.symbol)}</a>${nm ? `<div style="color:var(--c-text-dim);font-size:10px">${escHtml(nm)}</div>` : ''}</td>
         <td style="padding:4px 6px">${_digestName(r.signal_type)}</td>
         <td style="padding:4px 6px">${escHtml(r.action || '')}</td>
-        <td style="padding:4px 6px">${r.horizon}日</td>
+        <td style="padding:4px 6px" title="信号发出后第 ${r.horizon} 个交易日收盘，对照信号日收盘价">${r.horizon}日</td>
         <td style="padding:4px 6px">${r.asof}</td>
         <td style="padding:4px 6px">${_dgCell(r.return_pct)}</td>
       </tr>`;
     }).join('');
-    maturedHtml = `<table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc">
+    maturedHtml = `
+    <div style="padding:6px 12px 0;font-size:10px;color:#888;line-height:1.6">
+      收益 = 验证日收盘 vs 当时的信号价。信号来自左侧「档案 → 信号档案」的自动留档，本表只是其中<b style="color:#aaa">最近 7 天刚到期</b>的部分。
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc;margin-top:2px">
       <thead><tr style="color:#777;text-align:left;border-bottom:1px solid #222">
         <th style="padding:4px 6px">代码</th><th style="padding:4px 6px">类型</th><th style="padding:4px 6px">动作</th>
-        <th style="padding:4px 6px">视界</th><th style="padding:4px 6px">到期日</th><th style="padding:4px 6px">收益</th>
+        <th style="padding:4px 6px" title="信号发出后第 N 个交易日收盘，对照信号日收盘价">验证期</th>
+        <th style="padding:4px 6px" title="该股第 N 个交易日的日期（停牌顺延）">验证日</th>
+        <th style="padding:4px 6px" title="验证日收盘 vs 信号价">收益</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    <div style="padding:6px 12px 8px;font-size:10px">
+      <a href="#" data-act="openArchiveSeg" data-seg="journal" style="color:var(--c-info);text-decoration:none">在「档案 → 信号档案」查看全部 ${ov.total || 0} 条留档 →</a>
+    </div>`;
   }
-  parts.push(_dgCard('② 历史战绩回顾', '最近 7 个自然日到期的 5/10/20/60 日收益（先补记后统计）', ovHtml + maturedHtml));
+  parts.push(_dgCard('② 历史战绩回顾', '来源：信号档案自动验证——每个信号在第 5/10/20/60 个交易日各记一次收益，下表为最近 7 天内到期的', ovHtml + maturedHtml));
 
   // —— ③ 核心池全量扫描 ——
   const ps = dg.pool_scan || {};
