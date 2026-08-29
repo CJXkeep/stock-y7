@@ -1,0 +1,395 @@
+schema: comet.native.v4
+name: evaluation-frontend-readonly
+language: en
+phase: archive
+status: done
+state_version: 10
+brief: brief.md
+spec_changes:
+  - capability: evaluation-frontend-readonly
+    operation: create
+    source: specs/evaluation-frontend-readonly/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: "**A1 列表端点**：临时 results 根（monkeypatch config.RESULTS_DIR
+      或注入路径参数）下放两个快照目录（各含 results.csv/report.md）→ 返回 2 条（id/时间/笔数）；空目录 →
+      空列表不报错；review-state/usage-state 不存在时返回 null 字段。"
+    result: passed
+    reason:
+      text: test_list_two_snapshots_and_empty/test_list_empty_dir_no_error 通过：2 快照返回 2
+        条（id/mtime/笔数）、空目录空列表、state 缺失为 null、阈值默认 75/60。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: '**A2 摘要端点**：对含超额列的合成 results.csv 返回 overall/by_action
+      绝对+超额摘要、tier_monotonicity 三态标记、T1–T6 状态（evaluate_rules
+      现算）、生效分档阈值、benchmark 有无标记；snapshot 不存在或 results.csv 缺失 → 错误 dict 且文案含"先运行
+      python -m backtest stats"。'
+    result: passed
+    reason:
+      text: test_summary_structured_and_rules 通过：overall/by_action 绝对+超额、mono 三态、T1–T6
+        现算、阈值与 has_bench 齐备；缺 snapshot 返回含 stats 文案的错误 dict。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "**A3 原文端点**：kind=report/sensitivity/review 分别返回对应 markdown 字符串；kind=非法值 →
+      错误 dict；文件缺失 → 错误 dict。"
+    result: passed
+    reason:
+      text: test_doc_kinds_and_errors 通过：report 原文、sensitivity 缺文件错误、kind 非法错误、缺
+        snapshot 错误。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "**A4 只读保证**：三个 handler 调用前后目录树逐字节一致（walk 比对）。"
+    result: passed
+    reason:
+      text: test_handlers_are_read_only 对三 handler 调用前后临时目录 walk 比对逐字节一致。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "**A5 前端接线**：index.html 含 eval 子页签按钮与 wp-content-eval 容器与 evaluation.js
+      script；watchlist.js 注册 eval
+      段（LEGACY_TO_PRIMARY/_archiveSeg/SB_SECTION_DESC）；evaluation.js 存在渲染函数且新
+      data-act 均在 DELEGATED_ACTIONS 注册（R2）；前端 fetch 的 /api/evaluation*
+      能被后端路由命中（R4 自动守护）。"
+    result: passed
+    reason:
+      text: index.html:95/100 eval 页签按钮与容器，evaluation.js 经 watchlist.js:7 与 ui.js:9
+        进入模块图，动作注册于 ui.js:311-312，前端三路径与 app.py:572-574 路由一一对应。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "**A6 全量回归**：`python run_all_tests.py` 全绿（含 test_frontend_wiring）。"
+    result: passed
+    reason:
+      text: 本轮实跑 run_all_tests.py 全量 36/36 文件通过（17.6s）。
+      truncated: false
+  - id: A7
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 看板「档案 → 评估」子页签 + 3 个只读 GET 端点。本规格描述 I8.6a 交付后的完整行为。
+    result: passed
+    reason:
+      text: sb-pane-archive seg-tabs 含 data-seg=eval 按钮，app.py 注册三个只读 GET
+        handler，无任何写端点。
+      truncated: false
+  - id: A8
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: '扫描 `config.RESULTS_DIR` 下含 results.csv 的快照目录：`{"results":
+      [{"snapshot_id", "generated_at"(results.csv mtime), "stats_count"(csv
+      行数)}...]}`（按 id 倒序）；`review_state`（data/decisions/review-state.json 或
+      null）、`usage_state`（data/usage-state.json 或
+      null）、`effective_thresholds`（{"th_strong", "th_buy", "overridden":
+      bool}，来自 signal_engine 当前全局）。'
+    result: passed
+    reason:
+      text: handle_evaluation_list 返回 results（倒序/mtime/行数-1）、review_state/usage_state
+        缺文件为 null、effective_thresholds 带 overridden 标记。
+      truncated: false
+  - id: A9
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 目录缺失/空 → results 为空列表，不报错。
+    result: passed
+    reason:
+      text: os.path.isdir 守卫 + 目录缺失/空时 results 为空列表不报错。
+      truncated: false
+  - id: A10
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 读 `results/<id>/results.csv`（复用 review.load_result_rows）→
+      `stats.aggregate`（绝对+超额 overall/by_action）→
+      `tier_monotonicity`（excess=有基准）→ `review.evaluate_rules`（T1–T6，state 取
+      review-state 文件，无则首次评估口径）。
+    result: passed
+    reason:
+      text: summary 依次复用
+        load_result_rows→stats.aggregate→tier_monotonicity→evaluate_rules，零新口径。
+      truncated: false
+  - id: A11
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 返回：`{snapshot_id, stats_count, has_bench, effective_thresholds, overall,
+      by_action, mono, rules, tiers_n,
+      first_review}`；口径声明字段（双口径/样本不足门槛/非投资建议文本）一并在 `notice` 对象返回供前端展示。
+    result: passed
+    reason:
+      text: 返回 dict 含
+        ok/snapshot_id/stats_count/has_bench/effective_thresholds/overall/by_action/mono/rules/tiers_n/first_review
+        与 notice。
+      truncated: false
+  - id: A12
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 'snapshot 缺失/results.csv 不存在 → `{"ok": false, "error": "...先运行 python -m
+      backtest stats <id>"}`（HTTP 200 + 错误 dict，与站内既有错误风格一致）。'
+    result: passed
+    reason:
+      text: snapshot 缺失返回 {ok:false, error:'未找到…——先运行 python -m backtest stats
+        <id>'}，HTTP 200 错误 dict 风格一致。
+      truncated: false
+  - id: A13
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: '返回 `{"kind", "markdown": <文件原文>}`；kind 非法 → 错误 dict；目标文件缺失 → 错误 dict。'
+    result: passed
+    reason:
+      text: doc handler 返回 {ok,kind,markdown}，kind 非法与文件缺失均错误 dict（三态全覆盖）。
+      truncated: false
+  - id: A14
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 只读：三个端点调用前后文件树逐字节一致。
+    result: passed
+    reason:
+      text: 与 A4 同源：三端点调用前后目录 walk 集合比对相等，零写入。
+      truncated: false
+  - id: A15
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: index.html：档案 seg-tabs 增 `data-seg="eval"` 按钮「评估」；`wp-content-eval`
+      容器；`js/evaluation.js` 模块引入。
+    result: passed
+    reason:
+      text: index.html 增 data-seg=eval 按钮与容器，js/evaluation.js 以 ES module
+        引入（watchlist.js/ui.js import，随 main.js 加载）。
+      truncated: false
+  - id: A16
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: watchlist.js：LEGACY_TO_PRIMARY/_archiveSeg 接受 `eval`；SB_SECTION_DESC
+      增评估段描述（含口径提醒一句话）。
+    result: passed
+    reason:
+      text: watchlist.js LEGACY_TO_PRIMARY 增 eval:'archive'，_archiveSeg 两处接受
+        eval，SB_SECTION_DESC 含口径提醒。
+      truncated: false
+  - id: A17
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: js/evaluation.js（新模块，ES module 与现有一致）：
+    result: passed
+    reason:
+      text: evaluation.js 为新 ES module，import/export 风格与既有模块一致。
+      truncated: false
+  - id: A18
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 激活段时拉取 /api/evaluation 渲染目录列表 + 状态卡；选择快照后拉取 summary 渲染概览卡与规则卡；
+    result: passed
+    reason:
+      text: switchTab('eval') 分发 loadEvaluation() 渲染目录+状态卡，pickSnapshot 渲染概览与规则卡（node
+        渲染链实测走通）。
+      truncated: false
+  - id: A19
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 概览卡渲染生效分档阈值（override 后缀）、总体/按动作表（绝对+超额两组行，n<10 加「⚠样本不足」）、单调性标记、notice 免责文本；
+    result: passed
+    reason:
+      text: 独立 node 渲染验证：has_bench=true 绝对口径表行为 总体|强烈买入|买入 且含 ⚠样本不足、override
+        后缀、超额表两组行；has_bench=false 时绝对口径表仍含按动作行、超额卡不出现、单调性判据切为'绝对均值·无基准'。
+      truncated: false
+  - id: A20
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 规则卡渲染 T1–T6 状态/依据/建议动作 + usage-state；文档列表项点击拉取 doc 接口，markdown 经 HTML
+      转义后按行渲染；
+    result: passed
+    reason:
+      text: _rulesHtml 渲染 T1–T6 状态/建议/依据，usage-state flags 可见，doc 经 textContent 写入 pre
+        防注入。
+      truncated: false
+  - id: A21
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 新 data-act（如 evalOpenDoc/evalPickSnapshot）全部注册进 DELEGATED_ACTIONS（前端接线守护
+      R2）；空态展示四条 CLI 命令引导。
+    result: passed
+    reason:
+      text: evalPickSnapshot/evalOpenDoc 注册进 ui.js DELEGATED_ACTIONS；空态渲染四条 CLI 命令引导。
+      truncated: false
+  - id: A22
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: style.css：评估卡片/表格/标记样式（沿用既有 token 变量）。
+    result: passed
+    reason:
+      text: style.css 新增
+        eval-card/eval-table/eval-notice-line/eval-snap-item/eval-doc-pre 样式，沿用
+        var(--c-*) token。
+      truncated: false
+  - id: A23
+    source: specs/evaluation-frontend-readonly/spec.md
+    text: 三端点只读零写入；零新口径（复用 stats/review 既有函数与 config 常量）；免投资建议与口径声明在页面可见；markdown
+      经转义防注入；纯标准库 + 既有前端模块结构（无新第三方依赖）。
+    result: passed
+    reason:
+      text: 三端点仅 import json/os/time，复用既有函数与 config 常量，walk 零写入，动态文本 escHtml、markdown
+        textContent 防注入，notice 免责可见。
+      truncated: false
+builder_handoff:
+  candidate_id: cdea962b-009c-46e1-804f-f08ac2543ad2
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:2ecf319b-5b6b-4252-9d28-47c3c420f6f0
+  iteration: 2
+  summary:
+    text: I8.6a 第二轮候选（修复第一轮唯一 fail A19 + 3 项风险）：A19 概览卡把 data.by_action 各档与'总体'一并传入
+      _statTableHtml——绝对口径表现在含按动作行（含 ⚠样本不足标注），无基准时按动作明细不再缺失；_statTableHtml 死代码
+      key 形参清理；R2 _cellHtml 输出补 escHtml 转义；R3 summary 复用
+      review.load_review_state()（不再内联默认字面量）；R1 测试 monkeypatch 扩展到
+      config.ROOT（usage_state 读临时目录，不再被真实项目文件影响）。test_evaluation_api 7/7、全量回归
+      36/36。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+  checks:
+    - name:
+        text: python -X utf8 tests/test_evaluation_api.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7（monkeypatch 扩展后 usage_state 断言仍成立）
+        truncated: false
+    - name:
+        text: python -X utf8 run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 全量回归 36/36 文件通过（17.0s）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: markdown 原文以转义后等宽 pre 呈现（不解析富文本）
+      truncated: false
+    - text: refresh/sensitivity/correct 属 I8.6b/I8.6c
+      truncated: false
+    - text: _renderPicked 整卡重绘会复位已展开原文卡片（轻微 UX，不在 spec 约束内）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-29T11:31:41.212Z
+blockers: []
+verification:
+  candidate_id: cdea962b-009c-46e1-804f-f08ac2543ad2
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:9387311c-5fdc-4b9c-9f0c-35aa766450f2
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: eval-api-regression-i86a-r2
+      name:
+        text: 评估接口回归（第二轮，7 测试）
+        truncated: false
+      argv_display:
+        - text: -X
+          truncated: false
+        - text: utf8
+          truncated: false
+        - text: tests/test_evaluation_api.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 874
+    - id: full-regression-i86a-r2
+      name:
+        text: 全量回归（第二轮）
+        truncated: false
+      argv_display:
+        - text: -X
+          truncated: false
+        - text: utf8
+          truncated: false
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 17260
+  summary:
+    text: 第一轮唯一 fail 项 A19 已修复并经独立 node 渲染验证：概览卡绝对口径表含总体+按动作行（含
+      ⚠样本不足），无基准时按动作行仍在、超额表不出现；四项风险（escHtml 覆盖、load_review_state 复用、config.ROOT
+      monkeypatch、死形参清理）全部落实。7/7 接口测试与 36/36 全量回归实跑通过，23 项验收全部符合，判 pass。
+    truncated: false
+  risks:
+    - text: _monoHtml 数值插值未过 escHtml（依赖后端数值契约，注入风险可忽略；_cellHtml 已修复）
+      truncated: false
+    - text: _effective_thresholds 的 overridden 判定以硬编码 (75,60) 为基准（当前与 signal_engine
+        默认一致）
+      truncated: false
+    - text: markdown 原文以转义等宽 pre 呈现而非富文本解析（builder 已声明边界）
+      truncated: false
+    - text: _renderPicked 整卡重绘会复位已展开原文卡片（轻微 UX，builder 已声明）
+      truncated: false
+    - text: refresh/敏感性/矫正动作按范围归属 I8.6b/c
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-29T11:41:49.015Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A19
+    summary:
+      text: 后端三个只读 GET handler 与前端评估子页签接线整体质量高：A1–A4 经独立合成数据+walk 逐字节比对全部复现通过，A5/A6
+        接线守护与全量回归重跑确认。唯一不符项 A19：概览卡缺少按动作的绝对口径表（无基准时按动作明细完全缺失），属下一轮小改动可修的展示缺口，判
+        fail。
+      truncated: false
+    completed_at: 2026-08-29T11:30:07.565Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 第一轮唯一 fail 项 A19 已修复并经独立 node 渲染验证：概览卡绝对口径表含总体+按动作行（含
+        ⚠样本不足），无基准时按动作行仍在、超额表不出现；四项风险（escHtml 覆盖、load_review_state
+        复用、config.ROOT monkeypatch、死形参清理）全部落实。7/7 接口测试与 36/36 全量回归实跑通过，23
+        项验收全部符合，判 pass。
+      truncated: false
+    completed_at: 2026-08-29T11:41:49.015Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-29T11:00:28.513Z

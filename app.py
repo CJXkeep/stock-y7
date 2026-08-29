@@ -64,6 +64,9 @@ from server.digest_service import handle_digest
 from server.notify_service import handle_notify_get, handle_notify_post, start_watcher
 from server.kline_sync import (handle_kline_store_get, handle_kline_store_post,
                                start_sync_service)
+from server.evaluation_api import (
+    handle_evaluation_doc, handle_evaluation_list, handle_evaluation_summary,
+)
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -566,6 +569,9 @@ _GET_ROUTES = {
     "/api/digest": handle_digest,
     "/api/notify": handle_notify_get,
     "/api/kline-store": handle_kline_store_get,
+    "/api/evaluation": handle_evaluation_list,
+    "/api/evaluation/summary": handle_evaluation_summary,
+    "/api/evaluation/doc": handle_evaluation_doc,
 }
 
 class Handler(BaseHTTPRequestHandler):

@@ -4,6 +4,7 @@ import { escHtml, DELEGATED_ACTIONS, showToast, showToastMsg } from './ui.js';
 import { API, fetchWithTimeout } from './api.js';
 import { analyze, fxEnabled, _syncSbTabsAria } from './main.js';
 import { loadOverview, loadJournal, loadPool, loadDigest, clearWatchChangeBadge } from './journal.js';
+import { loadEvaluation } from './evaluation.js';
 import { renderScanArchiveList } from './scan.js';
 import { resizeAllChartsSafe } from './chart.js';
 
@@ -262,12 +263,15 @@ export function switchTab(tab) {
   if (ov) ov.style.display = tab === 'overview' ? 'block' : 'none';
   if (jou) jou.style.display = tab === 'journal' ? 'block' : 'none';
   if (pool) pool.style.display = tab === 'pool' ? 'block' : 'none';
+  const ev = document.getElementById('wp-content-eval');
+  if (ev) ev.style.display = tab === 'eval' ? 'block' : 'none';
   if (digest && _sbSection === 'tasks') digest.style.display = tab === 'digest' ? 'block' : 'none';
   // 渲染内容
   if (tab === 'history') renderHistory();
   else if (tab === 'overview') loadOverview();
   else if (tab === 'journal') loadJournal();
   else if (tab === 'pool') loadPool();
+  else if (tab === 'eval') loadEvaluation();
   else if (tab === 'digest') loadDigest();
   // 底部操作栏
   const footer = document.getElementById('wp-footer');
@@ -333,6 +337,7 @@ const SB_SECTION_DESC = {
   overview: '全列表对比：自选分组的多股实时行情一览。',
   journal: '信号档案：分析产生的买卖信号自动留档，含后续涨跌验证。',
   pool: '核心池（手动）：精选股票池，是每日速递与批量扫描的数据底座。',
+  eval: '评估：历史信号统计（绝对/超额、单调性）与响应规则 T1-T6 状态；只读展示，矫正走 CLI。',
   digest: '每日速递：每天一份核心池信号汇总，收盘后自动生成。',
   scan: '扫描：双周期共振买入信号批量扫描，每次结果自动留档备查。',
 };
@@ -340,6 +345,7 @@ const LEGACY_TO_PRIMARY = {
   watch: 'watch', overview: 'watch',
   tasks: 'tasks', scan: 'tasks', digest: 'tasks',
   archive: 'archive', history: 'archive', journal: 'archive', pool: 'archive',
+  eval: 'archive',
 };
 
 function _primaryOf(sec) { return LEGACY_TO_PRIMARY[sec] || 'watch'; }
@@ -350,7 +356,7 @@ export function loadSbSection() {
     if (v && LEGACY_TO_PRIMARY[v]) {
       _sbSection = _primaryOf(v);
       if (v === 'scan' || v === 'digest') _taskSeg = v;
-      if (v === 'history' || v === 'journal' || v === 'pool') _archiveSeg = v;
+      if (v === 'history' || v === 'journal' || v === 'pool' || v === 'eval') _archiveSeg = v;
 if (v === 'overview') _watchOverview = true;
     }
   } catch (e) {}
@@ -363,7 +369,7 @@ export function openSbSection(sec) {
   if (!LEGACY_TO_PRIMARY[sec]) return;
   const primary = _primaryOf(sec);
   if (sec === 'scan' || sec === 'digest') _taskSeg = sec;
-  if (sec === 'history' || sec === 'journal' || sec === 'pool') _archiveSeg = sec;
+  if (sec === 'history' || sec === 'journal' || sec === 'pool' || sec === 'eval') _archiveSeg = sec;
 if (sec === 'overview') _watchOverview = true;
   _sbSection = primary;
   try { localStorage.setItem('qs_sb_section', primary); } catch (e) {}
