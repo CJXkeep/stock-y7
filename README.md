@@ -115,6 +115,19 @@ python -m backtest review <id>                    # 预承诺规则表 T1-T6 检
 - **口径提醒**：重放为原始 run_analysis 输出，与信号档案的最终 action 口径不可混用；
   分组 n<10 标「⚠样本不足」不下结论；统计为信号与市场环境的复合结果，非因果，自用参考非投资建议。
 
+
+
+###看板入口（I8.6，后台任务与矫正前端）
+
+看板「档案 → 评估」页签除只读摘要与 report/sensitivity/review 原文外，可直接触发：
+
+- **生成评估**（`POST /api/evaluation/refresh`）：后台线程跑 stats + review（同一快照，池版本新鲜度与 CLI 一致），进度条轮询，完成后结果目录自动刷新；
+- **敏感性对照**（`POST /api/evaluation/sensitivity`）：后台跑 sensitivity（阈值组表单传入，默认含锚点），产出 sensitivity.md；
+- **矫正计划**（`POST /api/correct/validate` / `/api/correct/execute`）：表单生成计划 → dry-run 逐条展示门槛 PASS/FAIL → 全过才可填 operator + 勾选二次确认执行；与 CLI `correct` 同一 `run_correct` 代码路径，门槛执行侧现算复核，**前端无任何绕过路径**，计划文件留痕 `data/decisions/plans/`；
+- 后台任务单任务互斥（内存状态 + `data/evaluation/latest.json` 持久化），沿用单进程部署约束（workers=1）。
+
+## 测试
+
 ## 测试
 
 ```bash
