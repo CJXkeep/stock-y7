@@ -50,21 +50,23 @@ def _rows_two_years():
 
 
 def _sandbox(rows=None, snapshot="SNAP"):
-    """临时目录并 monkeypatch config 两个目录常量；返回 (d, restore)。"""
+    """临时目录并 monkeypatch config 三个目录常量；返回 (d, restore)。"""
     d = tempfile.mkdtemp(prefix="eval_api_")
     if rows is not None:
         out_dir = os.path.join(d, "results", snapshot)
         os.makedirs(out_dir, exist_ok=True)
         write_results_csv(rows, os.path.join(out_dir, "results.csv"))
-    saved = (config.RESULTS_DIR, config.DECISIONS_DIR, config.ROOT)
+    saved = (config.RESULTS_DIR, config.DECISIONS_DIR, config.ROOT, config.SNAPSHOT_DIR)
     config.RESULTS_DIR = os.path.join(d, "results")
     config.DECISIONS_DIR = os.path.join(d, "decisions")
     config.ROOT = d
+    config.SNAPSHOT_DIR = os.path.join(d, "data", "snapshots")
     return d, saved
 
 
 def _restore(saved):
-    config.RESULTS_DIR, config.DECISIONS_DIR, config.ROOT = saved
+    (config.RESULTS_DIR, config.DECISIONS_DIR,
+     config.ROOT, config.SNAPSHOT_DIR) = saved
 
 
 def _walk(base):
@@ -77,6 +79,14 @@ def _walk(base):
 
 def _p(**kv):
     return {k: [v] for k, v in kv.items()}
+
+
+class _NoopThread:
+    """惰性线程替身：start 为空，用于 handler 不应实际启动后台的测试。"""
+    def __init__(self, *args, **kwargs):
+        pass
+    def start(self):
+        pass
 
 
 # ---------------------------------------------------------------- A1 列表
@@ -106,6 +116,8 @@ def test_list_empty_dir_no_error():
     try:
         data = evaluation_api.handle_evaluation_list(_p())
         assert data["results"] == []
+        assert data["snapshots"] == []
+        assert data["task"]["status"] == "idle"
     finally:
         _restore(saved)
         shutil.rmtree(d, ignore_errors=True)
@@ -184,7 +196,43 @@ def test_handlers_are_read_only():
         shutil.rmtree(d, ignore_errors=True)
 
 
-# ---------------------------------------------------------------- A5 前端接线
+# ---------------------------------------------------------------- A6 后台任务入口（I8.6b）
+
+def test_eval_task_handlers_validation():
+    d, saved = _sandbox()
+    try:
+        import server.evaluation_service as evsrv
+        from server.evaluation_service import (handle_eval_refresh,
+                                               handle_eval_sensitivity)
+        # 用惰性线程替身，避免真实后台线程污染模块级状态/写临时目录
+        real_thread = evsrv.threading.Thread
+        evsrv.threading.Thread = lambda *a, **k: _NoopThread()
+        try:
+            # 缺 snapshot
+            assert handle_eval_refresh({})["ok"] is False
+            assert "snapshot" in handle_eval_refresh({})["error"]
+            assert handle_eval_sensitivity({})["ok"] is False
+            # 快照不存在
+            assert "快照不存在" in handle_eval_refresh({"snapshot": "NOSNAP"})["error"]
+            assert "快照不存在" in handle_eval_sensitivity({"snapshot": "NOSNAP"})["error"]
+            # 建一个快照目录
+            snap_dir = os.path.join(config.SNAPSHOT_DIR, "SNAP")
+            os.makedirs(snap_dir, exist_ok=True)
+            with open(os.path.join(snap_dir, "signals.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write("")
+            # 阈值非法→同步拒绝（不启动后台线程）
+            res = handle_eval_sensitivity({"snapshot": "SNAP", "thresholds": ["abc"]})
+            assert res["ok"] is False and "阈值" in res["error"]
+            res = handle_eval_sensitivity({"snapshot": "SNAP", "thresholds": ["70,60"]})
+            assert res["ok"] is True and res["status"] == "started"
+        finally:
+            evsrv.threading.Thread = real_thread
+    finally:
+        _restore(saved)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- A7 前端接线
 
 def test_frontend_wiring_eval_segment():
     index = open(os.path.join(ROOT, "dashboard", "index.html"),
@@ -210,6 +258,17 @@ def test_frontend_wiring_eval_segment():
         assert api_path in js
         assert ('"%s":' % api_path) in open(os.path.join(ROOT, "app.py"),
                                             encoding="utf-8").read()
+    # I8.6b/c：后台任务与矫正前端动作接线
+    for fn in ("evalRefresh", "evalSensitivity", "correctToggle",
+               "correctValidate", "correctExecute"):
+        assert ("export async function " + fn) in js or ("export function " + fn) in js
+    for act in ("evalRefresh", "evalSensitivity", "evalCorrectToggle",
+                "evalCorrectValidate", "evalCorrectExecute"):
+        assert (act + ":") in ui, "DELEGATED_ACTIONS 未注册：%s" % act
+    app = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
+    for route in ("/api/evaluation/refresh", "/api/evaluation/sensitivity",
+                  "/api/correct/validate", "/api/correct/execute"):
+        assert route in app, "app.py 缺 POST 路由：%s" % route
 
 
 # ---------------------------------------------------------------- 入口

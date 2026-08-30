@@ -18,6 +18,12 @@ from backtest.review import (evaluate_rules, load_result_rows,
                              load_review_state, tier_monotonicity)
 from backtest.stats import aggregate
 
+
+def _eval_task_state():
+    """评估后台任务状态（I8.6b）：惰性导入避免循环依赖/启动开销。"""
+    from server.evaluation_service import _eval_task_state as _fn
+    return _fn()
+
 _DOC_KINDS = {"report": "report.md",
               "sensitivity": "sensitivity.md",
               "review": "review.md"}
@@ -55,7 +61,11 @@ def _notice() -> dict:
 
 
 def handle_evaluation_list(params: dict) -> dict:
-    """结果目录 + 节奏/使用状态 + 生效阈值；目录缺失/空 → 空列表不报错。"""
+    """结果目录 + 节奏/使用状态 + 生效阈值；目录缺失/空 → 空列表不报错。
+
+    I8.6b：额外返回 task（评估后台任务状态，供前端轮询进度）与 snapshots
+    （data/snapshots 下已有重放信号的快照，供「生成评估/敏感性」按钮选择）。
+    """
     root = config.RESULTS_DIR
     results = []
     if os.path.isdir(root):
@@ -83,7 +93,24 @@ def handle_evaluation_list(params: dict) -> dict:
                                                "usage-state.json")),
         "effective_thresholds": _effective_thresholds(),
         "notice": _notice(),
+        "task": _eval_task_state(),
+        "snapshots": _list_snapshots(),
     }
+
+
+def _list_snapshots() -> list:
+    """data/snapshots 下完成重放（含 signals.jsonl）的快照，按名称倒序。"""
+    root = config.SNAPSHOT_DIR
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for name in sorted(os.listdir(root), reverse=True):
+        sub = os.path.join(root, name)
+        if not os.path.isdir(sub):
+            continue
+        if os.path.isfile(os.path.join(sub, "signals.jsonl")):
+            out.append(name)
+    return out
 
 
 def handle_evaluation_summary(params: dict) -> dict:

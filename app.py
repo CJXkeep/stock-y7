@@ -67,6 +67,8 @@ from server.kline_sync import (handle_kline_store_get, handle_kline_store_post,
 from server.evaluation_api import (
     handle_evaluation_doc, handle_evaluation_list, handle_evaluation_summary,
 )
+from server.evaluation_service import handle_eval_refresh, handle_eval_sensitivity
+from server.correct_service import handle_correct_validate, handle_correct_execute
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -794,7 +796,9 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH_ENABLED and not self._is_authed():
             self._json({"error": "未授权"}, 401)
             return
-        if path not in ("/api/pool", "/api/watchlist", "/api/notify", "/api/kline-store"):
+        if path not in ("/api/pool", "/api/watchlist", "/api/notify", "/api/kline-store",
+                        "/api/evaluation/refresh", "/api/evaluation/sensitivity",
+                        "/api/correct/validate", "/api/correct/execute"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -815,6 +819,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handle_notify_post(body))
             elif path == "/api/kline-store":
                 self._json(handle_kline_store_post(body))
+            elif path == "/api/evaluation/refresh":
+                self._json(handle_eval_refresh(body))
+            elif path == "/api/evaluation/sensitivity":
+                self._json(handle_eval_sensitivity(body))
+            elif path == "/api/correct/validate":
+                self._json(handle_correct_validate(body))
+            elif path == "/api/correct/execute":
+                self._json(handle_correct_execute(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:

@@ -6,7 +6,8 @@ import { analyze, setMode, toggleSettings, doLogout, fxEnabled } from './main.js
 import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
 import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
 import { poolNote, poolMove, poolRemove, poolAddCurrent } from './journal.js';
-import { openDoc, pickSnapshot } from './evaluation.js';
+import { openDoc, pickSnapshot, evalRefresh, evalSensitivity,
+         correctToggle, correctPayload, correctValidate, correctExecute } from './evaluation.js';
 export const RISK_EXPLAIN = [
   { codes: ['price_below_ma20'], kws: ['跌破MA20'],
     text: '股价跌破20日均线（MA20）：短期趋势生命线失守，趋势转弱。',
@@ -310,6 +311,12 @@ export const DELEGATED_ACTIONS = {
   poolAddCurrent: el => poolAddCurrent(el.dataset.code),
   evalPickSnapshot: el => pickSnapshot(el),
   evalOpenDoc: el => openDoc(el),
+  evalRefresh: () => evalRefresh(),
+  evalSensitivity: () => evalSensitivity(),
+  evalCorrectToggle: () => correctToggle(),
+  evalCorrectAction: () => correctPayload(),
+  evalCorrectValidate: () => correctValidate(),
+  evalCorrectExecute: el => correctExecute(el),
   openScan: () => openScan(),
 };
 

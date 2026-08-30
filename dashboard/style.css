@@ -1105,3 +1105,16 @@ body.fx-off .wc-change-badge { animation: none !important; }
 .eval-doc-btns button { font-size: 11px; padding: 5px 10px; border: 1px solid var(--c-border, #2a2a2a); border-radius: 6px; background: transparent; color: var(--c-text-2, #bbb); cursor: pointer; }
 .eval-doc-pre { max-height: 420px; overflow: auto; font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--c-text-2, #bbb); margin: 0; }
 .eval-basis { font-size: 10px; }
+.eval-progress { height: 6px; background: var(--c-border, #2a2a2a); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
+.eval-progress-bar { height: 100%; background: var(--c-info, #6aa); border-radius: 3px; transition: width .4s; }
+.eval-error { font-size: 11px; color: var(--c-down, #ff6b6b); padding: 6px 0; line-height: 1.6; }
+.eval-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; font-size: 11px; }
+.eval-row label { color: var(--c-text-2, #bbb); }
+.eval-ops-btns button { font-size: 11px; padding: 5px 10px; border: 1px solid var(--c-border, #2a2a2a); border-radius: 6px; background: transparent; color: var(--c-text, #ddd); cursor: pointer; }
+.eval-ops-btns button:hover { border-color: var(--c-info, #6aa); }
+.eval-ops-hint { font-size: 10px; color: var(--c-text-3, #777); }
+.eval-input { font-size: 11px; padding: 4px 6px; border: 1px solid var(--c-border, #2a2a2a); border-radius: 5px; background: #101010; color: var(--c-text, #ddd); }
+.eval-correct-form { margin-top: 8px; border-top: 1px dashed var(--c-border, #2a2a2a); padding-top: 8px; }
+.eval-gate-list { margin-top: 6px; }
+.eval-gate-item { font-size: 11px; color: var(--c-text-2, #bbb); padding: 3px 0; line-height: 1.6; }
+.eval-gate-item b { color: var(--c-text, #ddd); margin-right: 4px; }
