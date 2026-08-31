@@ -5,7 +5,8 @@ import { API, fetchWithTimeout } from './api.js';
 import { analyze, setMode, toggleSettings, doLogout, fxEnabled } from './main.js';
 import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
 import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
-import { poolNote, poolMove, poolRemove, poolAddCurrent } from './journal.js';
+import { poolNote, poolMove, poolRemove, poolAddCurrent,
+  journalSetType, journalSetSymbol, journalToggleDupes, poolSetIndustry, digestSetDays } from './journal.js';
 import { openDoc, pickSnapshot, evalRefresh, evalSensitivity,
          correctToggle, correctPayload, correctValidate, correctExecute } from './evaluation.js';
 export const RISK_EXPLAIN = [
@@ -306,6 +307,12 @@ export const DELEGATED_ACTIONS = {
   toggleCollapseMenu: el => { hideCtxMenu(); sbToggleCollapse(el.dataset.gid); },
   deleteGroupMenu: el => { hideCtxMenu(); deleteGroup(el.dataset.gid); },
   poolNote: el => poolNote(el.dataset.code, el.value),
+  // 信号档案 / 核心池 / 速递的筛选控件（ESM 化遗留的内联 handler 已改委托）
+  journalSetType: el => journalSetType(el.value),
+  journalSetSymbol: el => journalSetSymbol(el.value),
+  journalToggleDupes: el => journalToggleDupes(el.checked),
+  poolSetIndustry: el => poolSetIndustry(el.value),
+  digestSetDays: el => digestSetDays(el.value),
   poolMove: el => poolMove(el.dataset.code, parseInt(el.dataset.dir, 10)),
   poolRemove: el => poolRemove(el.dataset.code),
   poolAddCurrent: el => poolAddCurrent(el.dataset.code),

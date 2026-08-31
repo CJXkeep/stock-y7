@@ -4,7 +4,7 @@ import { C, S } from './shared.js';
 import { API, fetchWithTimeout, isTimeoutError, explainError } from './api.js';
 import { escHtml, glossarize, _applyTermChips, explainRisks, riskBannerHtml, whyTextFor, toggleWhy, showToastMsg, showToast, DELEGATED_ACTIONS, countUpScore, fxCardStagger } from './ui.js';
 import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHistory, addHistory, migrateWatchlist, toggleStar, updateStarButton, updateBadges, openSbSection, toggleSbSection, toggleWatchOverview, toggleSidebar, sidebarLoadState, loadSbSection, renderSbSection, applySidebar, renderSidebar, renderWatchlist, exportWatchlist, importWatchlist, sbRefreshQuotes, sbSchedulePolling, removeFromWatchlist, registerResizeHook, clearCurrentTab, addGroupInline } from './watchlist.js';
-import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
+import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, dispatchKlineZoom, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
 import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, clearScanArchive, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan } from './scan.js';
 import { loadNotifySettings, saveNotifySettings, testNotify, runNotifyOnce, refreshNotifyStatus } from './notify.js';
@@ -335,9 +335,15 @@ function _signalAnchorFor(text, signal) {
   else if (/止损|卖出|跌到|涨到/.test(text)) { price = b.stop_loss || b.exit_price || b.entry_price; kind = '止损'; }
   else { price = b.entry_price || b.stop_loss; kind = '价位'; }
   if (!price || price <= 0) return null;
-  const idx = (S._klineData && S._klineData.length) ? findEntryIndex(S._klineData, price) : -1;
+  // 入场点优先按后端给的突破日精确定位；按价格反查只作为老数据回退（可能命中无关K线）
+  let idx = -1;
+  if (kind === '入场' && b.entry_date && S._klineData && S._klineData.length) {
+    idx = S._klineData.findIndex(k => k && k.date === b.entry_date);
+  }
+  if (idx < 0) idx = (S._klineData && S._klineData.length) ? findEntryIndex(S._klineData, price) : -1;
   const date = (idx >= 0 && S._klineData[idx]) ? S._klineData[idx].date : '';
-  return { price, kind, date, idx, system: b.system };
+  const conf = (typeof b.confidence === 'number' && b.confidence > 0) ? b.confidence : null;
+  return { price, kind, date, idx, system: b.system, conf, confLevel: b.confidence_level || '' };
 }
 
 function jumpToPoint(el) {
@@ -353,7 +359,8 @@ function jumpToPoint(el) {
   let s = Math.max(0, ((idx - half) / total) * 100);
   let e = Math.min(100, ((idx + half) / total) * 100);
   if (e - s < 2) { s = 0; e = 100; }
-  try { klineChart.dispatchAction({ type: 'dataZoom', start: s, end: e }); } catch (err) {}
+  const moved = dispatchKlineZoom(s, e);
+  if (!moved) { showToastMsg('图表未就绪，定位失败'); return; }   // 失败就别再弹"已定位"误导用户
   updateZoomInfo(s, e);
   const k = S._klineData[idx];
   const label = k && k.date ? k.date : '';
@@ -405,9 +412,13 @@ function renderSignal(signal) {
     const why = simpleSig ? `<span class="sig-why" onclick="toggleWhy(this)">为什么？</span><span class="sig-why-body" style="display:none">${escHtml(whyTextFor(s.text))}</span>` : '';
     const anchor = _signalAnchorFor(s.text, signal);
     const ptHtml = anchor ? `<span class="sig-pt${anchor.kind === '止损' || anchor.kind === '卖出' ? ' sig-pt-stop' : ''}" title="${anchor.system} · ${anchor.kind}位 ${anchor.price.toFixed(2)}">点 ${anchor.price.toFixed(2)}</span>` : '';
+    // 置信度徽标（buy-point-confidence）：低置信度的突破点在K线上不显示，这里也标出来
+    const confHtml = (anchor && anchor.conf != null)
+      ? `<span class="sig-conf ${anchor.conf >= 70 ? 'conf-high' : anchor.conf >= 60 ? 'conf-mid' : 'conf-low'}" title="买点置信度 ${anchor.conf}%（${escHtml(anchor.confLevel)}）：低于60%不在K线上标注">置信 ${anchor.conf}%</span>`
+      : '';
     const jumpAttr = anchor ? ` data-point="${anchor.price}" data-date="${anchor.date || ''}" onclick="jumpToPoint(this)"` : '';
-    if (s.type === 'buy') return `<div class="sig-item sig-buy"${jumpAttr}>▲ ${body}${ptHtml}${coreTag}${why}</div>`;
-    else return `<div class="sig-item sig-sell"${jumpAttr}>▼ ${body}${ptHtml}${coreTag}${why}</div>`;
+    if (s.type === 'buy') return `<div class="sig-item sig-buy"${jumpAttr}>▲ ${body}${ptHtml}${confHtml}${coreTag}${why}</div>`;
+    else return `<div class="sig-item sig-sell"${jumpAttr}>▼ ${body}${ptHtml}${confHtml}${coreTag}${why}</div>`;
   }).join('') || '<div style="color:#555;font-size:12px;padding:8px">暂无信号</div>';
 
   // 风险已收进四问卡（L1）
@@ -578,6 +589,7 @@ export function fmtVol(v) {
 
 // ===== 分析 =====
 let _lastOkTime = '';          // 上次分析成功时间（data_meta.calculated_at）
+let _lastOkSymbol = '';        // 上次分析成功的标的：失败时只有同标的才允许保留旧结果
 let _failRetryCount = 0;       // 连续失败后的自动重试次数
 const _MAX_FAIL_RETRY = 2;     // 自动重试上限（手动点击"立即重试"不受限）
 let _failRetryTimer = null;
@@ -599,8 +611,9 @@ function _markAnalyzeFail(symbol, err) {
   const autoTxt = _failRetryCount < _MAX_FAIL_RETRY ? '，8秒后自动重试' : '';
   const reason = '行情数据源暂时连不上，稍后再试';
   const hint = isTimeoutError(err) ? '（请求超时，15 秒无响应）' : '（本地服务可能未启动）';
-  if (_lastOkTime && el.innerHTML.trim()) {
-    // 已有上次成功结果：保留旧数据，只在结论区顶部插一条失败横幅
+  // 只有"上次成功的就是这只股票"时才保留旧结论，否则会把 A 的买卖点冒充成 B 的历史结论
+  if (_lastOkTime && _lastOkSymbol === symbol && el.innerHTML.trim()) {
+    // 已有本标的上次成功结果：保留旧数据，只在结论区顶部插一条失败横幅
     const oldBanner = document.getElementById('analyze-fail-banner');
     if (oldBanner) oldBanner.remove();
     el.insertAdjacentHTML('afterbegin',
@@ -634,6 +647,7 @@ export async function analyze(symbol) {
     if (_seq !== _analyzeSeq) return;   // 已有更新的分析请求：本次结果已过时，丢弃（防旧股票回写 K 线/报价栏/信号卡）
     S._dailyChanlun = null;
     try { if (clRes) S._dailyChanlun = await clRes.json(); } catch(e) {}
+    if (_seq !== _analyzeSeq) return;   // 缠论 JSON 解析也是一次 await：解析期间用户切走则整批渲染作废
     document.getElementById('loading').style.display = 'none';
 
     if (data.error) {
@@ -645,7 +659,7 @@ export async function analyze(symbol) {
     }
 
     updateQuote(data.quote);
-    renderKline(data.klines, data.signal);
+    renderKline(data.klines, data.signal, symbol);
     renderFlow(data.flows);
     renderSignal(data.signal);
     renderDataMeta(data.data_meta);
@@ -686,6 +700,7 @@ export async function analyze(symbol) {
 
     // 成功标记：记录本次成功时间并重置连续失败计数
     _lastOkTime = (data.data_meta && data.data_meta.calculated_at) || new Date().toLocaleTimeString();
+    _lastOkSymbol = symbol;
     _failRetryCount = 0;
 
     // 缠论日线/周线分析
@@ -706,6 +721,7 @@ export async function analyze(symbol) {
 
     if (S.currentView === 'minute') loadMinute(symbol);
     fxCardStagger();   // 右侧卡片依次淡入（FX标准/炫酷档）
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }   // 防重复建表（竞态下会泄漏定时器）
     _refreshTimer = setInterval(() => refreshQuote(symbol), 2000);
   } catch(e) {
     if (_seq !== _analyzeSeq) return;   // 过时请求的失败不覆盖当前结果
@@ -719,11 +735,12 @@ async function refreshQuote(symbol) {
   try {
     const r = await fetchWithTimeout(`${API}/api/quote?symbol=${symbol}`);
     const q = await r.json();
+    if (S.currentSymbol !== symbol) return;   // await 期间用户已切走：过期行情一律丢弃（防末根K线/报价栏被旧股票回写）
     if (!q.error) {
       updateQuote(q);
       S._lastQuote = { code: symbol, q: q, ts: Date.now() };
-      // K线最后一根蜡烛跟随实时行情更新
-      refreshKlineLastCandle(q);
+      // K线最后一根蜡烛跟随实时行情更新（带标的校验）
+      refreshKlineLastCandle(q, symbol);
       if (S.currentView === 'minute') {
         // 分时视图：用轻量刷新，只更新价格数据，不全量重载图表
         refreshMinuteLight(symbol);

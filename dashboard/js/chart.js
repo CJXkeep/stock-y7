@@ -183,74 +183,135 @@ export function _maSeriesFor(data) {
   return { ma5: s.arr5, ma10: s.arr10, ma20: s.arr20, ma60: s.arr60 };
 }
 
+// ===== 突破买点置信度（buy-point-confidence） =====
+// 后端 analysis/breakout_module.py 给每个海龟系统的入场点算一个 0-100 置信度
+// （突破力度 / 量能确认 / 趋势配合 / 信号时效 / 突破后跟随 / 是否早已被2N止损出局）。
+// 低于门槛的入场点不再画到K线上——避免"每只股票都挂着系统一/系统二买点"的噪音。
+// 门槛以后端下发的 confidence_display_min 为准，缺失时用这里的兜底值。
+export const BREAKOUT_CONF_MIN = 60;
+
+export function _bkConf(b) {
+  return (b && typeof b.confidence === 'number' && b.confidence > 0) ? b.confidence : null;
+}
+export function _bkConfMin(b) {
+  return (b && typeof b.confidence_display_min === 'number') ? b.confidence_display_min : BREAKOUT_CONF_MIN;
+}
+// 方向：优先用后端 direction；老数据回退按"止损在入场价上方=做空"判断
+export function _bkIsShort(b) {
+  if (!b) return false;
+  if (b.direction === '空') return true;
+  if (b.direction === '多') return false;
+  return !!(b.entry_price > 0 && b.stop_loss > 0 && b.stop_loss > b.entry_price);
+}
+export function _bkConfDesc(b) {
+  const c = _bkConf(b);
+  if (c == null) return '置信度：数据不足未评估。';
+  const lv = b.confidence_level || (c >= 70 ? '高' : c >= _bkConfMin(b) ? '中' : '低');
+  const fs = Array.isArray(b.confidence_factors) ? b.confidence_factors.slice(0, 5) : [];
+  return `置信度 ${c}%（${lv}）：突破力度/量能确认/趋势配合/信号时效/跟随表现综合评估，低于 ${_bkConfMin(b)}% 的买点不上图。`
+    + (fs.length ? '\n' + fs.map(x => '· ' + x).join('\n') : '');
+}
+
 // ===== K线图 =====
-export function renderKline(klines, signal) {
+export function renderKline(klines, signal, symbol) {
   S._klineData = klines;
+  S._klineSymbol = symbol || S.currentSymbol || '';   // 记录K线所属标的，供实时回写做一致性校验
   S._lastSignalData = signal;
   const dates = klines.map(k => k.date);
   const ohlc = klines.map(k => [k.open, k.close, k.low, k.high]);
   const { ma5, ma10, ma20, ma60 } = _maSeriesFor(klines);   // improvements #14：统一走缓存
 
-  // 买卖点标记——买入▲在K线下方，卖出▼在K线上方
+  // ===== 买卖点标记（buy-point-confidence）=====
+  // 入场点▲/▼标在真正的突破那根K线上，并带置信度；置信度低于门槛的入场点整组不上图。
+  // 风险事件（2N止损卖出 / 空头平仓）不受门槛限制，永远展示。
   const markPoints = [];
   S._signalPoints = [];
-  if (signal.breakouts) {
-    for (const b of signal.breakouts) {
-      if (b.signal === '买入') {
-        const idx = findEntryIndex(klines, b.entry_price);
-        const k = klines[idx];
-        // 向下偏移，让标记明显在K线下方
-        const candleLow = (k && k.low) ? k.low : (b.entry_price || b.breakout_price);
-        const range = k ? (k.high - k.low) : 0;
-        const markerY = candleLow - Math.max(range * 0.5, candleLow * 0.005);
-        const dateStr = dates[idx] || dates[dates.length-1];
-        markPoints.push({
-          coord: [dateStr, markerY],
-          symbol: 'triangle', symbolSize: 20, symbolRotate: 0,
-          itemStyle: { color: C.up, borderWidth: 2, borderColor: '#fff' },
-          label: { show: true, formatter: b.system ? b.system + ' 买入' : '买入', fontSize: 11, fontWeight: 'bold', color: '#fff',
-                   backgroundColor: C.up, padding: [2,4], borderRadius: 3, position: 'bottom' },
-        });
-        const sysPeriodBuy = (b.system || '').match(/(\d+)日/)?.[1] || '20';
-        S._signalPoints.push({
-          date: dateStr, price: markerY,
-          title: `${b.system ? b.system + ' ' : ''}买入信号（海龟法则·做多）`,
-          formula: `${b.system || '系统'}：突破${sysPeriodBuy}日最高点 ${b.breakout_price || b.channel_high}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场-2×N）`,
-          desc: `${b.system || '系统'}：唐奇安通道做多。当股价突破过去${sysPeriodBuy}天的最高点时，触发买入信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n入场后止损价=入场价-2×N，跌破止损或触及反向通道退出。`,
-        });
-      } else if (b.signal === '卖出') {
-        const idx = dates.length - 1;
-        const k = klines[idx];
-        // 向上偏移，让标记明显在K线上方
-        const candleHigh = (k && k.high) ? k.high : b.breakout_price;
-        const range = k ? (k.high - k.low) : 0;
-        const markerY = candleHigh + Math.max(range * 0.5, candleHigh * 0.005);
-        markPoints.push({
-          coord: [dates[idx], markerY],
-          symbol: 'triangle', symbolSize: 20, symbolRotate: 180,
-          itemStyle: { color: C.down, borderWidth: 2, borderColor: '#fff' },
-          label: { show: true, formatter: b.system ? b.system + ' 卖出' : '卖出', fontSize: 11, fontWeight: 'bold', color: '#fff',
-                   backgroundColor: C.down, padding: [2,4], borderRadius: 3, position: 'top' },
-        });
-        const sysPeriodSell = (b.system || '').match(/(\d+)日/)?.[1] || '20';
-        S._signalPoints.push({
-          date: dates[idx], price: markerY,
-          title: `${b.system ? b.system + ' ' : ''}卖出信号（海龟法则·做空）`,
-          formula: `${b.system || '系统'}：跌破${sysPeriodSell}日最低点 ${b.breakout_price || b.channel_low}\n→ 入场 ${b.entry_price}，止损 ${b.stop_loss}（入场+2×N）`,
-          desc: `${b.system || '系统'}：唐奇安通道做空。当股价跌破过去${sysPeriodSell}天的最低点时，触发做空信号。\nN值=${b.current_n || '?'}（ATR，反映日均波动幅度）。\n做空止损价=入场价+2×N，涨到止损或触及反向通道平仓。`,
-        });
-      }
+  const shownBreakouts = [];    // 通过置信度门槛、允许画标记与水平线的系统
+  const hiddenBreakouts = [];   // 被门槛过滤掉的系统（图上角标说明，避免"信号凭空消失"）
+  const bkList = (signal && signal.breakouts) ? signal.breakouts : [];
+  for (const b of bkList) {
+    const conf = _bkConf(b);
+    const minConf = _bkConfMin(b);
+    const isExit = (b.signal === '卖出' || b.signal === '空头平仓');
+    const hasEntry = !!(b.entry_price && b.entry_price > 0) && b.signal !== '无信号' && b.signal !== '观望';
+    if (!hasEntry && !isExit) continue;
+    if (!isExit && conf != null && conf < minConf) { hiddenBreakouts.push(b); continue; }
+    shownBreakouts.push(b);
+
+    const sysName = b.system || '系统';
+    const sysPeriod = (sysName.match(/(\d+)日/) || [null, '20'])[1] || '20';
+    const isShort = _bkIsShort(b);
+    const confTag = conf != null ? ` ${conf}%` : '';
+
+    // 1) 入场点：优先用后端给的 entry_date 精确定位那根突破K线（老数据回退按价格近似匹配）
+    if (hasEntry) {
+      let idx = b.entry_date ? dates.indexOf(b.entry_date) : -1;
+      if (idx < 0) idx = findEntryIndex(klines, b.entry_price);
+      if (idx < 0 || idx >= klines.length) idx = klines.length - 1;
+      const k = klines[idx];
+      const range = k ? (k.high - k.low) : 0;
+      const baseY = isShort ? ((k && k.high) || b.entry_price) : ((k && k.low) || b.entry_price);
+      const markerY = isShort
+        ? baseY + Math.max(range * 0.5, baseY * 0.005)
+        : baseY - Math.max(range * 0.5, baseY * 0.005);
+      const color = isShort ? C.down : C.up;
+      const dateStr = dates[idx] || dates[dates.length - 1];
+      markPoints.push({
+        coord: [dateStr, markerY],
+        symbol: 'triangle', symbolSize: 20, symbolRotate: isShort ? 180 : 0,
+        itemStyle: { color: color, borderWidth: 2, borderColor: '#fff' },
+        label: { show: true, formatter: `${sysName} ${isShort ? '做空' : '买点'}${confTag}`,
+                 fontSize: 11, fontWeight: 'bold', color: '#fff',
+                 backgroundColor: color, padding: [2,4], borderRadius: 3, position: isShort ? 'top' : 'bottom' },
+      });
+      S._signalPoints.push({
+        date: dateStr, price: markerY,
+        title: `${sysName} ${isShort ? '做空入场' : '买点'}（海龟法则）${conf != null ? ' · 置信度' + conf + '%' : ''}`,
+        formula: isShort
+          ? `${sysName}：跌破${sysPeriod}日最低点 ${b.entry_price} → 做空入场\n止损 ${b.stop_loss}（入场+2×N，N=${b.current_n || '?'}）`
+          : `${sysName}：突破${sysPeriod}日最高点 ${b.entry_price} → 做多入场\n止损 ${b.stop_loss}（入场-2×N，N=${b.current_n || '?'}）`,
+        desc: `${b.entry_date ? '突破日 ' + b.entry_date + '，' : ''}已持有 ${b.holding_days != null ? b.holding_days : '?'} 根K线。\n` + _bkConfDesc(b),
+      });
+    }
+
+    // 2) 离场/风险事件：标在最新一根K线上
+    if (isExit) {
+      const idx = dates.length - 1;
+      const k = klines[idx];
+      const range = k ? (k.high - k.low) : 0;
+      const candleHigh = (k && k.high) ? k.high : (b.exit_price || b.breakout_price);
+      const markerY = candleHigh + Math.max(range * 0.5, candleHigh * 0.005);
+      const exitColor = b.signal === '卖出' ? C.down : C.ma60;
+      markPoints.push({
+        coord: [dates[idx], markerY],
+        symbol: 'triangle', symbolSize: 20, symbolRotate: 180,
+        itemStyle: { color: exitColor, borderWidth: 2, borderColor: '#fff' },
+        label: { show: true, formatter: `${sysName} ${b.signal}`, fontSize: 11, fontWeight: 'bold', color: '#fff',
+                 backgroundColor: exitColor, padding: [2,4], borderRadius: 3, position: 'top' },
+      });
+      S._signalPoints.push({
+        date: dates[idx], price: markerY,
+        title: `${sysName} ${b.signal}信号（海龟法则）`,
+        formula: (b.signals && b.signals[0]) ? String(b.signals[0])
+          : `${sysName}：离场价 ${b.exit_price || b.stop_loss}`,
+        desc: b.signal === '卖出'
+          ? `${sysName}：多头已收盘跌破 2×N 止损（N=${b.current_n || '?'}），按海龟法则离场。\n风险事件不受买点置信度门槛限制，一律展示。`
+          : `${sysName}：空头触发平仓条件（反向通道高点或 2×N 止损），按海龟法则平仓。\n风险事件不受买点置信度门槛限制，一律展示。`,
+      });
     }
   }
+  // 被置信度门槛隐藏的系统 → 图右上角提示，避免用户以为信号丢了
+  const hiddenNote = hiddenBreakouts.length
+    ? hiddenBreakouts.map(b => `${b.system || '系统'} 置信度${_bkConf(b)}%`).join(' · ')
+      + `，低于 ${_bkConfMin(hiddenBreakouts[0])}% 已隐藏`
+    : '';
 
   // 关键水平线（止损、目标价、支撑/压力）——加粗+背景色突出显示
   // 先判断整体方向：空头持仓时止损在入场价上方
   let isBearish = false;
-  if (signal.breakouts) {
-    for (const b of signal.breakouts) {
-      if (b.entry_price && b.stop_loss && b.stop_loss > b.entry_price) {
-        isBearish = true; break;
-      }
+  for (const b of shownBreakouts) {
+    if (b.entry_price && b.stop_loss && b.stop_loss > b.entry_price) {
+      isBearish = true; break;
     }
   }
   if (!isBearish && signal.action) {
@@ -261,9 +322,12 @@ export function renderKline(klines, signal) {
 
   const markLines = [];
   S._signalLines = [];
-  if (signal.breakouts) {
-    for (const b of signal.breakouts) {
+  {
+    // 只画置信度达标（或含风险事件）的系统，与买点标记口径一致
+    for (const b of shownBreakouts) {
       const sysName = b.system || '';
+      const bConf = _bkConf(b);
+      const confSuffix = bConf != null ? ` ${bConf}%` : '';
       const sysPeriod = (sysName.match(/(\d+)日/) || [null, '20'])[1] || '20';
       const sysLabel = sysName ? sysName + ' ' : '';
       if (b.stop_loss && b.stop_loss > 0) {
@@ -289,8 +353,8 @@ export function renderKline(klines, signal) {
       if (b.entry_price && b.entry_price > 0 && b.signal !== '观望') {
         const entryColor = isBearish ? C.down : C.up;
         const entryText = isBearish
-          ? `${sysName ? sysName + '\n' : ''}做空 ${b.entry_price.toFixed(2)}`
-          : `${sysName ? sysName + '\n' : ''}入场 ${b.entry_price.toFixed(2)}`;
+          ? `${sysName ? sysName + confSuffix + '\n' : ''}做空 ${b.entry_price.toFixed(2)}`
+          : `${sysName ? sysName + confSuffix + '\n' : ''}入场 ${b.entry_price.toFixed(2)}`;
         markLines.push({ yAxis: b.entry_price, lineStyle: { color: entryColor, type: 'solid', width: 2 },
           label: { formatter: entryText, color: '#fff', fontSize: 11, fontWeight: 'bold',
             backgroundColor: entryColor, padding: [3,6], borderRadius: 3, position: 'insideStartTop' } });
@@ -300,9 +364,10 @@ export function renderKline(klines, signal) {
           formula: isBearish
             ? `${sysName || '系统'}：股价跌破${sysPeriod}日最低点 → 做空入场 ${b.entry_price}\n当时通道下轨=${b.channel_low}，上轨=${b.channel_high}`
             : `${sysName || '系统'}：股价突破${sysPeriod}日最高点 → 做多入场 ${b.entry_price}\n当时通道上轨=${b.channel_high}，下轨=${b.channel_low}`,
-          desc: isBearish
-            ? `${sysName || '系统'}：唐奇安通道做空。当股价跌破过去${sysPeriod}天的最低点时，触发做空信号。\n入场价=突破时的通道下轨。N值=${b.current_n || '?'}。已持有对应天数，止损价在上方。`
-            : `${sysName || '系统'}：唐奇安通道做多。当股价突破过去${sysPeriod}天的最高点时，触发做多信号。\n入场价=突破时的通道上轨。N值=${b.current_n || '?'}。已持有对应天数，止损价在下方。`,
+          desc: (isBearish
+            ? `${sysName || '系统'}：唐奇安通道做空。当股价跌破过去${sysPeriod}天的最低点时，触发做空信号。\n入场价=突破时的通道下轨。N值=${b.current_n || '?'}。${b.entry_date ? '突破日 ' + b.entry_date + '，' : ''}已持有 ${b.holding_days != null ? b.holding_days : '?'} 根K线，止损价在上方。`
+            : `${sysName || '系统'}：唐奇安通道做多。当股价突破过去${sysPeriod}天的最高点时，触发做多信号。\n入场价=突破时的通道上轨。N值=${b.current_n || '?'}。${b.entry_date ? '突破日 ' + b.entry_date + '，' : ''}已持有 ${b.holding_days != null ? b.holding_days : '?'} 根K线，止损价在下方。`)
+            + '\n' + _bkConfDesc(b),
         });
       }
     }
@@ -337,6 +402,11 @@ export function renderKline(klines, signal) {
   klineChart.setOption({
     backgroundColor: C.bg,
     animation: chartAnim('kline'),
+    // 低置信度买点被隐藏时的角标说明（buy-point-confidence）
+    title: hiddenNote ? {
+      text: '⊘ ' + hiddenNote, right: 8, top: 6,
+      textStyle: { color: '#777', fontSize: 10, fontWeight: 'normal' },
+    } : undefined,
     xAxis: {
       type: 'category', data: dates,
       axisLine: { lineStyle: { color: C.axis } },
@@ -525,6 +595,14 @@ export function bindZoomSync() {
       syncRangeBtns(s, e);
     }
   });
+}
+
+// K线窗口调度：klineChart 是本模块私有实例，跨模块（如信号列表"点位跳转"）必须走这里，
+// 否则外部直接引用 klineChart 会抛 ReferenceError 并被 catch 吞掉，表现为"提示已定位但图没动"。
+export function dispatchKlineZoom(start, end) {
+  if (!klineChart) return false;
+  try { klineChart.dispatchAction({ type: 'dataZoom', start: start, end: end }); return true; }
+  catch (err) { console.warn('dataZoom dispatch failed:', err); return false; }
 }
 
 export function applyRange(days) {
@@ -1161,6 +1239,7 @@ export async function loadRealtimeFlow(symbol) {
   try {
     const r = await fetchWithTimeout(`${API}/api/realtime_flow?symbol=${symbol}`);
     const data = await r.json();
+    if (S.currentSymbol !== symbol) return;   // 用户已切走：丢弃旧股票资金流响应
     renderRealtimeFlow(data);
   } catch(e) {
     const fs = document.getElementById('flow-summary');
@@ -1215,8 +1294,11 @@ export function _lastMA(period) {
 }
 
 
-export function refreshKlineLastCandle(q) {
+export function refreshKlineLastCandle(q, symbol) {
   if (!S._klineData.length || !q || !q.price) return;
+  // 标的一致性护栏：过期轮询/异步回写不得把 A 股行情写进 B 股的最后一根日K
+  const sym = symbol || q.symbol || '';
+  if (!sym || sym !== S.currentSymbol || sym !== S._klineSymbol) return;
   // 周K视图不实时刷新最后一根蜡烛（周K是聚合数据，实时更新会误导）
   if (S.currentView === 'week') return;
   const last = S._klineData[S._klineData.length - 1];
@@ -1292,6 +1374,7 @@ export async function refreshMinuteLight(symbol) {
   try {
     const r = await fetchWithTimeout(`${API}/api/minute?symbol=${symbol}`);
     const data = await r.json();
+    if (S.currentSymbol !== symbol) return;   // 用户已切走：过期分时响应丢弃（await 之后必须复核）
     if (data.error || !_minuteData) return;
     // 检查数据是否实际变化（长度或最后一个价格）
     const oldLen = _minuteData.prices.length;
@@ -1361,7 +1444,7 @@ export function clearBolloverlay() {
   // 如果有BOLL系列（超过5个系列：K线+MA5+MA10+MA20+MA60=5），重新渲染K线清除
   if (series.length > 5) {
     if (S._lastSignalData) {
-      renderKline(S._klineData, S._lastSignalData);
+      renderKline(S._klineData, S._lastSignalData, S._klineSymbol);
       // 重新叠加缠论
       if (S._dailyChanlun && !S._dailyChanlun.error) {
         applyChanlunDailyOverlay(S._dailyChanlun);

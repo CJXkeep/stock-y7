@@ -1058,6 +1058,15 @@ body.fx-off .wc-change-badge { animation: none !important; }
   white-space: nowrap;
 }
 .sig-pt-stop { color: var(--c-warn); background: #1f1a05; border-color: #ffc10755; }
+/* 买点置信度徽标（buy-point-confidence）：低于60%的买点不会画到K线上 */
+.sig-conf {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  font-size: var(--fs-2xs); font-weight: bold; border-radius: 8px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.sig-conf.conf-high { color: #ff6b6b; background: #1f0d0d; border-color: #ff2d2d55; }
+.sig-conf.conf-mid { color: var(--c-warn); background: #1f1a05; border-color: #ffc10755; }
+.sig-conf.conf-low { color: #777; background: #141414; border-color: #33333388; }
 
 /* ===== 内容重构：四问卡 / 三段入口 / 密度层 ===== */
 .ia-seg-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #1a1a1a; flex-shrink: 0; }

@@ -100,8 +100,15 @@ def _calc_n_score(klines: List[Kline]) -> Tuple[int, str, Optional[dict]]:
     dist = (high_250 - price) / high_250 * 100 if high_250 else 100
     cup_handle = _detect_cup_handle(klines)
     # 创近期新高：突破近120日高点（排除今日）→ 100
-    high_120_prev = max(k.high for k in klines[-121:-1]) if len(klines) >= 121 else 0.0
-    if price >= high_120_prev:
+    # 注意：样本不足 121 根时不能取 0.0 兜底——那会让 price >= 0 恒成立，
+    # 新股/次新股无论离高点多远都拿满分（N 权重 0.25，直接抬高总分与结论）。
+    if len(klines) >= 121:
+        high_120_prev = max(k.high for k in klines[-121:-1])
+    elif len(klines) >= 2:
+        high_120_prev = max(k.high for k in klines[:-1])   # 退而用现有全部历史（同样排除今日）
+    else:
+        high_120_prev = 0.0
+    if high_120_prev > 0 and price >= high_120_prev:
         score = 100
     elif dist < 3.0:
         score = 70
@@ -119,11 +126,14 @@ def _calc_n_score(klines: List[Kline]) -> Tuple[int, str, Optional[dict]]:
 
 def _calc_s_score(klines: List[Kline], quote: Optional[Quote]) -> Tuple[int, str]:
     """S - 供需关系：40 基准，量比缩量 -2，放量加分（样本反推）。"""
+    if not klines:
+        return 40, "S(供需关系)40分"
     turnover = (quote.turnover if quote and quote.turnover else klines[-1].turnover) or 0.0
+    vol_ratio = 1.0
     if len(klines) >= 6:
-        vol_ratio = klines[-1].volume / (sum(k.volume for k in klines[-6:-1]) / 5)
-    else:
-        vol_ratio = 1.0
+        base = sum(k.volume for k in klines[-6:-1]) / 5
+        # 停牌/连续零成交时基准为 0，直接相除会 ZeroDivisionError 让 /api/analyze 抛 500
+        vol_ratio = klines[-1].volume / base if base > 0 else 1.0
     score = 40
     if vol_ratio < 0.5:
         score -= 2  # 缩量

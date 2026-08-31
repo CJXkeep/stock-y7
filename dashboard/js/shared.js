@@ -25,6 +25,7 @@ export const S = {
   _mode: 'pro',           // pro | simple（小白模式）
   _fxLevel: 'std',        // FX 动效档位
   _klineData: [],         // K线数据缓存
+  _klineSymbol: '',       // _klineData 所属标的（防止过期异步回写把A股行情写进B股K线）
   _signalLines: [],       // 止损/入场/目标水平线
   _signalPoints: [],      // 买卖点标记
   _lastSignalData: null,  // 上次 signal 数据（模式切换免请求重渲染）

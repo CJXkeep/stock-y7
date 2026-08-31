@@ -105,6 +105,12 @@ let _journalSymbolFilter = '';
 window._journalLastRecords = [];
 window._journalLastQuery = null;
 
+// 筛选控件入口（ESM 化后内联 onchange 访问不到模块变量与未挂 window 的函数，
+// 统一改走 data-chgact 委托：在模块内改状态再重载，避免只写出一个同名全局变量）。
+export function journalSetType(v) { _journalTypeFilter = v || ''; loadJournal(); }
+export function journalSetSymbol(v) { _journalSymbolFilter = (v || '').trim(); loadJournal(); }
+export function journalToggleDupes(checked) { _journalShowDupes = !!checked; loadJournal(); }
+
 export function _followupMap(rec) {
   const m = {};
   (rec.followups || []).forEach(f => { m[f.horizon] = f; });
@@ -178,14 +184,14 @@ export async function loadJournal() {
       <span>20日上涨比例 <b style="color:${(s.buy_20d_win_rate_pct||0) >= 50 ? C.up : C.down}">${winStr}</b></span>
       <span>20日平均收益 <b style="color:${(s.buy_20d_avg_return_pct||0) >= 0 ? C.up : C.down}">${avgStr}</b></span>
       <label>类型
-        <select onchange="_journalTypeFilter=this.value;loadJournal()" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${typeOpts}</select>
+        <select data-chgact="journalSetType" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${typeOpts}</select>
       </label>
       <label>代码
         <input value="${escHtml(_journalSymbolFilter)}" placeholder="如 600519" size="7"
-          onchange="_journalSymbolFilter=this.value.trim();loadJournal()"
+          data-chgact="journalSetSymbol"
           style="background:#111;color:#ccc;border:1px solid #333;font-size:11px;width:70px">
       </label>
-      <label style="margin-left:auto;cursor:pointer"><input type="checkbox" ${_journalShowDupes ? 'checked' : ''} onchange="_journalShowDupes=this.checked;loadJournal()"> 显示重复(近期已记录)</label>
+      <label style="margin-left:auto;cursor:pointer"><input type="checkbox" ${_journalShowDupes ? 'checked' : ''} data-chgact="journalToggleDupes"> 显示重复(近期已记录)</label>
       <button onclick="exportJournalCsv()" style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">导出CSV</button>
       <button onclick="exportJournalJson()" style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">导出JSON</button>
     </div>
@@ -270,6 +276,8 @@ export async function poolPost(body) {
 let _poolLastData = null;
 let _poolSnapBanner = '';
 let _poolIndustryFilter = '';
+// 行业筛选同理走委托：内联 handler 只会写出全局同名变量，模块内读到的永远是空串
+export function poolSetIndustry(v) { _poolIndustryFilter = v || ''; renderPoolPanel(); }
 let _poolImportOpen = false;
 
 export async function loadPool() {
@@ -340,7 +348,7 @@ export function renderPoolPanel() {
       <input id="pool-add-name" placeholder="名称(可选)" size="8" style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 6px">
       <button onclick="poolAdd()" style="background:#ff9800;border:none;color:#000;padding:2px 10px;cursor:pointer;font-size:11px">添加</button>
       <button data-act="poolAddCurrent" data-code="${escHtml(cur)}" ${cur ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">+ 当前(${cur ? escHtml(cur) : '无'})</button>
-      <select id="pool-industry-filter" onchange="_poolIndustryFilter=this.value;renderPoolPanel()" title="按行业筛选（纯前端过滤）"
+      <select id="pool-industry-filter" data-chgact="poolSetIndustry" title="按行业筛选（纯前端过滤）"
         style="background:#111;border:1px solid #333;color:#ccc;font-size:11px;padding:2px 4px;max-width:110px">${indOpts}</select>
       <button onclick="poolFillIndustry()" ${items.length ? '' : 'disabled'} style="background:none;border:1px solid #333;color:#aaa;cursor:pointer;padding:2px 8px;font-size:11px">补全行业</button>
       <button onclick="togglePoolImport()" style="${_poolImportOpen ? 'background:#ff9800;border:none;color:#000;' : 'background:none;border:1px solid #333;color:#aaa;'}cursor:pointer;padding:2px 8px;font-size:11px;margin-left:auto">批量导入</button>
@@ -575,6 +583,12 @@ export function clearWatchChangeBadge() {
 // ==================== 每日速递（daily-digest：手动生成 + 后台轮询） ====================
 let _digestTimer = null;
 let _digestDays = 1;         // 块1 回看窗口（1/3/5 个信号日，前端裁剪）
+// 回看窗口切换：同样走委托（renderDigest 未挂 window，内联 handler 必报 ReferenceError）
+export function digestSetDays(v) {
+  const n = parseInt(v, 10);
+  _digestDays = isNaN(n) ? 1 : n;
+  if (window._digestLastData) renderDigest(window._digestLastData);
+}
 let _digestRenderSeq = 0;
 
 export function _digestName(t) { return _journalTypeNames[t] || t; }
@@ -736,7 +750,7 @@ export function _digestSections(dg) {
     }).join('')).join('');
     recentHtml = `
       <div style="display:flex;gap:8px;padding:6px 12px;align-items:center;font-size:11px;color:#888">
-        <select onchange="_digestDays=parseInt(this.value,10);renderDigest(window._digestLastData)" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${dayOpts}</select>
+        <select data-chgact="digestSetDays" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${dayOpts}</select>
         <span>共 ${groups.reduce((n, g) => n + g.records.length, 0)} 条 · 默认排除窗口内重复</span>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;color:#ccc">

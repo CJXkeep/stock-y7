@@ -300,8 +300,12 @@ def test_app_and_dashboard_wiring():
                    "togglePoolImport", "pool-industry-filter", "renderPoolPanel()",
                    "补全行业", "poolFillIndustry", "fill-industry"):
         assert marker in HTML_SOURCE, f"看板缺少 {marker}"
-    # 行业筛选必须走纯前端渲染，不得重新请求
-    assert "_poolIndustryFilter=this.value;renderPoolPanel()" in HTML_SOURCE
+    # 行业筛选必须走纯前端渲染，不得重新请求。
+    # ESM 化后改为 data-chgact 委托：原内联 onchange 给模块私有变量赋值只会新建同名全局
+    # 变量，模块内读到的永远是空串（筛选点了没反应且下拉回弹），故断言改为委托口径。
+    assert 'data-chgact="poolSetIndustry"' in HTML_SOURCE
+    assert "export function poolSetIndustry" in HTML_SOURCE
+    assert "renderPoolPanel();" in HTML_SOURCE
     # 导入失败沿用既有 wp-error 错误样式
     assert "resEl.className = 'wp-error'" in HTML_SOURCE
     # 看板·信号档案：两个导出按钮与本地下载实现

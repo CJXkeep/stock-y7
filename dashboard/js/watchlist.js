@@ -168,10 +168,13 @@ export function toggleStar() {
 }
 
 export function removeFromWatchlist(code) {
-  const list = getWatchlist().filter(s => s.code !== code);
-  saveWatchlist(list);
+  if (!code) return;
+  // saveWatchlist 只回填字段、从不删条目：删除必须走 removeStockEverywhere，
+  // 否则 ★ 取消自选/右键删除/清空全部静默失效（分组 codes 与 stockMap 都还在）。
+  removeStockEverywhere(code);
   updateStarButton(S.currentSymbol);
   renderWatchlist();
+  renderSidebar();
   updateBadges();
 }
 
@@ -289,8 +292,10 @@ export function switchTab(tab) {
 
 export function clearCurrentTab() {
   if (_currentTab === 'watch') {
-    saveWatchlist([]);
+    // 同上：必须逐个真删——传空数组给 saveWatchlist 连循环都进不去，等于空操作
+    for (const s of getWatchlist()) removeStockEverywhere(s.code);
     renderWatchlist();
+    renderSidebar();
     updateStarButton(S.currentSymbol);
   } else {
     clearHistory();

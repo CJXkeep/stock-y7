@@ -21,6 +21,7 @@ from data.kline_fetcher import (
     Kline, Quote, FundFlow, MinuteData, MinuteFlow
 )
 from analysis.signal_engine import run_analysis, SignalEngineResult
+from analysis.breakout_module import CONFIDENCE_DISPLAY_MIN
 from analysis.chanlun_minute import analyze_chanlun_minute, signals_to_dict
 from analysis.chanlun_daily import analyze_chanlun_daily, daily_result_to_dict
 from backtest import config as journal_config
@@ -130,6 +131,14 @@ def signal_to_dict(r: SignalEngineResult) -> dict:
             "next_add_price": b.next_add_price,
             "signals": b.signals,
             "description": b.description,
+            # 买点质量（buy-point-confidence）：供前端按置信度过滤/标注K线买点
+            "direction": b.direction,
+            "entry_date": b.entry_date,
+            "holding_days": b.holding_days,
+            "confidence": b.confidence,
+            "confidence_level": b.confidence_level,
+            "confidence_factors": b.confidence_factors,
+            "confidence_display_min": CONFIDENCE_DISPLAY_MIN,
         })
 
     if r.momentum:
