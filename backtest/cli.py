@@ -9,6 +9,8 @@
   python -m backtest sensitivity <snapshot_id> [--thresholds "强,买" ...]
         [--allow-stale] [--root DIR]
   python -m backtest review <snapshot_id> [--root DIR]
+  python -m backtest screen [--candidates <file>] [--workers N] [--allow-stale] [--root DIR]
+  python -m backtest advise <snapshot_id> [--root DIR]
   python -m backtest correct --plan <file> [--dry-run] [--rollback ACTION] [--root DIR]
 
 --root 同时覆盖快照与结果目录（测试/多盘位使用；生产默认 data/snapshots、data/results）。
@@ -55,6 +57,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_rev = sub.add_parser("review", help="评估响应规则检查（预承诺规则表 T1-T6，只呈现不执行）")
     p_rev.add_argument("snapshot_id")
+
+    p_scr = sub.add_parser("screen", help="候选历史验证（I9.3：无前视重放 + SCREEN_GATE 门槛）")
+    p_scr.add_argument("--candidates", default=None, help="candidates.json 路径（默认 data/candidates.json）")
+    p_scr.add_argument("--workers", type=int, default=8)
+    p_scr.add_argument("--allow-stale", action="store_true",
+                       help="候选版本不一致时放行（报告将披露 stale）")
+
+    p_adv = sub.add_parser("advise", help="入池/出池建议生成（I9.4：读 screen/results 产 plan 草稿）")
+    p_adv.add_argument("snapshot_id")
 
     p_cor = sub.add_parser("correct", help="策略矫正执行器（封闭菜单，门槛校验，留痕可回滚）")
     p_cor.add_argument("--plan", default=None, help="矫正计划 JSON（schema v5.correction-plan.v1）")
@@ -145,6 +156,21 @@ def main(argv=None) -> int:
             print("%s: %s%s" % (rid, rule.get("status"),
                                 (" → " + rule["action"]) if rule.get("action") else ""))
         print("review: %s" % result.get("outputs", {}).get("review_md"))
+        return 0
+
+    if args.command == "screen":
+        from backtest.screen import run_screen, format_screen_cli
+        result = run_screen(candidates_path=args.candidates, root=root,
+                            workers=args.workers, allow_stale=args.allow_stale)
+        print(format_screen_cli(result))
+        print("screen: %s" % result.get("outputs", {}).get("screen_md"))
+        return 0
+
+    if args.command == "advise":
+        from backtest.advise import run_advise, format_advise_cli
+        result = run_advise(args.snapshot_id, root=root)
+        print(format_advise_cli(result))
+        print("plans: %s" % result["plans_dir"])
         return 0
 
     if args.command == "correct":

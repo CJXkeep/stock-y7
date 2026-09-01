@@ -50,6 +50,17 @@ JOURNAL_API_LIMIT = 500
 # 核心池容量上限（I7.5 起统一在 config 维护，backtest/pool.py 引用）
 POOL_MAX_ITEMS = 60
 
+# ---- 候选池（I9.2 screener-candidates；改动须在决策日志留痕） ----
+CANDIDATE_MAX_ITEMS = 30         # 候选池容量上限（backtest/candidates.py 引用）
+CANDIDATE_COOLDOWN_DAYS = 20     # promoted/rejected 后再入池的冷却窗口（交易日）
+
+# ---- 候选验证（I9.3 candidate-validation；门槛预承诺，改动须留痕） ----
+SCREEN_MAX_SYMBOLS = 30          # 单次验证候选上限
+SCREEN_GATE_EXCESS_WIN_RATE = 50.0  # r20/r60 双超额胜率门槛（%）
+
+# ---- 入池/出池建议（I9.4 pool-advisor） ----
+SCREEN_ADVICE_MIN_N = 10         # 逐股出池建议的最低窗口信号数（T3 为组合级规则，逐股须另设样本门槛）
+
 # ---- 历史信号统计（I7.4） ----
 SNAPSHOT_DIR = os.path.join(ROOT, "data", "snapshots")
 RESULTS_DIR = os.path.join(ROOT, "data", "results")

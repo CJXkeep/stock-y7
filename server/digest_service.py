@@ -33,14 +33,16 @@ from backtest.journal import (
     save_records as journal_save_records,
 )
 from digest import builder as digest_builder
+from server import task_store
 
 log = logging.getLogger("trend_app")
 
 
 
-# ---- 每日速递（daily-digest：手动生成后台线程 + latest.json 持久化） ----
+# ---- 每日速递（daily-digest：手动生成后台线程 + 状态持久化） ----
 _digest_lock = threading.Lock()
-_digest_loaded = False  # 首次 GET 时从 latest.json 回填最近一期
+_digest_loaded = False  # 首次 GET 时回填最近一期
+_DIGEST_KIND = "digest"  # I9.0：统一任务状态 kind（落盘 data/tasks/digest.json）
 _digest_state = {
     "status": "idle",        # idle | running | done | error
     "stage": "",
@@ -50,7 +52,15 @@ _digest_state = {
     "error": "",
     "digest": None,
 }
-_DIGEST_FILE = os.path.join(ROOT, "data", "digest", "latest.json")
+
+
+def _digest_validate_payload(payload: dict) -> None:
+    """校验速递状态快照结构（与迁移前 _digest_load_cached 的校验等价）。"""
+    status = payload.get("status")
+    if status not in ("done", "error", "running"):
+        raise ValueError("digest 状态非 done/error/running")
+    if status == "done" and not isinstance(payload.get("digest"), dict):
+        raise ValueError("digest done 结构缺少 digest")
 
 
 def _digest_find_latest_results():
@@ -126,11 +136,31 @@ def _digest_make_ctx() -> dict:
     }
 
 
+def _digest_snapshot_payload() -> dict:
+    """构造当前速递状态快照（running/error/done 均可落盘）。"""
+    with _digest_lock:
+        state = dict(_digest_state)
+    payload = {
+        "schema": digest_builder.DIGEST_SCHEMA,
+        "status": state.get("status"),
+        "stage": state.get("stage", ""),
+        "progress": state.get("progress", 0),
+        "generated_at": state.get("generated_at"),
+        "elapsed": state.get("elapsed", 0),
+        "error": state.get("error", ""),
+    }
+    digest = state.get("digest")
+    if digest is not None:
+        # 成功完成时才带完整 digest；error/running 快照不携带结果体
+        payload["digest"] = digest
+        if isinstance(digest.get("meta"), dict):
+            payload["date"] = digest["meta"].get("date")
+    return payload
+
+
 def _digest_persist(digest: dict) -> None:
-    """成功生成后原子写 data/digest/latest.json；失败仅告警不影响展示。"""
+    """成功生成后写入任务状态存储；失败仅告警不影响展示。"""
     try:
-        os.makedirs(os.path.dirname(_DIGEST_FILE), exist_ok=True)
-        tmp = _DIGEST_FILE + ".tmp"
         payload = {
             "schema": digest_builder.DIGEST_SCHEMA,
             "status": "done",
@@ -139,65 +169,34 @@ def _digest_persist(digest: dict) -> None:
             "elapsed": digest["meta"]["elapsed_sec"],
             "digest": digest,
         }
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        os.replace(tmp, _DIGEST_FILE)
-        log.info("每日速递已持久化到 %s", _DIGEST_FILE)
+        task_store.save_state(_DIGEST_KIND, payload)
+        log.info("每日速递已持久化（kind=%s）", _DIGEST_KIND)
     except Exception as exc:
         log.warning("每日速递持久化失败（不影响展示）: %s", exc)
 
 
 def _digest_save_snapshot() -> None:
-    """把当前速递状态快照原子写入 latest.json（running/error/done 均可）。"""
+    """把当前速递状态快照写入任务状态存储（running/error/done 均可）。"""
     try:
-        with _digest_lock:
-            state = dict(_digest_state)
-        payload = {
-            "schema": digest_builder.DIGEST_SCHEMA,
-            "status": state.get("status"),
-            "stage": state.get("stage", ""),
-            "progress": state.get("progress", 0),
-            "generated_at": state.get("generated_at"),
-            "elapsed": state.get("elapsed", 0),
-            "error": state.get("error", ""),
-        }
-        digest = state.get("digest")
-        if digest is not None:
-            # 成功完成时才带完整 digest；error/running 快照不携带结果体
-            payload["digest"] = digest
-            if isinstance(digest.get("meta"), dict):
-                payload["date"] = digest["meta"].get("date")
-        os.makedirs(os.path.dirname(_DIGEST_FILE), exist_ok=True)
-        tmp = _DIGEST_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        os.replace(tmp, _DIGEST_FILE)
-        log.info("每日速递状态已持久化到 %s（status=%s）", _DIGEST_FILE, payload.get("status"))
+        payload = _digest_snapshot_payload()
+        task_store.save_state(_DIGEST_KIND, payload)
+        log.info("每日速递状态已持久化（kind=%s，status=%s）", _DIGEST_KIND, payload.get("status"))
     except Exception as exc:
         log.warning("每日速递状态持久化失败（不影响展示）: %s", exc)
 
 
 def _digest_load_cached():
-    """读取最近一期缓存；缺失/损坏返回 None 并告警。
+    """读取最近一期缓存；缺失/损坏/schema 不符/结构非法返回 None 并告警。
 
     兼容旧版 done 结构，并支持 error/running 快照回填。
+    I9.0：经 task_store 读取（新路径缺失时自动迁移读 data/digest/latest.json）。
     """
-    try:
-        with open(_DIGEST_FILE, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        if not isinstance(payload, dict) or payload.get("schema") != digest_builder.DIGEST_SCHEMA:
-            raise ValueError("digest schema 非法")
-        status = payload.get("status")
-        if status not in ("done", "error", "running"):
-            raise ValueError("digest 状态非 done/error/running")
-        if status == "done" and not isinstance(payload.get("digest"), dict):
-            raise ValueError("digest done 结构缺少 digest")
-        return payload
-    except (OSError, ValueError) as exc:
-        log.warning("每日速递缓存读取失败（回退 idle）: %s", exc)
+    payload = task_store.read_state(_DIGEST_KIND, digest_builder.DIGEST_SCHEMA,
+                                    validate=_digest_validate_payload)
+    if not payload:
+        log.warning("每日速递缓存读取失败（回退 idle）")
         return None
+    return payload
 
 
 def _run_digest_build() -> None:

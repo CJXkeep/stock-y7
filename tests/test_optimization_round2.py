@@ -18,6 +18,21 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from server import scan_engine as se
+from server import task_store
+
+
+def _patch_scan_path(path: str):
+    """把 scan 任务状态文件重定向到测试目录（I9.0：task_store 统一路径）。"""
+    saved = (task_store.TASK_PATHS["scan"], task_store.OLD_PATHS["scan"])
+    task_store.TASK_PATHS["scan"] = path
+    task_store.OLD_PATHS["scan"] = ""
+    task_store.reset_for_tests("scan")
+    return saved
+
+
+def _restore_scan_path(saved) -> None:
+    task_store.TASK_PATHS["scan"], task_store.OLD_PATHS["scan"] = saved
+    task_store.reset_for_tests("scan")
 import app as app_mod
 
 
@@ -162,9 +177,9 @@ def test_scan_week_never_fetches_fund_flow():
 def test_scan_failed_stats_persist_and_get():
     """单只失败 → failed_total 递增 + 明细记录；落盘/读回/GET 均一致。"""
     d = tempfile.mkdtemp(prefix="scan_fail_")
-    old_file, old_loaded = se.SCAN_STATE_FILE, se._scan_state_loaded
-    path = os.path.join(d, "latest.json")
-    se.SCAN_STATE_FILE = path
+    old_loaded = se._scan_state_loaded
+    path = os.path.join(d, "scan.json")
+    saved_task = _patch_scan_path(path)
     saved_kline = se.fetch_kline
     saved_quote = se.fetch_quote
 
@@ -198,7 +213,7 @@ def test_scan_failed_stats_persist_and_get():
         assert resp["failed_total"] == 1
         assert resp["failed_symbols"][0]["symbol"] == "600111"
     finally:
-        se.SCAN_STATE_FILE = old_file
+        _restore_scan_path(saved_task)
         se._scan_state_loaded = old_loaded
         se.fetch_kline = saved_kline
         se.fetch_quote = saved_quote
@@ -209,9 +224,9 @@ def test_scan_failed_stats_persist_and_get():
 def test_scan_legacy_file_without_failed_fields():
     """旧格式 latest.json 无失败字段 → 读回不报错、回填空值。"""
     d = tempfile.mkdtemp(prefix="scan_legacy_")
-    old_file, old_loaded = se.SCAN_STATE_FILE, se._scan_state_loaded
-    path = os.path.join(d, "latest.json")
-    se.SCAN_STATE_FILE = path
+    old_loaded = se._scan_state_loaded
+    path = os.path.join(d, "scan.json")
+    saved_task = _patch_scan_path(path)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"schema": se._SCAN_STATE_SCHEMA, "status": "done",
@@ -225,7 +240,7 @@ def test_scan_legacy_file_without_failed_fields():
         assert resp["failed_total"] == 0
         assert resp["failed_symbols"] == []
     finally:
-        se.SCAN_STATE_FILE = old_file
+        _restore_scan_path(saved_task)
         se._scan_state_loaded = old_loaded
         _reset_scan_state()
         shutil.rmtree(d, ignore_errors=True)

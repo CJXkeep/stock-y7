@@ -55,13 +55,14 @@ from backtest.journal import (
 )
 from analysis.signal_engine import run_analysis
 from server.signal_pipeline import signal_to_dict, _apply_signal_optimization
+from server import task_store
 from data.kline_fetcher import fetch_kline, fetch_quote, fetch_fund_flow, in_trading_session as _market_trading_session
 
 log = logging.getLogger("trend_app")
 
 NOTIFY_SCHEMA = "v5.notify.v1"
 NOTIFY_STATE_SCHEMA = "v5.notify.state.v1"
-NOTIFY_STATE_FILE = os.path.join(ROOT, "data", "notify_state.json")
+_NOTIFY_KIND = "notify"    # I9.0：统一任务状态 kind（落盘 data/tasks/notify.json）
 DINGTALK_HOST = "oapi.dingtalk.com"
 
 NOTIFY_MAX_WORKERS = int(os.environ.get("NOTIFY_MAX_WORKERS", "8"))
@@ -418,38 +419,23 @@ def _set_state(**fields) -> None:
 
 
 def _ensure_notify_state_loaded() -> None:
-    """启动/模块首次使用时从 data/notify_state.json 回填运行状态。"""
+    """启动/模块首次使用时回填运行状态（I9.0：经 task_store 落 data/tasks/notify.json）。
+
+    缺失/损坏只尝试一次并保持默认值（既有的「回填空值」语义不变）。
+    """
     global _notify_state_loaded
     if _notify_state_loaded:
         return
     _notify_state_loaded = True  # 缺失/损坏也只尝试一次
-    try:
-        with open(NOTIFY_STATE_FILE, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        if not isinstance(payload, dict) or payload.get("schema") != NOTIFY_STATE_SCHEMA:
-            raise ValueError("notify state schema 或结构非法")
-        with _state_lock:
-            for key in list(_notify_state.keys()):
-                if key in payload:
-                    _notify_state[key] = payload[key]
-    except (OSError, ValueError) as exc:
-        log.warning("推送运行状态读取失败（保持默认值）: %s", exc)
+    with _state_lock:
+        task_store.ensure_loaded(_NOTIFY_KIND, NOTIFY_STATE_SCHEMA, _notify_state, force=True)
 
 
 def _notify_save_state() -> None:
-    """每次巡检周期结束后把运行状态原子写到 data/notify_state.json。"""
-    try:
-        with _state_lock:
-            state = dict(_notify_state)
-        payload = {"schema": NOTIFY_STATE_SCHEMA, **state}
-        os.makedirs(os.path.dirname(NOTIFY_STATE_FILE), exist_ok=True)
-        tmp = NOTIFY_STATE_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        os.replace(tmp, NOTIFY_STATE_FILE)
-    except Exception as exc:
-        log.warning("推送运行状态持久化失败（不影响巡检）: %s", exc)
+    """每次巡检周期结束后把运行状态原子写入任务状态存储。"""
+    with _state_lock:
+        state = dict(_notify_state)
+    task_store.save_state(_NOTIFY_KIND, {"schema": NOTIFY_STATE_SCHEMA, **state})
 
 
 def get_state() -> dict:

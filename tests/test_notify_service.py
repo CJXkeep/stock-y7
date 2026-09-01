@@ -29,6 +29,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server import notify_service as ns
 
+
+def _isolate_notify_state(tmp: str):
+    """把 notify 任务状态文件重定向到临时目录（I9.0：task_store 统一路径）。"""
+    from server import task_store
+    saved = (task_store.TASK_PATHS["notify"], task_store.OLD_PATHS["notify"])
+    task_store.TASK_PATHS["notify"] = os.path.join(tmp, "notify.json")
+    task_store.OLD_PATHS["notify"] = ""
+    task_store.reset_for_tests("notify")
+    return saved
+
+
+def _restore_notify_state(saved) -> None:
+    from server import task_store
+    task_store.TASK_PATHS["notify"], task_store.OLD_PATHS["notify"] = saved
+    task_store.reset_for_tests("notify")
+
 WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=abcdef1234567890abcdef"
 
 
@@ -377,10 +393,8 @@ class RunWatchCycleTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="notify_cycle_")
         self.journal_dir = os.path.join(self.tmp, "journal")
         self.cfg_path = os.path.join(self.tmp, "notify.json")
-        # 运行状态文件也隔离到临时目录，避免测试污染真实 data/notify_state.json
-        self.orig_state_file = ns.NOTIFY_STATE_FILE
-        self.state_file = os.path.join(self.tmp, "notify_state.json")
-        ns.NOTIFY_STATE_FILE = self.state_file
+        # 运行状态文件也隔离到临时目录，避免测试污染真实 data/tasks/notify.json
+        self._saved_notify_state = _isolate_notify_state(self.tmp)
         # 模块级状态在测试进程内共享，先归零保证断言不受用例顺序影响
         ns._set_state(status="idle", last_run="", last_run_at="", last_found=0,
                       pushed_total=0, deduped_total=0, failed_total=0,
@@ -397,7 +411,7 @@ class RunWatchCycleTest(unittest.TestCase):
     def tearDown(self):
         self._kf.fetch_index_kline = self._orig_index
         self._kf.fetch_market_breadth = self._orig_breadth
-        ns.NOTIFY_STATE_FILE = self.orig_state_file
+        _restore_notify_state(self._saved_notify_state)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_disabled_short_circuits(self):
@@ -475,13 +489,12 @@ class ApiHandlerTest(unittest.TestCase):
         self.orig_path = ns.notify_config_path
         ns.notify_config_path = lambda path=None: path or os.path.join(self.tmp, "notify.json")
         # 同样隔离运行状态文件；重置加载标记以避免读取真实项目文件
-        self.orig_state_file = ns.NOTIFY_STATE_FILE
-        ns.NOTIFY_STATE_FILE = os.path.join(self.tmp, "notify_state.json")
+        self._saved_notify_state = _isolate_notify_state(self.tmp)
         ns._notify_state_loaded = False
 
     def tearDown(self):
         ns.notify_config_path = self.orig_path
-        ns.NOTIFY_STATE_FILE = self.orig_state_file
+        _restore_notify_state(self._saved_notify_state)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_get_summary_masks_webhook(self):

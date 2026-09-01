@@ -153,6 +153,41 @@ function _rulesHtml(data) {
   return html;
 }
 
+// ---------------------------------------------------------------- 历史趋势（I9.1 series）
+
+function _seriesHtml(data) {
+  const series = (data && data.series) || [];
+  let html = '<div class="eval-card"><div class="eval-card-title">历史趋势（滚动评估 / 手动评估时间序列）</div>';
+  html += '<div class="eval-notice-line">记录的是原始 run_analysis 输出统计口径，'
+    + '与信号档案的最终 action 口径不可混用；n&lt;10 视界标 ⚠样本不足。</div>';
+  if (!series.length) {
+    html += '<div class="eval-empty">暂无历史期数。由月度滚动评估或手动「生成评估」累积，'
+      + '≥2 期后此处展示逐期对比。</div>';
+  } else {
+    html += '<table class="eval-table"><tr><th>时间</th><th>来源</th><th>池版本</th><th>样本</th>'
+      + '<th>r20胜率</th><th>r20均值</th><th>r20超额胜率</th><th>r20超额</th>'
+      + '<th>r60胜率</th><th>r60均值</th><th>r60超额胜率</th><th>r60超额</th><th>触发规则</th></tr>';
+    for (const row of series.slice().reverse()) {
+      const o = row.overall || {};
+      const r20 = o.r20 || {}, e20 = o.r20_excess || {};
+      const r60 = o.r60 || {}, e60 = o.r60_excess || {};
+      const triggers = (row.review_triggered || []).map(t => t.rule + ':' + t.status).join('，') || '--';
+      html += '<tr><td>' + escHtml(row.created_at || '') + '</td>'
+        + '<td>' + escHtml(row.source || '--') + '</td>'
+        + '<td>' + escHtml(String(row.pool_version ?? '--')) + '</td>'
+        + '<td>' + escHtml(String(row.sample_count ?? '--')) + '</td>'
+        + '<td>' + _fmt(r20.win_rate, '%') + '</td><td>' + _fmt(r20.avg_return, '%') + '</td>'
+        + '<td>' + _fmt(e20.excess_win_rate, '%') + '</td><td>' + _fmt(e20.excess_mean, '%') + '</td>'
+        + '<td>' + _fmt(r60.win_rate, '%') + '</td><td>' + _fmt(r60.avg_return, '%') + '</td>'
+        + '<td>' + _fmt(e60.excess_win_rate, '%') + '</td><td>' + _fmt(e60.excess_mean, '%') + '</td>'
+        + '<td class="eval-basis">' + escHtml(triggers) + '</td></tr>';
+    }
+    html += '</table>';
+  }
+  html += '</div>';
+  return html;
+}
+
 // ---------------------------------------------------------------- 后台任务状态
 
 function _taskState() {
@@ -450,6 +485,7 @@ function _renderPicked(data) {
   }
   host.innerHTML = listHtml
     + '<div id="eval-task-status" class="eval-card"></div>'
+    + _seriesHtml(data)
     + _opsHtml()
     + '<div id="eval-picked">' + body + '</div>'
     + '<div id="eval-doc" class="eval-card" style="display:none">'

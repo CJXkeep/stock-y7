@@ -1,7 +1,7 @@
 """统一任务状态存储（收敛设计 Batch B）。
 
-把 scan / digest / notify 三套**结构同构**的状态文件读写收敛到一个实现：
-- 新位置：``data/tasks/<kind>.json``（kind = scan | digest | notify）
+把 scan / digest / notify / screen 四套**结构同构**的状态文件读写收敛到一个实现：
+- 新位置：``data/tasks/<kind>.json``（kind = scan | digest | notify | screen）
 - 旧位置（迁移读）：``data/scan/latest.json``、``data/digest/latest.json``、``data/notify_state.json``
 - ``ensure_loaded``：每 kind 每进程只读一次；新文件缺失/损坏时尝试旧文件迁移读
   （读取成功即原子复制到新位置，下次直达）；均失败则保持调用方默认值并告警。
@@ -22,7 +22,7 @@ if ROOT not in sys.path:
 
 log = logging.getLogger("trend_app")
 
-KINDS = ("scan", "digest", "notify")
+KINDS = ("scan", "digest", "notify", "screen")
 
 TASK_DIR = os.path.join(ROOT, "data", "tasks")
 TASK_PATHS = {kind: os.path.join(TASK_DIR, f"{kind}.json") for kind in KINDS}
@@ -30,6 +30,7 @@ OLD_PATHS = {
     "scan": os.path.join(ROOT, "data", "scan", "latest.json"),
     "digest": os.path.join(ROOT, "data", "digest", "latest.json"),
     "notify": os.path.join(ROOT, "data", "notify_state.json"),
+    "screen": "",   # I9.5：候选验证任务状态无旧路径
 }
 
 _loaded: dict[str, bool] = {}
@@ -78,13 +79,17 @@ def _atomic_write(kind: str, payload: dict) -> None:
             log.warning("任务状态持久化失败（kind=%s，不影响运行）: %s", kind, exc)
 
 
-def ensure_loaded(kind: str, schema: str, default: dict, validate=None) -> None:
+def ensure_loaded(kind: str, schema: str, default: dict, validate=None,
+                  force: bool = False) -> None:
     """首次调用时从新/旧文件回填 default（只拷贝 default 已知键，保持各服务自有结构）。
 
     磁盘读取失败静默：default 保持调用方传入的初始值（既有的「缺失/损坏回填空值」语义）。
+
+    ``force=True`` 绕过进程内一次性登记，用于调用方自己持有「是否已回填」标记的场景
+    （如 notify/scan：显式更新状态后即视为已初始化，避免被磁盘旧值覆盖），以及测试重置。
     """
     with _registry_lock:
-        if kind in _loaded:
+        if not force and kind in _loaded:
             return
         _loaded[kind] = True
     payload = _read_file(_task_file(kind), schema, validate)

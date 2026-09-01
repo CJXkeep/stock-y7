@@ -94,11 +94,15 @@ def detect_gap_count(dates: list, max_gap_days: int = None) -> int:
 
 
 def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
-                   root: str = None, history_bars: int = None):
+                   root: str = None, history_bars: int = None, source: str = "pool"):
     """构建快照，返回 (snapshot_id, manifest)。
 
     fetch_fn(symbol, count, period, adjust) -> List[Kline]
     index_fetch_fn(index_code, count) -> List[Kline]
+
+    source（I9.3）："pool"= 正式评估快照；"screen"= 候选验证快照——此时
+    pool_data 为候选伪池（version=候选池版本、items=watching 候选），
+    manifest 增 source 与 candidates_version，供 replay/stats 的 stale 校验对照。
     """
     if pool_data is None:
         from backtest import pool as stock_pool
@@ -176,6 +180,7 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
         "snapshot_id": sid,
         "created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pool_version": pool_data.get("version"),
+        "source": source,
         "config": {
             "history_bars": history_bars,
             "replay_window": config.REPLAY_WINDOW,
@@ -189,6 +194,8 @@ def build_snapshot(pool_data: dict = None, fetch_fn=None, index_fetch_fn=None,
         "files": {"bars_jsonl_sha256": _sha256_file(bars_path)},
         "config_hash": config_hash(),
     }
+    if source == "screen":
+        manifest["candidates_version"] = pool_data.get("version")
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
         fh.write("\n")
