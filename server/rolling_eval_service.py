@@ -47,7 +47,8 @@ STATE_FILE = os.path.join(ROOT, "data", "evaluation", "rolling_state.json")
 STATE_SCHEMA = "v5.rolling-eval.v1"
 
 _service_started = False
-_loop_lock = threading.Lock()
+# I9 review 修复：RLock 可重入，避免「持锁复查」路径下 should_run 内部二次加锁自锁
+_loop_lock = threading.RLock()
 _state = {
     "last_month": "",       # 最近一次尝试的月份（YYYY-MM；成功/失败都记账，防同月风暴重试）
     "last_run_at": "",
@@ -176,16 +177,26 @@ def _mark_month(status: str, error: str) -> None:
     _save_state()
 
 
+def _maybe_run_once(trigger: str) -> bool:
+    """一次「自检 + 触发」：应当触发时异步启动一轮，互斥由 _eval_try_begin 保证。
+
+    I9 review 修复：不再在 _loop_lock 内重复调用 should_run（旧实现会造成非重入
+    锁自锁死锁）；_loop 与启动追赶并发触发时由 run_rolling_eval 的单任务互斥兜底，
+    后到者返回 busy，不会重复执行。
+    """
+    run, _reason = should_run()
+    if not run:
+        return False
+    threading.Thread(target=run_rolling_eval, kwargs={"trigger": trigger},
+                     daemon=True).start()
+    return True
+
+
 def _loop() -> None:
     time.sleep(8)  # 等服务与网络组件就绪
     while True:
         try:
-            run, _reason = should_run()
-            if run:
-                with _loop_lock:
-                    run, _reason = should_run()  # 持锁复查，避免与启动追赶重复
-                    if run:
-                        run_rolling_eval(trigger="scheduled")
+            _maybe_run_once("scheduled")
         except Exception as exc:
             log.warning("滚动评估调度异常: %s", exc)
         time.sleep(30)
@@ -206,13 +217,7 @@ def start_rolling_service() -> None:
     log.info("月度滚动评估服务已启动 (ROLLING_EVAL_AT=%s, ROLLING_EVAL_WORKERS=%d)",
              AT, REPLAY_WORKERS)
     try:
-        run, _reason = should_run()
-        if run:
-            with _loop_lock:
-                run, _reason = should_run()
-                if run:
-                    threading.Thread(target=run_rolling_eval,
-                                     kwargs={"trigger": "catchup"}, daemon=True).start()
-                    log.info("滚动评估启动追赶已触发")
+        if _maybe_run_once("catchup"):
+            log.info("滚动评估启动追赶已触发")
     except Exception as exc:
         log.warning("滚动评估启动追赶异常: %s", exc)

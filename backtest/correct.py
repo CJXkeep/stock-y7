@@ -343,7 +343,11 @@ def run_correct(plan_path: str, root: str = None, dry_run: bool = False,
         try:
             from backtest import candidates as _cands
             cands = _cands.load()
-            _cands.set_status(cands, str(plan["payload"]["symbol"]), "promoted")
+            _cands, ok, msg = _cands.set_status(
+                cands, str(plan["payload"]["symbol"]), "promoted")
+            if not ok:
+                _log.warning("矫正执行成功但候选状态回写未生效（%s，可能不在候选池）: %s",
+                             plan["payload"]["symbol"], msg)
         except Exception as exc:
             _log.warning("矫正执行成功但候选状态回写失败（不影响矫正结果）: %s", exc)
     log_entry = {"schema": DECISION_LOG_SCHEMA,

@@ -38,4 +38,4 @@ def handle_advice(params: dict) -> dict:
             })
         except (OSError, ValueError):
             continue  # 单条损坏跳过
-    return {"ok": True, "plans": out, "plans_dir": plans_dir}
+    return {"ok": True, "plans": out}

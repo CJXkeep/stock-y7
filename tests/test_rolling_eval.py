@@ -11,6 +11,8 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -275,6 +277,46 @@ def test_eval_try_begin_mutual_exclusion():
     assert eval_svc._eval_try_begin("refresh", "snap", "s", 5) is False, "running 时抢占应失败"
     _reset_eval_state()
     assert eval_svc._eval_try_begin("sensitivity", "snap", "s", 5) is True
+
+
+def test_maybe_run_once_no_deadlock_and_triggers():
+    """I9 review 回归：调度自检不得在持有 _loop_lock 时再次加锁自锁（曾用非重入 Lock 死锁）。
+
+    旧实现 _loop/start_rolling_service 在 `with _loop_lock:` 内再调 should_run()
+    （其内部又 `with _loop_lock:`），threading.Lock 非重入 → 同一线程二次获取永久自锁，
+    导致服务启动追赶卡死/月度滚动永不执行。现改为 RLock + 抽出的 _maybe_run_once。
+    """
+    orig_clock, orig_md = rolling.shanghai_now, rolling._market_dates
+    orig_enabled, orig_run = rolling.ENABLED, rolling.run_rolling_eval
+    orig_state = dict(rolling._state)
+    try:
+        _set_clock(_dt(2026, 8, 31, 15, 46), trade_date="2026-08-31")
+        rolling.ENABLED = True
+        with rolling._loop_lock:
+            rolling._state["last_month"] = "2026-07"   # 当月未跑 → 应触发
+        calls = []
+        rolling.run_rolling_eval = lambda *a, **k: calls.append((a, k)) or {"ok": True}
+
+        # 关键：在持有 _loop_lock 的情况下调用调度逻辑，不得死锁
+        with rolling._loop_lock:
+            triggered = rolling._maybe_run_once("catchup")
+        assert triggered is True, "当月未跑 + 交易日 + 已过时刻应触发一轮"
+        # _maybe_run_once 异步启动线程，等待其完成
+        deadline = time.time() + 5
+        while time.time() < deadline and not calls:
+            time.sleep(0.02)
+        assert calls, "应触发一轮 run_rolling_eval"
+        assert calls[0][1] == {"trigger": "catchup"}
+    finally:
+        rolling.shanghai_now, rolling._market_dates = orig_clock, orig_md
+        rolling.ENABLED, rolling.run_rolling_eval = orig_enabled, orig_run
+        with rolling._loop_lock:
+            rolling._state.update(orig_state)
+
+
+def test_loop_lock_is_reentrant():
+    """RLock 保证「持锁复查」路径可重入（防旧实现自锁回归）。"""
+    assert isinstance(rolling._loop_lock, type(threading.RLock()))
 
 
 # ---------------------------------------------------------------- 入口
