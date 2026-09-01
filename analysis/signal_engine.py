@@ -230,20 +230,26 @@ def _build_trade_plan(
         stop = round(entry * 0.95, 2)
         stop_mode = "固定5%(ATR不可用)"
 
-    # 目标价：头肩底 > 双底 > 箱体，取首个 > entry 的 target
+    # 目标价：头肩底 > 双底 > 箱体，取首个 > entry 的 target。
+    # 经验性 +10% 仅作为估算，不应被误读为结构化阻力位。
     priority_map = {"头肩底": 0, "双底": 1, "箱体": 2}
+    target_source = ""
     ordered = sorted(
         (p for p in patterns if p.direction == "看涨" and p.target_price),
         key=lambda p: priority_map.get(p.name, 9),
     )
     target = next((p.target_price for p in ordered if p.target_price > entry), None)
+    if target is not None:
+        target_source = "pattern_target"
     if target is None:
         for p in patterns:
             if "箱体上沿" in p.key_levels:
                 target = p.key_levels["箱体上沿"]
+                target_source = "box_resistance"
                 break
     if target is None:
         target = entry * 1.10
+        target_source = "heuristic_10pct"
 
     risk_amt = entry - stop
     reward_amt = target - entry
@@ -274,6 +280,7 @@ def _build_trade_plan(
         "entry_price": round(entry, 2),
         "stop_loss": round(stop, 2),
         "target_price": round(target, 2),
+        "target_source": target_source,
         "position_size": position_size,
         "holding_period": holding_period,
         "risk_reward_ratio": risk_reward,

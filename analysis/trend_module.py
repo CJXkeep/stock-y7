@@ -187,8 +187,8 @@ def analyze_trend(klines: List[Kline]) -> TrendResult:
     else:
         direction = "震荡"
 
-    # 加密版反推：ma_arrangement 恒为 "纠缠"（8/8 样本验证）
-    arrangement = "纠缠"
+    # 均线排列是可计算的状态，不应沿用旧版本的固定展示值。
+    arrangement = _calc_arrangement(ma20_val, ma60_val)
     stage = _calc_stage(direction, strength)
     trendline = _find_trendline(klines, direction)
 

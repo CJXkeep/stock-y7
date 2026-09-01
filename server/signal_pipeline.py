@@ -255,7 +255,6 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
     HARD_VETO_CODES = [
         ("price_below_ma20", "价格跌破MA20，趋势已坏"),
         ("price_down_volume_up", "价跌量增，恐慌抛售信号"),
-        ("obv_down", "OBV下降，量能走弱"),
     ]
     hard_veto_reason = next(
         (desc for code, desc in HARD_VETO_CODES if code in risk_codes), None
@@ -265,9 +264,6 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
         HARD_VETO = [
             ("跌破MA20", "价格跌破MA20，趋势已坏"),
             ("价跌量增", "价跌量增，恐慌抛售信号"),
-            ("OBV下降", "OBV下降，量能走弱"),
-            ("OBV走低", "OBV走低，量能走弱"),
-            ("OBV下行", "OBV下行，量能走弱"),
         ]
         for kw, desc in HARD_VETO:
             if kw in all_signal_text:
@@ -281,6 +277,9 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
     SOFT_VETO_CODES = [
         ("ma20_down", "MA20向下，短期趋势偏弱"),
         ("price_below_ma60", "受压60日决策线，上方压力大"),
+        ("obv_down", "OBV下降，量能走弱"),
+        ("trend_down", "处于下降趋势，不新增仓位"),
+        ("market_regime_bear", "市场环境偏空，不新增仓位"),
     ]
     soft_veto_reason = next(
         (desc for code, desc in SOFT_VETO_CODES if code in risk_codes), None
@@ -295,6 +294,25 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
             if kw in all_signal_text:
                 soft_veto_reason = desc
                 break
+        if not soft_veto_reason and any(kw in all_signal_text
+                                        for kw in ("OBV下降", "OBV走低", "OBV下行")):
+            soft_veto_reason = "OBV下降，量能走弱"
+
+    # 第一性原则策略门：买入必须有可持续的方向性环境。
+    # 下降趋势和极弱市场不是“信号稍差”，而是新增仓位的前提不成立，
+    # 因此对应风险码会把动作降至观望；中性/偏弱环境仍由仓位规则处理。
+    trend_direction = (trend_data.get("direction") or "")
+    if not hard_veto_reason and trend_direction == "下降":
+        risk_codes = list(risk_codes)
+        if "trend_down" not in risk_codes:
+            risk_codes.append("trend_down")
+        soft_veto_reason = "处于下降趋势，不新增仓位"
+    if not hard_veto_reason and m_score < 30:
+        risk_codes = list(risk_codes)
+        if "market_regime_bear" not in risk_codes:
+            risk_codes.append("market_regime_bear")
+        soft_veto_reason = soft_veto_reason or "市场环境偏空，不新增仓位"
+    signal_data["risk_codes"] = risk_codes
 
     # ---- 4. 分级体系重新评级 ----
     is_buy = action in ("买入", "强烈买入")
@@ -329,9 +347,12 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
             else:
                 new_action = "观望"
 
-            # 软否决降一级
+            # 软否决降一级；下降趋势/极弱市场直接降为观望。
             if soft_veto_reason:
-                if new_action == "强烈买入":
+                if trend_direction == "下降" or m_score < 30:
+                    new_action = "观望"
+                    veto_reason = f"策略门：{soft_veto_reason}"
+                elif new_action == "强烈买入":
                     new_action = "买入"
                     veto_reason = f"软否决：{soft_veto_reason}"
                 elif new_action == "买入":
@@ -339,6 +360,14 @@ def _apply_signal_optimization(signal_data: dict, klines: list, quote) -> dict:
                     veto_reason = f"软否决：{soft_veto_reason}"
 
             action = new_action
+
+            # 最高档必须有可审计的结构化目标价。+10% 只是估算，
+            # 不能作为“强烈”结论的独立证据。
+            target_source = trade_plan.get("target_source", "")
+            if action == "强烈买入" and target_source == "heuristic_10pct":
+                action = "买入"
+                veto_reason = (veto_reason + "；" if veto_reason else "") + \
+                    "无结构化目标价，强烈买入降级为买入"
 
     # ---- 5. M分驱动仓位管理 ----
     original_position = trade_plan.get("position_size", "")
