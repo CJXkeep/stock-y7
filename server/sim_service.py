@@ -256,6 +256,19 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             stats["sold"] += 1
 
 
+def _normalize_strategy_params(target_strategy: str, base, incoming) -> dict:
+    """按目标策略 adapter 的 schema 键级子合并并归一化 strategy_params。
+
+    - 只保留目标策略 schema 声明的键（换策略/迁移残留的孤儿键被裁剪）；
+    - 值做类型/边界归一化（非法值回退默认）。
+    纯函数、不触磁盘，可独立测试（避免用真实 data/sim 做回归）。
+    """
+    adapter = get_adapter({"strategy": target_strategy})
+    base = base if isinstance(base, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {}
+    return adapter.normalize_params({**base, **incoming})
+
+
 def _in_sync_window(now_dt: datetime.datetime) -> bool:
     """是否处于 K 线同步窗口（KLINE_SYNC_AT 起 SYNC_WINDOW_MIN 分钟内）。
 
@@ -427,11 +440,13 @@ def handle_sim_get(params: dict) -> dict:
     metrics = compute_metrics(equity, state.get("initial_capital"))
     run_state = get_sim_state()
     adapter = get_adapter(cfg)
+    # 返回前按当前策略 schema 裁剪 strategy_params：孤儿键（迁移残留/换策略遗留）不外露
+    cfg["strategy_params"] = getattr(adapter, "params", cfg.get("strategy_params") or {})
     return {
         "ok": True,
         "config": cfg,
         "strategy_schema": adapter.params_schema(),
-        "strategy_params": getattr(adapter, "params", cfg.get("strategy_params") or {}),
+        "strategy_params": cfg["strategy_params"],
         "account": {
             "cash": summary["cash"],
             "equity": summary["equity"],
@@ -469,6 +484,14 @@ def handle_sim_post(body: dict) -> dict:
     """POST /api/sim：save / run_once / reset / buy / sell。"""
     action = str(body.get("action", "")).strip()
     if action == "save":
+        # 保存前按目标策略 schema 归一化 strategy_params：
+        # 1) 键级子合并后只保留当前策略 schema 声明的键（换策略/迁移残留的孤儿键被裁剪）；
+        # 2) 值做类型/边界归一化（非法值回退默认）。
+        _current = load_config()
+        _target = str(body.get("strategy") or _current.get("strategy")
+                      or journal_config.SIM_STRATEGY).strip().lower()
+        body = {**body, "strategy_params": _normalize_strategy_params(
+            _target, _current.get("strategy_params"), body.get("strategy_params"))}
         saved = save_config(body)
         return {"ok": True, "message": "已保存",
                 "config": {k: saved.get(k) for k in (

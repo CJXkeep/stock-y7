@@ -86,6 +86,42 @@ def test_maybe_screen_defers_in_sync_window():
         svc._set_state(screen_deferred="", source_throttled=False)
 
 
+# ---------------------------------------------------------------- 策略参数 schema 裁剪（换策略不残留）
+
+def test_normalize_strategy_params_prunes_orphans():
+    """保存时按目标策略 schema 裁剪孤儿键：迁移残留(level_scale)与未知键被清除。"""
+    base = {
+        "level_scale": {"strong": 1.0, "normal": 0.7, "cautious": 0.4},  # v6 迁移残留
+        "junk_key": 1,                                                    # 未知键
+        "min_score": 65,
+        "buy_levels": ["strong", "normal"],
+    }
+    out = svc._normalize_strategy_params("qushi_v5", base, {"min_score": 45})
+    assert out["min_score"] == 45                       # 键级子合并生效
+    assert out["buy_levels"] == ["strong", "normal"]
+    assert "level_scale" not in out                     # 孤儿键被裁剪
+    assert "junk_key" not in out
+    assert set(out.keys()) <= {"buy_levels", "min_score", "require_weekly",
+                               "scale_strong", "scale_normal", "scale_cautious"}
+
+
+def test_normalize_strategy_params_clamps_values():
+    out = svc._normalize_strategy_params("qushi_v5", {}, {
+        "min_score": 500, "scale_strong": 5, "buy_levels": "junk"})
+    assert out["min_score"] == 100
+    assert out["scale_strong"] == 1.0
+    assert out["buy_levels"] != "junk"                  # 非法回退默认
+    assert out["require_weekly"] is True
+
+
+def test_normalize_strategy_params_unknown_strategy_falls_back():
+    """未知策略回退 qushi_v5 并按其 schema 归一化（不会残留未知策略的键）。"""
+    out = svc._normalize_strategy_params("some_future_strategy",
+                                         {"weird_opt": 1}, {"min_score": 30})
+    assert out["min_score"] == 30
+    assert "weird_opt" not in out
+
+
 # ---------------------------------------------------------------- A6 WAF 提前终止
 
 class _FlakyAdapter(ss.QushiV5Adapter):
