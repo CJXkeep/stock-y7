@@ -8,7 +8,7 @@ import { loadEvaluation } from './evaluation.js';
 import { loadCandidates } from './candidates.js';
 import { renderScanArchiveList } from './scan.js';
 import { resizeAllChartsSafe } from './chart.js';
-import { renderSimPanel } from './sim.js';
+
 
 export function getSbSection() { return _sbSection; }
 
@@ -335,9 +335,9 @@ let _sbSection = 'watch';   // watch | tasks | archive
 let _archiveSeg = 'history'; // history | journal | pool
 let _watchOverview = false;
 let _taskSeg = 'scan';       // scan | digest
-const SB_PRIMARY = { watch: '自选', tasks: '任务', archive: '档案', sim: '模拟' };
+const SB_PRIMARY = { watch: '自选', tasks: '任务', archive: '档案' };
 const SB_SECTIONS = {
-  watch: '自选', tasks: '任务', archive: '档案', sim: '模拟',
+  watch: '自选', tasks: '任务', archive: '档案',
   history: '档案', overview: '自选', journal: '档案', pool: '档案',
   digest: '任务', scan: '任务', candidates: '档案',
 };
@@ -350,7 +350,6 @@ const SB_SECTION_DESC = {
   candidates: '候选：扫描结果沉淀的观察名单；验证后由建议单支撑入池决策（人工执行）。',
   digest: '每日速递：每天一份核心池信号汇总，收盘后自动生成。',
   scan: '扫描：双周期共振买入信号批量扫描，每次结果自动留档备查。',
-  sim: '模拟账户：虚拟资金、策略自动选股与买卖；交易时段内自动巡检记账，含组合级绩效指标。',
 };
 const LEGACY_TO_PRIMARY = {
   watch: 'watch', overview: 'watch',
@@ -407,12 +406,10 @@ export function renderSbSection() {
   const pWatch = document.getElementById('sb-pane-watch');
   const pTasks = document.getElementById('sb-pane-tasks');
   const pArch = document.getElementById('sb-pane-archive');
-  const pSim = document.getElementById('sb-pane-sim');
   if (!pWatch || !pTasks || !pArch) return;
   pWatch.classList.toggle('active', _sbSection === 'watch');
   pTasks.classList.toggle('active', _sbSection === 'tasks');
   pArch.classList.toggle('active', _sbSection === 'archive');
-  if (pSim) pSim.classList.toggle('active', _sbSection === 'sim');
   const title = document.getElementById('sb-title');
   if (title) title.textContent = SB_PRIMARY[_sbSection] || '自选';
   const desc = document.getElementById('sb-pane-desc');
@@ -433,8 +430,6 @@ export function renderSbSection() {
     if (digestEl) digestEl.style.display = _taskSeg === 'digest' ? 'block' : 'none';
     if (_taskSeg === 'scan') renderScanArchiveList();
     else switchTab('digest');
-  } else if (_sbSection === 'sim') {
-    renderSimPanel();
   } else {
     _markSegTabs('archive-seg-tabs', _archiveSeg);
     switchTab(_archiveSeg);

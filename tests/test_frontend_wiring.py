@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 JS_DIR = ROOT / "dashboard" / "js"
 INDEX_HTML = ROOT / "dashboard" / "index.html"
+SIM_HTML = ROOT / "dashboard" / "sim.html"
 APP_PY = ROOT / "app.py"
 
 
@@ -248,7 +249,8 @@ def check_r5(report: list) -> None:
 # ---------- 主流程 ----------
 
 def main() -> int:
-    html = read_text(INDEX_HTML)
+    # 模拟账户已迁出侧边栏，独立大页 sim.html 同样纳入 id 与内联 handler 守护
+    html = read_text(INDEX_HTML) + "\n" + read_text(SIM_HTML)
     js = all_js_text()
     py = read_text(APP_PY)
     report: list = []
