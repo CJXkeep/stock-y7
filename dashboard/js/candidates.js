@@ -175,6 +175,7 @@ function _renderTask(task) {
 }
 
 // 查看候选验证报告原文（screen.md / screen.csv）
+function _docLabel(kind) { return kind === 'csv' ? 'screen.csv' : 'screen.md'; }
 export async function candOpenDoc(el) {
   const snapshot = el && el.dataset && el.dataset.snapshot;
   const kind = el && el.dataset && el.dataset.kind || 'screen';
@@ -183,12 +184,12 @@ export async function candOpenDoc(el) {
   if (!host) return;
   host.style.display = 'block';
   host.innerHTML = '<div class="eval-card"><div class="eval-card-title">'
-    + escHtml(kind + '.md · ' + snapshot) + '</div><pre class="eval-doc-pre">加载中…</pre></div>';
+    + escHtml(_docLabel(kind) + ' · ' + snapshot) + '</div><pre class="eval-doc-pre">加载中…</pre></div>';
   try {
     const data = await _get(API + '/api/candidates/doc?snapshot=' + encodeURIComponent(snapshot)
       + '&kind=' + encodeURIComponent(kind));
     host.innerHTML = '<div class="eval-card"><div class="eval-card-title">'
-      + escHtml(kind + '.' + (kind === 'csv' ? 'csv' : 'md') + ' · ' + snapshot)
+      + escHtml(_docLabel(kind) + ' · ' + snapshot)
       + '</div><pre class="eval-doc-pre">'
       + escHtml(data.ok ? data.markdown : (data.error || '加载失败')) + '</pre></div>';
   } catch (e) {
