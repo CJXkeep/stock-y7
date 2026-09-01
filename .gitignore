@@ -15,6 +15,7 @@ data/pool.json
 data/results/
 data/digest/
 data/scan/
+data/evaluation/
 data/notify_state.json
 data/decisions/
 data/cache/
