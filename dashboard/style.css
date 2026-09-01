@@ -1158,3 +1158,34 @@ body.fx-off .wc-change-badge { animation: none !important; }
 .sim-config label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #bbb; }
 .sim-config input[type=number], .sim-config select { width: 84px; font-size: 11px; padding: 3px 4px; background: #101010; color: #ddd; border: 1px solid #2a2a2a; border-radius: 4px; }
 .sim-cfg-label { color: #888; font-size: 11px; margin-right: 4px; }
+.sim-bigpage-link { color: #4fc3f7; text-decoration: none; margin-left: 4px; white-space: nowrap; }
+.sim-bigpage-link:hover { text-decoration: underline; }
+
+/* ===== 模拟账户大页（sim.html，sp-* 前缀） ===== */
+body.sim-page { margin: 0; background: #0d0d0d; color: #ddd; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+.sp-topbar { background: #141414; border-bottom: 1px solid #222; padding: 10px 20px; position: sticky; top: 0; z-index: 10; }
+.sp-header { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.sp-header h1 { font-size: 18px; margin: 0; color: #ff9800; }
+.sp-back { font-size: 12px; color: #4fc3f7; text-decoration: none; border: 1px solid rgba(79,195,247,.4); border-radius: 4px; padding: 3px 10px; }
+.sp-back:hover { background: rgba(79,195,247,.1); }
+.sp-state { font-size: 11px; color: #888; flex: 1; min-width: 200px; }
+.sp-actions { display: flex; gap: 8px; }
+.sp-actions .sp-danger { color: #ff8a80; border-color: rgba(255,138,128,.4); }
+.sp-wrap { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
+.sp-card { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 14px 16px; }
+.sp-card-title { font-size: 13px; font-weight: bold; color: #ff9800; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.sp-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.sp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.sp-chart { height: 380px; background: #101010; border: 1px solid #222; border-radius: 6px; }
+/* 大页内放大 sim.js 复用的概览/指标网格 */
+.sp-card .sim-ov-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.sp-card .sim-ov-item { padding: 10px 12px; background: #101010; }
+.sp-card .sim-ov-label { font-size: 11px; }
+.sp-card .sim-ov-val { font-size: 19px; }
+.sp-card .sim-table { font-size: 12px; }
+.sp-card .sim-table th, .sp-card .sim-table td { padding: 7px 8px; }
+.sp-card .sim-empty { font-size: 12px; padding: 14px 4px; }
+@media (max-width: 900px) {
+  .sp-grid, .sp-cols { grid-template-columns: 1fr; }
+  .sp-chart { height: 260px; }
+}

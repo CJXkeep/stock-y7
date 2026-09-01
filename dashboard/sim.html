@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>模拟账户</title>
+<script src="vendor/echarts.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="sim-page">
+
+<div class="sp-topbar">
+  <div class="sp-header">
+    <a class="sp-back" href="/" title="返回看板">← 看板</a>
+    <h1>模拟账户</h1>
+    <span class="sp-state" id="sim-state-line">加载中…</span>
+    <div class="sp-actions">
+      <button class="settings-btn" onclick="simBuyPrompt()">手动买入</button>
+      <button class="settings-btn" onclick="runSimOnce()">立即执行一轮</button>
+      <button class="settings-btn sp-danger" onclick="resetSimAccount()">重置账户</button>
+    </div>
+  </div>
+</div>
+
+<div class="sp-wrap">
+
+  <!-- 账户概览（大卡片） -->
+  <div class="sp-card">
+    <div class="sp-card-title">账户概览</div>
+    <div id="sim-overview"></div>
+  </div>
+
+  <!-- 净值曲线 + 组合指标 -->
+  <div class="sp-grid">
+    <div class="sp-card">
+      <div class="sp-card-title">净值曲线 <span class="sim-hint">含初始资金基准线；每轮巡检追加一个净值点</span></div>
+      <div id="sim-equity-chart" class="sp-chart"></div>
+    </div>
+    <div class="sp-card">
+      <div class="sp-card-title">组合指标 <span class="sim-hint">年化 / 回撤 / 夏普（rf=0%）/ 卡玛</span></div>
+      <div id="sim-metrics"></div>
+    </div>
+  </div>
+
+  <!-- 持仓 | 成交流水 -->
+  <div class="sp-cols">
+    <div class="sp-card">
+      <div class="sp-card-title">持仓</div>
+      <div id="sim-positions"></div>
+    </div>
+    <div class="sp-card">
+      <div class="sp-card-title">成交流水</div>
+      <div id="sim-trades"></div>
+    </div>
+  </div>
+
+  <!-- 配置 -->
+  <div class="sp-card">
+    <div class="sp-card-title">配置 <span class="sim-hint">默认关闭；开启后交易时段内按巡检间隔自动巡检，选股受选股节流间隔约束</span></div>
+    <div class="sim-config">
+      <label class="notify-switch"><input type="checkbox" id="sim-enabled"> 启用自动交易</label>
+      <div class="sim-cfg-row">
+        <label>初始资金<input type="number" id="sim-initial-capital" step="1000" min="1000"></label>
+        <label>选股范围
+          <select id="sim-universe">
+            <option value="scan">全A扫描</option>
+            <option value="watchlist">自选股</option>
+            <option value="pool">核心池</option>
+          </select>
+        </label>
+        <label>成交额前N<input type="number" id="sim-scan-limit" min="10" max="6000"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <label>巡检间隔(分)<input type="number" id="sim-interval" min="1" max="240"></label>
+        <label>选股节流(分)<input type="number" id="sim-screening" min="1" max="1440"></label>
+        <label>持仓上限<input type="number" id="sim-max-positions" min="1" max="50"></label>
+        <label>单笔仓位%<input type="number" id="sim-per-trade" min="1" max="100"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <label>最长持有(交易日,0不限)<input type="number" id="sim-max-hold" min="0" max="1000"></label>
+        <label>最低评分<input type="number" id="sim-min-score" min="0" max="100"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <span class="sim-cfg-label">买入档位</span>
+        <label class="notify-switch"><input type="checkbox" id="sim-level-strong"> 强烈买入</label>
+        <label class="notify-switch"><input type="checkbox" id="sim-level-normal"> 买入</label>
+        <label class="notify-switch"><input type="checkbox" id="sim-level-cautious"> 谨慎买入</label>
+      </div>
+      <div class="sim-cfg-row">
+        <label class="notify-switch"><input type="checkbox" id="sim-auto_sell"> 自动卖出</label>
+        <label class="notify-switch"><input type="checkbox" id="sim-stop_loss_enabled"> 自动止损</label>
+        <label class="notify-switch"><input type="checkbox" id="sim-take_profit_enabled"> 自动止盈</label>
+      </div>
+      <div class="settings-row">
+        <button class="settings-btn" onclick="saveSimConfig()">保存配置</button>
+      </div>
+      <div class="settings-hint">模拟成交价按行情价±0.1%滑点，含佣金与印花税；免费行情源有延迟，模拟成交价 ≠ 实盘成交价；自用参考非投资建议。</div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="js/sim_page.js"></script>
+</body>
+</html>
