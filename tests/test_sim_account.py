@@ -232,54 +232,107 @@ def test_persistence_and_reset():
 # ---------------------------------------------------------------- 配置归一化
 
 def test_config_normalize():
+    """v7：账户参数归一化；策略字段不再属于顶层配置。"""
     out = sa.normalize_config(
         {"enabled": True, "initial_capital": -5, "scan_limit": 99999,
-         "per_trade_pct": 500, "max_positions": "abc", "buy_levels": ["strong", "junk"],
-         "universe": "bogus", "level_scale": {"strong": 5, "normal": -1}},
+         "per_trade_pct": 500, "max_positions": "abc",
+         "universe": "bogus", "strategy_params": {"min_score": 500}},
         current=sa.default_config())
+    assert out["schema"] == sa.SIM_SCHEMA_CONFIG
     assert out["initial_capital"] == 1000.0          # 夹到下界
     assert out["scan_limit"] == 6000                 # 夹到上界
     assert out["per_trade_pct"] == 100.0
     assert out["max_positions"] == 5                 # 非法回退默认
-    assert out["buy_levels"] == ["strong"]           # 过滤未知档位
     assert out["universe"] == "scan"                 # 未知回退
-    assert out["level_scale"]["strong"] == 1.0       # 5 夹到 1.0
-    assert out["level_scale"]["normal"] == 0.0       # -1 夹到 0.0
+    assert "buy_levels" not in out and "min_score" not in out and "level_scale" not in out
 
 
 def test_config_partial_save_keeps_current():
-    """部分保存：未提供的字段沿用 current，不被重置回默认值。"""
+    """部分保存：未提供的字段沿用 current；strategy_params 键级子合并。"""
     base = sa.default_config()
     base["enabled"] = True
     base["initial_capital"] = 250000.0
     base["universe"] = "watchlist"
     base["max_positions"] = 8
-    base["min_score"] = 60
+    base["strategy_params"] = {"min_score": 60, "buy_levels": ["strong"]}
     out = sa.normalize_config({"interval_min": 5}, current=base)
     assert out["enabled"] is True
     assert out["initial_capital"] == 250000.0
     assert out["universe"] == "watchlist"
     assert out["max_positions"] == 8
-    assert out["min_score"] == 60
+    assert out["strategy_params"]["min_score"] == 60       # 未提供的策略键沿用
+    assert out["strategy_params"]["buy_levels"] == ["strong"]
     assert out["interval_min"] == 5                  # 提供的字段正常更新
-    # data 非法/非 dict 时整体沿用 current
-    out2 = sa.normalize_config(None, current=base)
+    # strategy_params 子集提交：只更新提供的键
+    out2 = sa.normalize_config({"strategy_params": {"min_score": 70}}, current=base)
+    assert out2["strategy_params"]["min_score"] == 70
+    assert out2["strategy_params"]["buy_levels"] == ["strong"]
     assert out2["enabled"] is True
-    assert out2["initial_capital"] == 250000.0
+    # data 非法/非 dict 时整体沿用 current
+    out3 = sa.normalize_config(None, current=base)
+    assert out3["enabled"] is True
+    assert out3["initial_capital"] == 250000.0
+
+
+def test_save_config_preserves_current_on_partial_save():
+    """回归：save_config 的 current 必须来自真实磁盘配置。
+
+    老 bug：save_config 把 config.json 文件路径又传给 load_config（期望目录），
+    join 出不存在的路径 → current 恒为默认值 → 部分保存用默认值覆盖其余字段。
+    """
+    d = tempfile.mkdtemp(prefix="sim_save_bug_")
+    try:
+        first = sa.save_config({"enabled": True, "initial_capital": 250000.0,
+                                "strategy_params": {"min_score": 60,
+                                                    "buy_levels": ["strong"]}}, d)
+        assert first["enabled"] is True and first["version"] == 2
+        second = sa.save_config({"interval_min": 5}, d)
+        assert second["enabled"] is True            # 修复前被默认值覆盖为 False
+        assert second["initial_capital"] == 250000.0
+        assert second["strategy_params"]["min_score"] == 60
+        assert second["strategy_params"]["buy_levels"] == ["strong"]
+        assert second["interval_min"] == 5
+        assert second["version"] == 3
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_config_v6_migration():
+    """A2：v6 配置首次读取自动迁移到 v7，策略字段进入 strategy_params，幂等。"""
+    d = tempfile.mkdtemp(prefix="sim_cfg_mig_")
+    try:
+        v6 = {
+            "schema": sa.SIM_SCHEMA_CONFIG_V6, "version": 3, "updated_at": "x",
+            "enabled": True, "initial_capital": 250000.0,
+            "buy_levels": ["strong"], "min_score": 60,
+            "level_scale": {"strong": 1.0, "normal": 0.7, "cautious": 0.4},
+            "require_weekly": False,
+        }
+        sa._atomic_write_json(sa.config_path(d), v6)
+        cfg = sa.load_config(d)
+        assert cfg["schema"] == sa.SIM_SCHEMA_CONFIG
+        assert cfg["enabled"] is True
+        assert cfg["initial_capital"] == 250000.0
+        sp = cfg["strategy_params"]
+        assert sp["buy_levels"] == ["strong"]
+        assert sp["min_score"] == 60
+        assert sp["require_weekly"] is False
+        assert sp["level_scale"]["strong"] == 1.0
+        assert cfg["version"] == 4                        # version 递增一次
+        again = sa.load_config(d)
+        assert again["version"] == 4                      # 幂等：不再递增
+        assert again["strategy_params"]["min_score"] == 60
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- 档位名映射与 reason
 
 def test_norm_levels_old_names_mapped():
     """旧档位名（strong_buy/buy/cautious_buy）应映射到新 level 名，避免永不匹配。"""
-    out = sa.normalize_config(
-        {"buy_levels": ["strong_buy", "buy", "cautious_buy"]},
-        current=sa.default_config())
-    assert out["buy_levels"] == ["strong", "normal", "cautious"]
-    out2 = sa.normalize_config(
-        {"buy_levels": ["strong", "junk", "strong_buy"]},
-        current=sa.default_config())
-    assert out2["buy_levels"] == ["strong"]        # junk 过滤、strong_buy 映射后去重
+    assert sa._norm_levels(["strong_buy", "buy", "cautious_buy"]) == \
+        ["strong", "normal", "cautious"]
+    assert sa._norm_levels(["strong", "junk", "strong_buy"]) == ["strong"]
 
 
 def test_execute_buy_reason_param():

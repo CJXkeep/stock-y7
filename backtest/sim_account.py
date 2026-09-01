@@ -44,8 +44,12 @@ from backtest import config
 
 log = logging.getLogger("trend_app")
 
-SIM_SCHEMA_CONFIG = "v6.sim.config.v1"
+SIM_SCHEMA_CONFIG_V6 = "v6.sim.config.v1"   # 旧版（策略字段在顶层），读取时自动迁移
+SIM_SCHEMA_CONFIG = "v7.sim.config.v1"      # v7：账户参数 + strategy_params 两层
 SIM_SCHEMA_STATE = "v6.sim.state.v1"
+
+#: v6 顶层策略专属键 → 迁移目标（进入 strategy_params）
+_V6_STRATEGY_KEYS = ("buy_levels", "level_scale", "min_score", "require_weekly")
 
 # 卖出原因（成交流水 reason 字段枚举）
 REASON_SIGNAL = "signal"      # 策略给出卖出侧 Decision
@@ -227,6 +231,7 @@ def limit_down_price(prev_close: float, symbol: str = "", name: str = "",
 # ---------------------------------------------------------------- 配置
 
 def default_config() -> dict:
+    """v7 默认配置：账户/引擎参数 + 空的 strategy_params（由 adapter 填充默认值）。"""
     return {
         "schema": SIM_SCHEMA_CONFIG,
         "version": 1,
@@ -237,17 +242,14 @@ def default_config() -> dict:
         "scan_limit": int(config.SIM_SCAN_LIMIT),
         "interval_min": int(config.SIM_INTERVAL_MIN),
         "screening_interval_min": int(config.SIM_SCREENING_INTERVAL_MIN),
-        "buy_levels": list(config.SIM_BUY_LEVELS),
         "max_positions": int(config.SIM_MAX_POSITIONS),
         "per_trade_pct": float(config.SIM_PER_TRADE_PCT),
-        "level_scale": dict(config.SIM_LEVEL_SCALE),
         "strategy": config.SIM_STRATEGY,
-        "require_weekly": bool(config.SIM_REQUIRE_WEEKLY),
         "auto_sell": True,
         "stop_loss_enabled": True,
         "take_profit_enabled": True,
         "max_hold_days": int(config.SIM_MAX_HOLD_DAYS),
-        "min_score": 0,
+        "strategy_params": {},
     }
 
 
@@ -302,7 +304,12 @@ def _norm_float(raw, default: float, low: float, high: float) -> float:
 
 
 def normalize_config(data: dict, current: dict = None) -> dict:
-    """规范化外部输入为合法配置；未提供的字段沿用 current，否则取默认值。"""
+    """规范化外部输入为合法配置；未提供的字段沿用 current，否则取默认值。
+
+    v7 分层：账户/引擎参数在本函数归一化；``strategy_params`` 只做键级子合并
+    （不认识的键原样保留），最终合法性由当前策略 adapter 的 ``normalize_params``
+    在实例化（``get_adapter``）时二次归一化——账户内核不 import 策略层。
+    """
     cur = current if isinstance(current, dict) else {}
     # 部分保存：未提供的字段以 current 为底（current 本身是规范化后的合法配置），
     # 再由 data 覆盖，避免 API 只传子集时把其余字段重置回默认值。
@@ -332,21 +339,15 @@ def normalize_config(data: dict, current: dict = None) -> dict:
     if "screening_interval_min" in data:
         out["screening_interval_min"] = _norm_int(data.get("screening_interval_min"),
                                                   config.SIM_SCREENING_INTERVAL_MIN, 1, 1440)
-    if "buy_levels" in data:
-        out["buy_levels"] = _norm_levels(data.get("buy_levels"))
     if "max_positions" in data:
         out["max_positions"] = _norm_int(data.get("max_positions"),
                                          config.SIM_MAX_POSITIONS, 1, 50)
     if "per_trade_pct" in data:
         out["per_trade_pct"] = _norm_float(data.get("per_trade_pct"),
                                            config.SIM_PER_TRADE_PCT, 1.0, 100.0)
-    if "level_scale" in data:
-        out["level_scale"] = _norm_level_scale(data.get("level_scale"))
     if "strategy" in data:
         item = str(data.get("strategy", "")).strip()
         out["strategy"] = item or config.SIM_STRATEGY
-    if "require_weekly" in data:
-        out["require_weekly"] = bool(data.get("require_weekly"))
     if "auto_sell" in data:
         out["auto_sell"] = bool(data.get("auto_sell"))
     if "stop_loss_enabled" in data:
@@ -356,13 +357,38 @@ def normalize_config(data: dict, current: dict = None) -> dict:
     if "max_hold_days" in data:
         out["max_hold_days"] = _norm_int(data.get("max_hold_days"),
                                          config.SIM_MAX_HOLD_DAYS, 0, 1000)
-    if "min_score" in data:
-        out["min_score"] = _norm_int(data.get("min_score"), 0, 0, 100)
+    # strategy_params：键级子合并（对后端不透明；adapter 负责键内归一化）
+    base_params = cur.get("strategy_params") if isinstance(cur.get("strategy_params"), dict) else {}
+    if isinstance(data.get("strategy_params"), dict):
+        base_params = {**base_params, **data["strategy_params"]}
+    out["strategy_params"] = dict(base_params)
     return out
 
 
+def _migrate_v6_config(data: dict, path: str) -> dict:
+    """v6 → v7 迁移：顶层策略键移入 strategy_params，schema/version 更新并原子写回。"""
+    moved = {}
+    for key in _V6_STRATEGY_KEYS:
+        if key in data:
+            moved[key] = data.pop(key)
+    params = data.get("strategy_params") if isinstance(data.get("strategy_params"), dict) else {}
+    data["strategy_params"] = {**moved, **params}
+    data["schema"] = SIM_SCHEMA_CONFIG
+    version = data.get("version") if isinstance(data.get("version"), int) else 1
+    data["version"] = version + 1
+    data["updated_at"] = _now_iso()
+    try:
+        _atomic_write_json(path, data)
+        log.info("模拟账户配置已从 %s 迁移到 %s (version=%d)",
+                 SIM_SCHEMA_CONFIG_V6, SIM_SCHEMA_CONFIG, data["version"])
+    except OSError as exc:
+        # 写回失败不阻塞：内存中的迁移结果照常返回，下次读取重试
+        log.warning("模拟账户配置迁移结果写回失败（下次读取将重试）: %s", exc)
+    return data
+
+
 def load_config(path: str = None) -> dict:
-    """读取配置；缺失返回默认结构；损坏回退默认值并告警。"""
+    """读取配置；缺失返回默认结构；损坏回退默认值并告警；v6 自动迁移到 v7。"""
     path = config_path(path)
     if not os.path.exists(path):
         return default_config()
@@ -374,17 +400,25 @@ def load_config(path: str = None) -> dict:
     except (ValueError, OSError) as exc:
         log.warning("模拟账户配置文件损坏，已回退默认配置（%s）: %s", path, exc)
         return default_config()
+    if data.get("schema") == SIM_SCHEMA_CONFIG_V6:
+        data = _migrate_v6_config(data, path)   # 幂等：迁移后 schema 已是 v7，不再触发
     return normalize_config(data, current=data)
 
 
 def save_config(data: dict, path: str = None) -> dict:
-    """整体写入（原子写，version 递增）；返回规范化后的完整配置。"""
-    path = config_path(path)
-    current = load_config(path)
+    """整体写入（原子写，version 递增）；返回规范化后的完整配置。
+
+    ``path`` 语义与 ``load_config`` / ``load_state`` 一致：模拟账户**数据目录**
+    （None = 默认目录）。修复：此前先把参数转成 config.json 文件路径再传给
+    ``load_config``（期望目录），join 出不存在的路径导致 current 恒为默认值，
+    任意部分保存都会用默认值覆盖其余字段（v6 起即存在的老 bug）。
+    """
+    file_path = config_path(path)
+    current = load_config(sim_dir(path))
     out = normalize_config(data, current=current)
     out["version"] = (current.get("version", 1) if isinstance(current.get("version"), int) else 1) + 1
     out["updated_at"] = _now_iso()
-    _atomic_write_json(path, out)
+    _atomic_write_json(file_path, out)
     return out
 
 

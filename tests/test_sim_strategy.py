@@ -56,13 +56,105 @@ def test_get_universe_factory():
 
 def test_get_adapter_factory():
     from server.sim_strategy import QushiV5Adapter
-    adapter = ss.get_adapter({"strategy": "qushi_v5", "require_weekly": False})
+    adapter = ss.get_adapter({"strategy": "qushi_v5",
+                              "strategy_params": {"require_weekly": False}})
     assert isinstance(adapter, QushiV5Adapter)
     assert adapter.require_weekly is False
     adapter2 = ss.get_adapter({"strategy": "qushi_v5"})
     assert adapter2.require_weekly is True          # 默认双周期
-    adapter3 = ss.get_adapter({"strategy": "unknown", "require_weekly": True})
-    assert isinstance(adapter3, QushiV5Adapter)    # 未知回退且告警
+    adapter3 = ss.get_adapter({"strategy": "unknown"})
+    assert isinstance(adapter3, QushiV5Adapter)     # 未知回退且告警
+    assert adapter3.id == "qushi_v5"
+
+
+# ---------------------------------------------------------------- v7 参数 schema（A3）
+
+def test_params_schema_and_normalize():
+    adapter = ss.QushiV5Adapter()
+    schema = adapter.params_schema()
+    for key in ("buy_levels", "min_score", "require_weekly",
+                "scale_strong", "scale_normal", "scale_cautious"):
+        assert key in schema, f"schema 缺少 {key}"
+        assert "type" in schema[key] and "default" in schema[key] and "label" in schema[key]
+    # 全默认
+    params = adapter.normalize_params({})
+    assert params["min_score"] == 0
+    assert params["require_weekly"] is True
+    assert set(params["buy_levels"]) == {"strong", "normal", "cautious"}
+    # 非法值回退默认 / 夹取；未知键丢弃；旧档位名映射
+    params2 = adapter.normalize_params({
+        "min_score": 500, "scale_strong": 5, "require_weekly": "yes",
+        "buy_levels": ["strong_buy", "junk"], "unknown_key": 1,
+    })
+    assert params2["min_score"] == 100                    # 夹到上界
+    assert params2["scale_strong"] == 1.0                 # 夹到上界
+    assert params2["require_weekly"] is True              # truthy → True
+    assert params2["buy_levels"] == ["strong"]            # junk 过滤、别名映射
+    assert "unknown_key" not in params2
+
+
+def test_position_scale():
+    adapter = ss.QushiV5Adapter({"scale_strong": 1.0, "scale_normal": 0.5,
+                                 "scale_cautious": 0.2})
+    assert adapter.position_scale("strong") == 1.0
+    assert adapter.position_scale("normal") == 0.5
+    assert adapter.position_scale("cautious") == 0.2
+    assert adapter.position_scale("manual") == 1.0        # 未知档位默认 1.0
+    base = ss.QushiV5Adapter()
+    assert 0.0 <= base.position_scale("normal") <= 1.0
+
+
+def test_screen_applies_strategy_filter():
+    """min_score / buy_levels 过滤在 adapter.screen 内完成（策略专属逻辑下沉）。"""
+    adapter = ss.QushiV5Adapter({"min_score": 70, "buy_levels": ["strong"]})
+    orig_evaluate = adapter.evaluate
+
+    def fake_evaluate(item, ctx=None, period="day"):
+        score, level = item["symbol"].split("-")
+        return Decision(symbol=item["symbol"], side="buy", price=10.0,
+                        score=float(score), level=level, strategy=adapter.id)
+    adapter.evaluate = fake_evaluate
+    items = [{"symbol": "80-strong"}, {"symbol": "60-strong"},
+             {"symbol": "90-normal"}, {"symbol": "70-strong"}]
+    try:
+        out = adapter.screen(items, {})
+    finally:
+        adapter.evaluate = orig_evaluate
+    # screen 不排序（排序在服务层）；60 分与 normal 档被过滤
+    assert sorted(d.symbol for d in out) == ["70-strong", "80-strong"]
+
+
+def test_fake_adapter_registry_schema():
+    """A3：注册一个声明不同 schema 的假 adapter，get_adapter 返回其 schema。"""
+    class FakeAdapter(ss.StrategyAdapter):
+        id = "fake_test"
+
+        def __init__(self, params: dict = None):
+            self.params = self.normalize_params(params)
+
+        def params_schema(self):
+            return {"risk_cap": {"type": "float", "min": 0.0, "max": 1.0,
+                                 "default": 0.3, "label": "风险上限"}}
+
+        def normalize_params(self, raw):
+            raw = raw if isinstance(raw, dict) else {}
+            v = raw.get("risk_cap", 0.3)
+            try:
+                v = max(0.0, min(1.0, float(v)))
+            except (TypeError, ValueError):
+                v = 0.3
+            return {"risk_cap": v}
+
+    ss.register_adapter(FakeAdapter)
+    try:
+        adapter = ss.get_adapter({"strategy": "fake_test",
+                                  "strategy_params": {"risk_cap": 9}})
+        assert isinstance(adapter, FakeAdapter)
+        assert adapter.params_schema()["risk_cap"]["label"] == "风险上限"
+        assert adapter.params == {"risk_cap": 1.0}     # 归一化夹取
+    finally:
+        ss._ADAPTER_REGISTRY.pop("fake_test", None)
+        assert isinstance(ss.get_adapter({"strategy": "fake_test"}), ss.QushiV5Adapter)
 
 
 # ---------------------------------------------------------------- Decision 契约与账户层解耦
@@ -90,7 +182,7 @@ def test_screen_weekly_verification_uses_week_period():
         price = 10.0
         return Decision(symbol=item["symbol"], name=item.get("name", ""),
                         side="buy" if period == "day" else "buy", price=price,
-                        strategy=adapter.id)
+                        level="normal", strategy=adapter.id)
     adapter.evaluate = fake_evaluate
     try:
         out = adapter.screen([{"symbol": "600000"}, {"symbol": "600001"}], {})
@@ -109,7 +201,7 @@ def test_screen_weekly_verification_skipped_when_disabled():
     def fake_evaluate(item, ctx=None, period="day"):
         periods.append(period)
         return Decision(symbol=item["symbol"], side="buy", price=10.0,
-                        strategy=adapter.id)
+                        level="normal", strategy=adapter.id)
     adapter.evaluate = fake_evaluate
     try:
         out = adapter.screen([{"symbol": "600000"}], {})
@@ -127,9 +219,9 @@ def test_evaluate_week_not_buy_filters_candidate():
     def fake_evaluate(item, ctx=None, period="day"):
         if period == "week":
             return Decision(symbol=item["symbol"], side="hold", price=10.0,
-                            strategy=adapter.id)
+                            level="normal", strategy=adapter.id)
         return Decision(symbol=item["symbol"], side="buy", price=10.0,
-                        strategy=adapter.id)
+                        level="normal", strategy=adapter.id)
     adapter.evaluate = fake_evaluate
     try:
         out = adapter.screen([{"symbol": "600000"}], {})

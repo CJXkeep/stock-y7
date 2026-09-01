@@ -4,6 +4,7 @@ import { showToastMsg, escHtml } from './ui.js';
 
 let _simData = null;
 let _equityChart = null;
+let _strategySchema = {};   // 当前策略参数 schema（/api/sim strategy_schema）
 
 const _fmtMoney = (v) => (v == null ? '--' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const _fmtPct = (v) => (v == null ? '--' : `${Number(v).toFixed(2)}%`);
@@ -154,6 +155,64 @@ function _renderEquity(data) {
 
 // ---------------------------------------------------------------- 配置面板
 
+// ---------------------------------------------------------------- 策略参数动态渲染（v7 解耦）
+
+function _renderStrategyParams(data) {
+  const el = document.getElementById('sim-strategy-params');
+  if (!el) return;
+  _strategySchema = data.strategy_schema || {};
+  const params = (data.config || {}).strategy_params || {};
+  const keys = Object.keys(_strategySchema);
+  if (!keys.length) {
+    el.innerHTML = '<div class="sim-empty">当前策略无可配置参数。</div>';
+    return;
+  }
+  el.innerHTML = keys.map((key) => {
+    const rule = _strategySchema[key] || {};
+    const val = params[key] !== undefined ? params[key] : rule.default;
+    const label = escHtml(rule.label || key);
+    if (rule.type === 'bool') {
+      return `<label class="notify-switch"><input type="checkbox" data-sp="${escHtml(key)}" ${val ? 'checked' : ''}> ${label}</label>`;
+    }
+    if (rule.type === 'enum' && Array.isArray(rule.options)) {
+      const selected = Array.isArray(val) ? val : (val != null ? [val] : []);
+      return `<div class="sim-cfg-row"><span class="sim-cfg-label">${label}</span>${rule.options.map((opt) =>
+        `<label class="notify-switch"><input type="checkbox" data-sp="${escHtml(key)}" data-sp-opt="${escHtml(opt)}" ${selected.includes(opt) ? 'checked' : ''}> ${escHtml(opt)}</label>`).join('')}</div>`;
+    }
+    if (rule.type === 'int' || rule.type === 'float') {
+      const step = rule.type === 'float' ? '0.01' : '1';
+      const bounds = `${rule.min != null ? ` min="${rule.min}"` : ''}${rule.max != null ? ` max="${rule.max}"` : ''}`;
+      return `<label>${label}<input type="number" data-sp="${escHtml(key)}" step="${step}"${bounds} value="${val == null ? '' : val}"></label>`;
+    }
+    // 未知类型容错：退化为文本输入并保留原值
+    return `<label>${label}<input type="text" data-sp="${escHtml(key)}" value="${escHtml(val == null ? '' : String(val))}"></label>`;
+  }).join('');
+}
+
+function _readStrategyParams() {
+  const out = {};
+  document.querySelectorAll('[data-sp]').forEach((el) => {
+    const key = el.dataset.sp;
+    const rule = _strategySchema[key] || {};
+    if (rule.type === 'enum') {
+      const group = document.querySelectorAll(`[data-sp="${key}"][data-sp-opt]`);
+      const picked = Array.from(group).filter((c) => c.checked).map((c) => c.dataset.spOpt);
+      out[key] = picked.length ? picked : (rule.default || []);
+    } else if (rule.type === 'bool') {
+      out[key] = el.checked;
+    } else if (rule.type === 'int') {
+      const n = parseInt(el.value, 10);
+      out[key] = Number.isNaN(n) ? (rule.default != null ? rule.default : 0) : n;
+    } else if (rule.type === 'float') {
+      const n = parseFloat(el.value);
+      out[key] = Number.isNaN(n) ? (rule.default != null ? rule.default : 0) : n;
+    } else {
+      out[key] = el.value;
+    }
+  });
+  return out;
+}
+
 function _renderConfig(data) {
   const cfg = data.config || {};
   const set = (id, val) => {
@@ -170,16 +229,11 @@ function _renderConfig(data) {
   set('sim-max-positions', cfg.max_positions);
   set('sim-per-trade', cfg.per_trade_pct);
   set('sim-max-hold', cfg.max_hold_days);
-  set('sim-min-score', cfg.min_score);
-  const levels = new Set(cfg.buy_levels || []);
-  ['strong', 'normal', 'cautious'].forEach((lv) => {
-    const el = document.getElementById('sim-level-' + lv);
-    if (el) el.checked = levels.has(lv);
-  });
   ['auto_sell', 'stop_loss_enabled', 'take_profit_enabled'].forEach((k) => {
     const el = document.getElementById('sim-' + k);
     if (el) el.checked = !!cfg[k];
   });
+  _renderStrategyParams(data);
 }
 
 // ---------------------------------------------------------------- 状态行
@@ -199,6 +253,8 @@ function _renderStateLine(data) {
   if (s.last_unfilled) bits.push('放弃 ' + s.last_unfilled);
   if (s.last_equity) bits.push('净值 ' + _fmtMoney(s.last_equity));
   if (s.rounds) bits.push('累计 ' + s.rounds + ' 轮');
+  if (s.screen_deferred) bits.push('⏸ ' + escHtml(s.screen_deferred));
+  if (s.source_throttled) bits.push('⚠ 行情源限流，上轮选股提前终止');
   let text = bits.join(' · ');
   if (s.last_error) text += '　⚠ ' + escHtml(s.last_error);
   el.innerHTML = text;
@@ -235,10 +291,6 @@ function _readConfigForm() {
     const n = parseInt(val(id), 10);
     return Number.isNaN(n) ? def : n;
   };
-  const levels = ['strong', 'normal', 'cautious'].filter((lv) => {
-    const el = document.getElementById('sim-level-' + lv);
-    return el && el.checked;
-  });
   return {
     enabled: !!((document.getElementById('sim-enabled') || {}).checked),
     initial_capital: num('sim-initial-capital', 100000),
@@ -249,11 +301,11 @@ function _readConfigForm() {
     max_positions: int('sim-max-positions', 5),
     per_trade_pct: num('sim-per-trade', 20),
     max_hold_days: int('sim-max-hold', 0),
-    min_score: int('sim-min-score', 0),
-    buy_levels: levels,
     auto_sell: !!((document.getElementById('sim-auto_sell') || {}).checked),
     stop_loss_enabled: !!((document.getElementById('sim-stop_loss_enabled') || {}).checked),
     take_profit_enabled: !!((document.getElementById('sim-take_profit_enabled') || {}).checked),
+    // 策略参数由 schema 驱动动态读取（v7 解耦）
+    strategy_params: _readStrategyParams(),
   };
 }
 

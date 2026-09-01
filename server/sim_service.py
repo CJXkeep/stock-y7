@@ -33,8 +33,9 @@ from backtest.sim_account import (
     today_str, market_now, limit_down_price,
     REASON_SIGNAL, REASON_STOP, REASON_TARGET, REASON_MAX_HOLD, REASON_MANUAL,
 )
-from server.sim_strategy import get_universe, get_adapter, build_context
+from server.sim_strategy import get_universe, get_adapter, build_context, SourceThrottledError
 from data.kline_fetcher import fetch_quote, in_trading_session as _market_trading_session
+from server.kline_sync import SYNC_AT as _KLINE_SYNC_AT
 from server import task_store
 
 log = logging.getLogger("trend_app")
@@ -55,6 +56,8 @@ _sim_state = {
     "last_unfilled": 0,      # 本轮涨停顺延超限放弃笔数
     "last_equity": 0.0,      # 本轮净值
     "last_error": "",
+    "screen_deferred": "",   # 选股推迟原因（错峰窗口内跳过选股时非空）
+    "source_throttled": False,  # 上轮选股因行情源限流提前终止
 }
 _sim_state_loaded = False
 _state_lock = threading.Lock()
@@ -164,9 +167,12 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
         stats = {"bought": 0, "sold": 0, "unfilled": 0, "skipped": []}
         ctx = build_context()
         adapter = get_adapter(cfg)
+        fallback_alert = ""
+        if cfg.get("strategy") and adapter.id != str(cfg.get("strategy")).strip().lower():
+            fallback_alert = f"未知策略 {cfg.get('strategy')}，已回退 {adapter.id}"
 
         _check_positions(state, cfg, ctx, now, adapter, stats)
-        _maybe_screen(state, cfg, ctx, now, adapter, stats)
+        _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
         summary = _snapshot_equity(state, now)
         save_state(state)
 
@@ -181,7 +187,7 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
             last_sold=stats["sold"],
             last_unfilled=stats["unfilled"],
             last_equity=round(summary["equity"], 2),
-            last_error="",
+            last_error=fallback_alert,
         )
         _sim_save_state()
         log.info("模拟账户巡检完成：买入 %d，卖出 %d，unfilled %d，净值 %.2f",
@@ -250,9 +256,25 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             stats["sold"] += 1
 
 
+def _in_sync_window(now_dt: datetime.datetime) -> bool:
+    """是否处于 K 线同步窗口（KLINE_SYNC_AT 起 SYNC_WINDOW_MIN 分钟内）。
+
+    错峰治理：同步窗口内全 A 逐股拉 K 线会占满行情源配额，选股避开该窗口。
+    """
+    window_min = int(os.environ.get("SIM_SYNC_WINDOW_MIN", "15"))
+    if window_min <= 0:
+        return False
+    try:
+        hh, mm = _KLINE_SYNC_AT.split(":")[:2]
+        start = now_dt.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+    except (ValueError, TypeError):
+        return False
+    return start <= now_dt < start + datetime.timedelta(minutes=window_min)
+
+
 def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
-                  adapter, stats: dict) -> None:
-    """选股买入：持仓未满 + 节流通过才选股。"""
+                  adapter, stats: dict, force: bool = False) -> None:
+    """选股买入：持仓未满 + 节流通过 + 不在同步窗口才选股。"""
     max_positions = int(cfg.get("max_positions", 0) or 0)
     if len(state.get("positions", {})) >= max_positions:
         return
@@ -266,18 +288,41 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
         except (ValueError, TypeError):
             pass
 
+    # 错峰：K 线同步窗口内跳过选股（持仓巡检与净值快照照常）；force 绕过
+    if not force and _in_sync_window(now):
+        window_end = now.replace(second=0, microsecond=0) + datetime.timedelta(
+            minutes=int(os.environ.get("SIM_SYNC_WINDOW_MIN", "15")))
+        reason = (f"处于K线同步窗口({_KLINE_SYNC_AT}起)，选股推迟至 "
+                  f"{window_end.strftime('%H:%M')} 之后")
+        _set_state(screen_deferred=reason)
+        _sim_save_state()
+        log.info("模拟账户选股错峰跳过: %s", reason)
+        return
+    if get_sim_state().get("screen_deferred"):
+        _set_state(screen_deferred="")
+        _sim_save_state()
+
     universe = get_universe(cfg)
     items = universe.symbols(ctx)
     if not items:
         state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
         return
 
-    buy_decisions = adapter.screen(items, ctx) or []
+    try:
+        buy_decisions = adapter.screen(items, ctx) or []
+        if get_sim_state().get("source_throttled"):
+            _set_state(source_throttled=False)
+            _sim_save_state()
+    except SourceThrottledError as exc:
+        # 行情源限流：丢弃部分初筛结果（样本截断偏差），本轮不产生买入
+        _set_state(source_throttled=True, last_error=str(exc))
+        _sim_save_state()
+        log.warning("模拟账户选股提前终止（行情源限流）: %s", exc)
+        state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        return
     buy_decisions.sort(key=lambda d: (d.score, d.confidence), reverse=True)
 
-    buy_levels = set(cfg.get("buy_levels") or list(journal_config.SIM_BUY_LEVELS))
-    min_score = float(cfg.get("min_score", 0) or 0)
-    level_scale = cfg.get("level_scale") or dict(journal_config.SIM_LEVEL_SCALE)
+    # 策略专属过滤（buy_levels / min_score）已在 adapter.screen 内完成（v7 解耦）
     per_trade_pct = float(cfg.get("per_trade_pct", 20.0) or 20.0)
     today = today_str(now)
 
@@ -285,10 +330,6 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
         if len(state.get("positions", {})) >= max_positions:
             break
         if deci.symbol in state.get("positions", {}):
-            continue
-        if float(deci.score or 0) < min_score:
-            continue
-        if deci.level not in buy_levels:
             continue
         recent = (state.get("recent") or {}).get(deci.symbol)
         if recent:
@@ -298,8 +339,7 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
                 continue                          # 当日卖出过不再买
 
         summary = portfolio_summary(state, {}, now)
-        scale = level_scale.get(deci.level, 1.0)
-        budget = summary["equity"] * per_trade_pct / 100.0 * scale
+        budget = summary["equity"] * per_trade_pct / 100.0 * adapter.position_scale(deci.level)
         trade, err = execute_buy(state, deci, budget=budget, now=now)
         if err == "limit_up_deferred":
             if _track_pending(state, deci):
@@ -386,9 +426,12 @@ def handle_sim_get(params: dict) -> dict:
     equity = load_equity(journal_config.SIM_EQUITY_LIMIT)
     metrics = compute_metrics(equity, state.get("initial_capital"))
     run_state = get_sim_state()
+    adapter = get_adapter(cfg)
     return {
         "ok": True,
         "config": cfg,
+        "strategy_schema": adapter.params_schema(),
+        "strategy_params": getattr(adapter, "params", cfg.get("strategy_params") or {}),
         "account": {
             "cash": summary["cash"],
             "equity": summary["equity"],
@@ -416,6 +459,8 @@ def handle_sim_get(params: dict) -> dict:
             "last_equity": run_state.get("last_equity"),
             "last_screening_at": run_state.get("last_screening_at"),
             "last_error": run_state.get("last_error"),
+            "screen_deferred": run_state.get("screen_deferred", ""),
+            "source_throttled": bool(run_state.get("source_throttled", False)),
         },
     }
 
@@ -428,10 +473,11 @@ def handle_sim_post(body: dict) -> dict:
         return {"ok": True, "message": "已保存",
                 "config": {k: saved.get(k) for k in (
                     "enabled", "universe", "scan_limit", "interval_min",
-                    "screening_interval_min", "buy_levels", "max_positions",
-                    "per_trade_pct", "level_scale", "strategy", "require_weekly",
+                    "screening_interval_min", "max_positions",
+                    "per_trade_pct", "strategy",
                     "auto_sell", "stop_loss_enabled", "take_profit_enabled",
-                    "max_hold_days", "min_score", "initial_capital")}}
+                    "max_hold_days", "initial_capital",
+                    "strategy_params")}}
     if action == "run_once":
         force = bool(body.get("force", False))
         threading.Thread(target=run_cycle,

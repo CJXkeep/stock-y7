@@ -78,14 +78,11 @@
       </div>
       <div class="sim-cfg-row">
         <label>最长持有(交易日,0不限)<input type="number" id="sim-max-hold" min="0" max="1000"></label>
-        <label>最低评分<input type="number" id="sim-min-score" min="0" max="100"></label>
       </div>
       <div class="sim-cfg-row">
-        <span class="sim-cfg-label">买入档位</span>
-        <label class="notify-switch"><input type="checkbox" id="sim-level-strong"> 强烈买入</label>
-        <label class="notify-switch"><input type="checkbox" id="sim-level-normal"> 买入</label>
-        <label class="notify-switch"><input type="checkbox" id="sim-level-cautious"> 谨慎买入</label>
+        <span class="sim-cfg-label">策略参数 <span class="sim-hint">由当前策略声明，随策略自动变化</span></span>
       </div>
+      <div id="sim-strategy-params"></div>
       <div class="sim-cfg-row">
         <label class="notify-switch"><input type="checkbox" id="sim-auto_sell"> 自动卖出</label>
         <label class="notify-switch"><input type="checkbox" id="sim-stop_loss_enabled"> 自动止损</label>

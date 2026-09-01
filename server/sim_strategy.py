@@ -39,9 +39,15 @@ from server.signal_pipeline import signal_to_dict, _apply_signal_optimization
 from backtest import config as journal_config
 from backtest import watchlist_store
 from backtest import pool as stock_pool
-from backtest.sim_account import Decision
+from backtest.sim_account import Decision, _LEVEL_ALIASES
 
 log = logging.getLogger("trend_app")
+
+
+def _alias_level(value) -> str:
+    """档位名别名归一（旧名 strong_buy/buy/cautious_buy → strong/normal/cautious）。"""
+    item = str(value or "").strip().lower()
+    return _LEVEL_ALIASES.get(item, item)
 
 
 # ---------------------------------------------------------------- action → Decision 映射
@@ -183,10 +189,38 @@ def get_universe(cfg: dict) -> UniverseProvider:
 
 # ---------------------------------------------------------------- StrategyAdapter
 
+class SourceThrottledError(Exception):
+    """选股初筛连续遭遇行情源拦截（WAF/限流），本轮提前终止。
+
+    ``count`` 为终止时的连续失败数；调用方应标记 ``source_throttled``
+    并丢弃部分初筛结果（样本截断偏差）。
+    """
+
+    def __init__(self, count: int, message: str = ""):
+        self.count = int(count)
+        super().__init__(message or f"连续 {count} 只候选行情源失败，本轮选股提前终止")
+
+
 class StrategyAdapter:
-    """策略接口。evaluate 评估单标的；screen 批量筛出买入决策。"""
+    """策略接口。evaluate 评估单标的；screen 批量筛出买入决策。
+
+    v7 起策略参数由 adapter 自描述：``params_schema()`` 声明可配置参数
+    （type/default/min/max/options/label），``normalize_params()`` 按声明归一化；
+    配置中的 ``strategy_params`` 字典对本层之外的代码不透明。
+    """
 
     id = "base"
+
+    def params_schema(self) -> dict:
+        raise NotImplementedError
+
+    def normalize_params(self, raw: dict) -> dict:
+        """按 schema 归一化外部输入；非法值回退默认；未知键丢弃。"""
+        raise NotImplementedError
+
+    def position_scale(self, level: str) -> float:
+        """档位 → 单笔仓位缩放系数（账户层不解释档位名，默认 1.0）。"""
+        return 1.0
 
     def evaluate(self, item: dict, ctx: dict = None) -> Decision:
         raise NotImplementedError
@@ -201,13 +235,90 @@ class QushiV5Adapter(StrategyAdapter):
     - 日线单标的评估（与看板 /api/analyze 同口径）；
     - 两阶段资金流：初筛无资金流，命中买入档位才补拉资金流重算（scan 快路径下
       除候选外零逐股资金流请求）；
-    - 双周期：screen 时对买入候选再做周 K 验证（周 K 由本地日 K 聚合）。
+    - 双周期：screen 时对买入候选再做周 K 验证（周 K 由本地日 K 聚合）；
+    - 策略专属买入过滤（buy_levels / min_score）在 screen 内完成；
+    - 档位 → 仓位缩放经 :meth:`position_scale` 暴露。
     """
 
     id = "qushi_v5"
 
-    def __init__(self, require_weekly: bool = True):
-        self.require_weekly = bool(require_weekly)
+    #: 初筛连续行情源失败提前终止阈值（SIM_SCREEN_ABORT_THRESHOLD 可覆盖）
+    abort_threshold = max(1, int(os.environ.get("SIM_SCREEN_ABORT_THRESHOLD", "20")))
+
+    def __init__(self, params: dict = None, require_weekly=None):
+        # require_weekly 形参仅为兼容旧调用（其值优先于 params 内同名字段）
+        merged = dict(params or {})
+        if require_weekly is not None:
+            merged["require_weekly"] = require_weekly
+        self.params = self.normalize_params(merged)
+        self._consec_source_fails = 0   # 初筛连续行情源失败计数（screen 内使用）
+
+    @property
+    def require_weekly(self) -> bool:
+        """兼容属性：周 K 二次验证开关（策略参数）。"""
+        return bool(self.params.get("require_weekly", True))
+
+    # ---- 参数 schema（v7 解耦：策略参数自描述） ----
+
+    def params_schema(self) -> dict:
+        scale = dict(journal_config.SIM_LEVEL_SCALE)
+        return {
+            "buy_levels": {
+                "type": "enum", "options": ["strong", "normal", "cautious"],
+                "default": list(journal_config.SIM_BUY_LEVELS), "label": "买入档位",
+            },
+            "min_score": {
+                "type": "int", "min": 0, "max": 100,
+                "default": 0, "label": "最低综合分",
+            },
+            "require_weekly": {
+                "type": "bool", "default": bool(journal_config.SIM_REQUIRE_WEEKLY),
+                "label": "周K二次验证",
+            },
+            "scale_strong": {
+                "type": "float", "min": 0.0, "max": 1.0,
+                "default": float(scale.get("strong", 1.0)), "label": "强烈买入仓位系数",
+            },
+            "scale_normal": {
+                "type": "float", "min": 0.0, "max": 1.0,
+                "default": float(scale.get("normal", 0.7)), "label": "买入仓位系数",
+            },
+            "scale_cautious": {
+                "type": "float", "min": 0.0, "max": 1.0,
+                "default": float(scale.get("cautious", 0.4)), "label": "谨慎买入仓位系数",
+            },
+        }
+
+    def normalize_params(self, raw: dict) -> dict:
+        schema = self.__class__.params_schema(self)
+        raw = raw if isinstance(raw, dict) else {}
+        out = {}
+        for key, rule in schema.items():
+            if key not in raw:
+                out[key] = rule["default"]
+                continue
+            value = raw[key]
+            rtype = rule.get("type")
+            try:
+                if rtype == "bool":
+                    out[key] = bool(value)
+                elif rtype == "int":
+                    out[key] = max(rule["min"], min(rule["max"], int(value)))
+                elif rtype == "float":
+                    out[key] = max(rule["min"], min(rule["max"], float(value)))
+                elif rtype == "enum":
+                    allowed = set(rule.get("options") or [])
+                    items = value if isinstance(value, (list, tuple, set)) else [value]
+                    out[key] = [v for v in dict.fromkeys(
+                        _alias_level(v) for v in items) if v in allowed] or rule["default"]
+                else:                       # 未知类型：原样保留
+                    out[key] = value
+            except (TypeError, ValueError):
+                out[key] = rule["default"]
+        return out
+
+    def position_scale(self, level: str) -> float:
+        return float(self.params.get(f"scale_{level}", 1.0))
 
     # ---- 内部：跑信号引擎并映射 ----
     def _run(self, symbol: str, name: str, klines, quote, flows, index_klines,
@@ -279,11 +390,20 @@ class QushiV5Adapter(StrategyAdapter):
             return prelim
         except Exception as exc:
             log.debug("模拟账户评估 %s 失败: %s", symbol, exc)
+            self._consec_source_fails += 1
             return Decision(symbol=symbol, name=name, side="hold", strategy=self.id)
+        else:
+            self._consec_source_fails = 0   # 成功评估打断「连续失败」计数
 
     def screen(self, items: list, ctx: dict = None) -> list:
-        """批量筛选买入决策：日线并发评估 → buy 候选 → 周 K 二次验证（可选）。"""
+        """批量筛选买入决策：日线并发评估 → 策略过滤 → 周 K 二次验证（可选）。
+
+        连续 ``abort_threshold`` 只候选行情源失败（WAF/限流类异常）时抛
+        :class:`SourceThrottledError`，由调用方标记 ``source_throttled`` 并丢弃
+        部分结果（样本截断偏差）。
+        """
         ctx = ctx or {}
+        self._consec_source_fails = 0
         buy_decisions = []
         max_workers = max(1, int(os.environ.get("SIM_MAX_WORKERS", "12")))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -293,8 +413,15 @@ class QushiV5Adapter(StrategyAdapter):
                     deci = fut.result()
                 except Exception:
                     continue
+                if self._consec_source_fails >= self.abort_threshold:
+                    raise SourceThrottledError(self._consec_source_fails)
                 if deci and deci.side == "buy" and deci.price > 0:
                     buy_decisions.append(deci)
+        # 策略专属买入过滤（v7 解耦：从服务层移入 adapter）
+        min_score = float(self.params.get("min_score", 0) or 0)
+        levels = set(self.params.get("buy_levels") or [])
+        buy_decisions = [d for d in buy_decisions
+                         if float(d.score or 0) >= min_score and d.level in levels]
         if not self.require_weekly:
             return buy_decisions
         verified = []
@@ -308,10 +435,28 @@ class QushiV5Adapter(StrategyAdapter):
         return verified
 
 
+# ---------------------------------------------------------------- adapter 注册表
+
+_ADAPTER_REGISTRY = {"qushi_v5": QushiV5Adapter}
+
+
+def register_adapter(adapter_cls) -> None:
+    """注册策略适配器（测试或后续新策略用）。"""
+    _ADAPTER_REGISTRY[str(adapter_cls.id).strip().lower()] = adapter_cls
+
+
 def get_adapter(cfg: dict) -> StrategyAdapter:
-    """按配置实例化策略适配器；未知 ID 回退 qushi_v5。"""
-    strategy = str((cfg or {}).get("strategy", "")).strip().lower()
-    if strategy and strategy != "qushi_v5":
-        log.warning("模拟账户：未知策略适配器 %s，回退 qushi_v5", strategy)
-    require_weekly = bool((cfg or {}).get("require_weekly", True))
-    return QushiV5Adapter(require_weekly=require_weekly)
+    """按配置实例化策略适配器；未知 ID 回退默认策略（qushi_v5）。"""
+    cfg = cfg or {}
+    strategy = str(cfg.get("strategy", "")).strip().lower()
+    params = cfg.get("strategy_params")
+    params = params if isinstance(params, dict) else {}
+    adapter_cls = _ADAPTER_REGISTRY.get(strategy)
+    if adapter_cls is None:
+        if strategy:
+            log.warning("模拟账户：未知策略适配器 %s，回退 %s", strategy,
+                        journal_config.SIM_STRATEGY)
+        adapter_cls = _ADAPTER_REGISTRY.get(str(journal_config.SIM_STRATEGY).strip().lower())
+        if adapter_cls is None:
+            adapter_cls = QushiV5Adapter
+    return adapter_cls(params=params)
