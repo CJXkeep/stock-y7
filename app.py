@@ -66,7 +66,9 @@ from server.notify_service import (handle_notify_get, handle_notify_post, start_
 from server import task_store
 from server.candidates_api import handle_candidates_get, handle_candidates_post
 from server.candidate_validate import (handle_candidates_validate_get,
-                                       handle_candidates_validate_post)
+                                       handle_candidates_validate_post,
+                                       handle_candidates_doc_get,
+                                       _SCREEN_SCHEMA)
 from server.advice_api import handle_advice
 from server.kline_sync import (handle_kline_store_get, handle_kline_store_post,
                                start_sync_service)
@@ -584,6 +586,7 @@ _GET_ROUTES = {
     "/api/tasks": handle_tasks,
     "/api/candidates": handle_candidates_get,
     "/api/candidates/validate": handle_candidates_validate_get,
+    "/api/candidates/doc": handle_candidates_doc_get,
     "/api/advice": handle_advice,
     "/api/evaluation": handle_evaluation_list,
     "/api/evaluation/summary": handle_evaluation_summary,
@@ -747,6 +750,9 @@ class Handler(BaseHTTPRequestHandler):
                     "notify": _pick_state(task_store.read_state("notify", NOTIFY_STATE_SCHEMA),
                                           ("status", "last_run_at", "rounds",
                                            "pushed_total", "failed_total")),
+                    "screen": _pick_state(task_store.read_state("screen", _SCREEN_SCHEMA),
+                                          ("status", "stage", "progress",
+                                           "finished_at", "elapsed")),
                 })
                 return
             if AUTH_ENABLED and not self._is_authed():

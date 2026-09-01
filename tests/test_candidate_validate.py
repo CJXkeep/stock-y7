@@ -119,6 +119,37 @@ def test_post_busy_when_eval_running():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_candidates_doc_get_reads_screen_report():
+    """候选验证报告查看：合法快照返回 screen.md/csv 原文；非法 id/缺文件拒绝。"""
+    import backtest.config as cfg
+    d = tempfile.mkdtemp(prefix="cv_doc_")
+    old_root = cfg.RESULTS_DIR
+    cfg.RESULTS_DIR = d
+    try:
+        snap = "20260831T000000Z"
+        os.makedirs(os.path.join(d, snap), exist_ok=True)
+        with open(os.path.join(d, snap, "screen.md"), "w", encoding="utf-8") as fh:
+            fh.write("# screen\n600519 PASS\n")
+        with open(os.path.join(d, snap, "screen.csv"), "w", encoding="utf-8") as fh:
+            fh.write("symbol,gate\n")
+
+        resp = cv.handle_candidates_doc_get({"snapshot": [snap], "kind": ["screen"]})
+        assert resp["ok"] is True
+        assert "# screen" in resp["markdown"]
+        resp2 = cv.handle_candidates_doc_get({"snapshot": [snap], "kind": ["csv"]})
+        assert resp2["ok"] is True and resp2["kind"] == "csv"
+
+        # 非法快照 id → 拒绝（防路径穿越）
+        resp3 = cv.handle_candidates_doc_get({"snapshot": ["../etc/passwd"], "kind": ["screen"]})
+        assert resp3["ok"] is False
+        # 缺文件 → 拒绝
+        resp4 = cv.handle_candidates_doc_get({"snapshot": ["20260830T000000Z"], "kind": ["screen"]})
+        assert resp4["ok"] is False
+    finally:
+        cfg.RESULTS_DIR = old_root
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def _run_all():
     import traceback
     tests = sorted(((n, f) for n, f in globals().items()

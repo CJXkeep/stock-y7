@@ -167,6 +167,16 @@ def run_rolling_eval(trigger: str = "scheduled") -> dict:
         return {"ok": False, "snapshot_id": sid, "error": str(exc), "trigger": trigger}
 
 
+def get_rolling_state() -> dict:
+    """只读返回滚动评估服务状态（上次运行月份/状态/错误/时间）。
+
+    I9 前端展示用：未启动（ROLLING_EVAL_ENABLED=0）时尝试读盘，返回默认结构。
+    """
+    _load_state()
+    with _loop_lock:
+        return dict(_state)
+
+
 def _mark_month(status: str, error: str) -> None:
     """记账当月已尝试（成功/失败都记，防止失败后每 30s 风暴重试）。"""
     with _loop_lock:

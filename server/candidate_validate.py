@@ -90,10 +90,23 @@ def _run() -> None:
         _progress("生成候选快照并重放统计...", 15)
         result = run_screen()
         candidates = result.get("candidates") or []
+        # 逐候选门槛明细（供前端展示 PASS/FAIL 原因；上限 30 与 SCREEN_MAX_SYMBOLS 一致）
+        detail = []
+        for c in candidates:
+            failed = [ch["name"] for ch in (c.get("checks") or []) if not ch.get("ok")]
+            detail.append({
+                "symbol": c.get("symbol"),
+                "name": c.get("name") or "",
+                "passed": bool(c.get("passed")),
+                "n": c.get("n") or 0,
+                "note": c.get("note") or "",
+                "failed_checks": failed,
+            })
         summary = {
             "snapshot_id": result.get("snapshot_id"),
             "total": len(candidates),
             "passed": sum(1 for c in candidates if c.get("passed")),
+            "candidates": detail,
         }
         _done("完成：验证 %d 只候选，PASS %d 只" % (
             summary["total"], summary["passed"]), time.time() - started, summary)
@@ -131,3 +144,42 @@ def handle_candidates_validate_get(params: dict) -> dict:
     with _lock:
         state = dict(_state)
     return {"ok": True, **state}
+
+
+_DOC_KINDS = {"screen": "screen.md", "csv": "screen.csv"}
+_SNAPSHOT_RE = None  # 惰性编译正则
+
+
+def _valid_snapshot_id(name: str) -> bool:
+    """快照目录名校验（如 20260831T000000Z），防路径穿越。"""
+    global _SNAPSHOT_RE
+    if _SNAPSHOT_RE is None:
+        import re as _re
+        _SNAPSHOT_RE = _re.compile(r"^\d{8}T\d{6}Z$")
+    return bool(_SNAPSHOT_RE.match(name or ""))
+
+
+def handle_candidates_doc_get(params: dict) -> dict:
+    """GET /api/candidates/doc?snapshot=<id>&kind=screen|csv：候选验证报告原文。
+
+    只读返回 screen.md / screen.csv；快照 id 严格校验防路径穿越。
+    """
+    import os
+    snap = str((params.get("snapshot") or [""])[0]).strip()
+    kind = str((params.get("kind") or ["screen"])[0]).strip() or "screen"
+    name = _DOC_KINDS.get(kind)
+    if not name:
+        return {"ok": False, "error": "kind 必须为 %s" % sorted(_DOC_KINDS)}
+    if not _valid_snapshot_id(snap):
+        return {"ok": False, "error": "快照 id 非法"}
+    from backtest import config
+    path = os.path.join(config.RESULTS_DIR, snap, name)
+    if not os.path.isfile(path):
+        return {"ok": False, "error": "文件不存在：%s（先运行候选验证）" % name}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "kind": kind, "snapshot": snap,
+            "markdown": content}

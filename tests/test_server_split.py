@@ -32,7 +32,7 @@ EXPECTED_GET_ROUTES = {
     "/api/realtime_flow", "/api/journal", "/api/pool", "/api/watchlist",
     "/api/snapshot-info", "/api/scan", "/api/digest", "/api/notify",
     "/api/kline-store", "/api/tasks", "/api/candidates",
-    "/api/candidates/validate", "/api/advice",
+    "/api/candidates/validate", "/api/candidates/doc", "/api/advice",
     "/api/evaluation", "/api/evaluation/summary", "/api/evaluation/doc",
 }
 

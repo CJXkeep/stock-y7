@@ -188,6 +188,26 @@ function _seriesHtml(data) {
   return html;
 }
 
+// ---------------------------------------------------------------- 滚动评估状态（I9.1）
+
+function _rollingHtml(data) {
+  const r = (data && data.rolling) || {};
+  const color = r.last_status === 'error' ? 'var(--c-down, #ff6b6b)'
+    : r.last_status === 'ok' ? 'var(--c-up, #4caf50)' : 'var(--c-text-2, #999)';
+  const statusLabel = r.last_status === 'ok' ? '成功' : r.last_status === 'error' ? '失败' : '未运行';
+  let html = '<div class="eval-card"><div class="eval-card-title">月度滚动评估服务</div>';
+  html += '<div class="eval-notice-line">每交易日 <code>15:45</code> 例行自检，'
+    + '当月未跑且为交易日才触发一轮（幂等键=月份）；与手动评估/候选验证共用单任务互斥。</div>';
+  html += '<div class="eval-notice-line">上次运行：<b style="color:' + color + '">'
+    + escHtml(statusLabel) + '</b>'
+    + (r.last_month ? ' · ' + escHtml(r.last_month) : '')
+    + (r.last_run_at ? ' · ' + escHtml(r.last_run_at) : '')
+    + '</div>';
+  if (r.last_error) html += '<div class="eval-error">' + escHtml(r.last_error) + '</div>';
+  html += '</div>';
+  return html;
+}
+
 // ---------------------------------------------------------------- 后台任务状态
 
 function _taskState() {
@@ -485,6 +505,7 @@ function _renderPicked(data) {
   }
   host.innerHTML = listHtml
     + '<div id="eval-task-status" class="eval-card"></div>'
+    + _rollingHtml(data)
     + _seriesHtml(data)
     + _opsHtml()
     + '<div id="eval-picked">' + body + '</div>'

@@ -96,7 +96,14 @@ def handle_evaluation_list(params: dict) -> dict:
         "task": _eval_task_state(),
         "snapshots": _list_snapshots(),
         "series": _eval_index_series(),
+        "rolling": _rolling_state(),
     }
+
+
+def _rolling_state() -> dict:
+    """月度滚动评估服务状态（I9.1，前端状态卡用）。"""
+    from server.rolling_eval_service import get_rolling_state
+    return get_rolling_state()
 
 
 def _eval_index_series() -> list:

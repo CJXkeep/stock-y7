@@ -779,8 +779,8 @@ function closeSettings(ev) {
 function closeSettingsForce() { const o = document.getElementById('settings-overlay'); if (o) o.style.display = 'none'; }
 
 // ===== 顶部状态栏（optimization-landing D5）：时钟 + 扫描/速递/推送最近状态（独立 /api/health，30s 轮询） =====
-const _SS_LABEL = { scan: '扫描', digest: '速递', notify: '推送' };
-const _SS_TIME_FIELD = { scan: 'completed_at', digest: 'generated_at', notify: 'last_run_at' };
+const _SS_LABEL = { scan: '扫描', digest: '速递', notify: '推送', screen: '验证' };
+const _SS_TIME_FIELD = { scan: 'completed_at', digest: 'generated_at', notify: 'last_run_at', screen: 'finished_at' };
 function _ssShortTime(t) {
   if (!t) return '';
   const m = String(t).match(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/);
@@ -799,7 +799,7 @@ function _ssMark(el, key, label, state) {
   el.classList.toggle('ss-off', !state || !state.status);
 }
 async function _ssRefresh() {
-  const els = { scan: null, digest: null, notify: null };
+  const els = { scan: null, digest: null, notify: null, screen: null };
   Object.keys(els).forEach(k => { els[k] = document.querySelector('[data-ss="' + k + '"]'); });
   try {
     const data = await (await fetchWithTimeout('/api/health')).json();

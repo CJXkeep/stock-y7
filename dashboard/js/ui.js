@@ -10,7 +10,7 @@ import { poolNote, poolMove, poolRemove, poolAddCurrent,
 import { openDoc, pickSnapshot, evalRefresh, evalSensitivity,
          correctToggle, correctPayload, correctValidate, correctExecute } from './evaluation.js';
 import { candAdd, candRemove, candStatus, candNote,
-         candImportScan, candValidateStart } from './candidates.js';
+         candImportScan, candValidateStart, candOpenDoc } from './candidates.js';
 export const RISK_EXPLAIN = [
   { codes: ['price_below_ma20'], kws: ['跌破MA20'],
     text: '股价跌破20日均线（MA20）：短期趋势生命线失守，趋势转弱。',
@@ -332,6 +332,7 @@ export const DELEGATED_ACTIONS = {
   candNote: el => candNote(el),
   candImportScan: () => candImportScan(),
   candValidateStart: () => candValidateStart(),
+  candOpenDoc: el => candOpenDoc(el),
   openScan: () => openScan(),
 };
 

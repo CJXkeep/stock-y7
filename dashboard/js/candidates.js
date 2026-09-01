@@ -89,8 +89,16 @@ function _adviceHtml(advice) {
     for (const p of plans.slice(0, 20)) {
       const sym = (p.payload && p.payload.symbol) || '--';
       const label = p.action === 'pool_add' ? '入池' : p.action === 'pool_remove' ? '出池' : p.action;
+      let evidence = p.rule || '';
+      if (p.evidence) {
+        const ev = [];
+        if (p.evidence.snapshot_id) ev.push('快照 ' + escHtml(String(p.evidence.snapshot_id)));
+        if (p.evidence.window_n != null) ev.push('窗口 n=' + escHtml(String(p.evidence.window_n)));
+        if (p.evidence.r60_excess_avg != null) ev.push('r60超额 ' + escHtml(String(p.evidence.r60_excess_avg)) + '%');
+        if (ev.length) evidence += (evidence ? ' · ' : '') + ev.join(' · ');
+      }
       html += '<div class="eval-gate-item"><b>' + escHtml(label) + ' ' + escHtml(sym)
-        + '</b><span class="eval-ops-hint">' + escHtml(p.rule || '')
+        + '</b><span class="eval-ops-hint">' + evidence
         + (p.advised_at ? ' · ' + escHtml(p.advised_at) : '') + '</span></div>';
     }
     html += '</div>';
@@ -112,7 +120,8 @@ export async function loadCandidates() {
       _get(API + '/api/advice'),
       _get(API + '/api/candidates/validate'),
     ]);
-    host.innerHTML = _listHtml(cands) + _adviceHtml(advice) + '<div id="cand-task"></div>';
+    host.innerHTML = _listHtml(cands) + _adviceHtml(advice) + '<div id="cand-task"></div>'
+      + '<div id="cand-doc" style="display:none"></div>';
     _renderTask(task);
     if (task.status === 'running') _startPoll();
   } catch (err) {
@@ -138,9 +147,54 @@ function _renderTask(task) {
     html += '<div class="eval-notice-line">完成：验证 ' + escHtml(String(t.summary.total || 0))
       + ' 只候选，PASS ' + escHtml(String(t.summary.passed || 0)) + ' 只'
       + (t.summary.snapshot_id ? ' · 快照 ' + escHtml(t.summary.snapshot_id) : '') + '</div>';
+    if (t.summary.snapshot_id) {
+      html += '<div class="eval-row eval-ops-btns">'
+        + '<button data-act="candOpenDoc" data-snapshot="' + escHtml(t.summary.snapshot_id) + '" data-kind="screen">查看 screen.md</button>'
+        + '<button data-act="candOpenDoc" data-snapshot="' + escHtml(t.summary.snapshot_id) + '" data-kind="csv">查看 screen.csv</button>'
+        + '<span class="eval-ops-hint">无前视重放统计原文（原始 run_analysis 输出口径）</span>'
+        + '</div>';
+    }
+    const cands = t.summary.candidates || [];
+    if (cands.length) {
+      html += '<div class="eval-gate-list">';
+      for (const c of cands) {
+        const tag = c.passed
+          ? '<b style="color:var(--c-up, #4caf50)">PASS</b>'
+          : '<b style="color:var(--c-down, #ff6b6b)">FAIL</b>';
+        const reason = c.passed ? 'n=' + escHtml(String(c.n))
+          : (escHtml(c.note || '') + (c.failed_checks && c.failed_checks.length
+              ? '（未过：' + escHtml(c.failed_checks.join('、')) + '）' : ''));
+        html += '<div class="eval-gate-item">' + escHtml(c.symbol) + ' ' + tag
+          + '<span class="eval-ops-hint">' + reason + '</span></div>';
+      }
+      html += '</div>';
+    }
   }
   if (t.error) html += '<div class="eval-error">' + escHtml(t.error) + '</div>';
   el.innerHTML = html;
+}
+
+// 查看候选验证报告原文（screen.md / screen.csv）
+export async function candOpenDoc(el) {
+  const snapshot = el && el.dataset && el.dataset.snapshot;
+  const kind = el && el.dataset && el.dataset.kind || 'screen';
+  if (!snapshot) return;
+  const host = document.getElementById('cand-doc');
+  if (!host) return;
+  host.style.display = 'block';
+  host.innerHTML = '<div class="eval-card"><div class="eval-card-title">'
+    + escHtml(kind + '.md · ' + snapshot) + '</div><pre class="eval-doc-pre">加载中…</pre></div>';
+  try {
+    const data = await _get(API + '/api/candidates/doc?snapshot=' + encodeURIComponent(snapshot)
+      + '&kind=' + encodeURIComponent(kind));
+    host.innerHTML = '<div class="eval-card"><div class="eval-card-title">'
+      + escHtml(kind + '.' + (kind === 'csv' ? 'csv' : 'md') + ' · ' + snapshot)
+      + '</div><pre class="eval-doc-pre">'
+      + escHtml(data.ok ? data.markdown : (data.error || '加载失败')) + '</pre></div>';
+  } catch (e) {
+    host.innerHTML = '<div class="eval-card"><div class="eval-card-title">加载失败</div>'
+      + '<pre class="eval-doc-pre">' + escHtml(e.message || '加载失败') + '</pre></div>';
+  }
 }
 
 function _startPoll() {
