@@ -48,6 +48,7 @@ _scan_state = {
     "scanned": 0,
     "found": 0,
     "results": [],
+    "blocked": [],            # 被「第一性原则策略门」拦截的候选（达买入档但环境门降为观望）
     "error": "",
     "start_time": 0,
     "elapsed": 0,
@@ -56,7 +57,7 @@ _scan_state = {
     "daily_total": 0,         # 日K阶段实际扫描总数（周K阶段会重置 total/scanned，归档用本字段）
 }
 _scan_lock = threading.Lock()
-_SCAN_STATE_SCHEMA = "v5.scan.latest.v1"
+_SCAN_STATE_SCHEMA = "v6.scan.latest.v1"
 _SCAN_KIND = "scan"                    # I9.0：统一任务状态 kind（落盘 data/tasks/scan.json）
 _scan_state_loaded = False  # 模块级标记：是否已尝试从磁盘回填，避免每次 GET 都读盘
 
@@ -85,6 +86,19 @@ def _scan_is_candidate(prelim: dict) -> bool:
         return float(prelim.get("score", 0) or 0) >= float(_scan_candidate_score())
     except (TypeError, ValueError):
         return False
+
+
+def _scan_is_gate_blocked(r: dict) -> bool:
+    """是否被「第一性原则策略门」从买入档降为观望（市场环境偏空 / 下降趋势）。
+
+    判定依据：引擎原始动作是买入档（original_action）、优化后终态为观望、
+    且 veto_reason 带「策略门」前缀——这三者齐备才是策略门拦截，而非硬/软否决。
+    """
+    if not r or r.get("action") != "观望":
+        return False
+    if r.get("original_action") not in _SCAN_BUY_ACTIONS:
+        return False
+    return "策略门" in str(r.get("veto_reason", ""))
 
 
 def _scan_record_failure(symbol: str, name: str, period: str, reason: Exception) -> None:
@@ -205,6 +219,7 @@ def _run_scan(max_stocks: int = 1000):
                 "scanned": 0,
                 "found": 0,
                 "results": [],
+                "blocked": [],
                 "error": "",
                 "failed_total": 0,
                 "failed_symbols": [],
@@ -273,6 +288,7 @@ def _run_scan(max_stocks: int = 1000):
 
         # ---- 4. 并发日K扫描 ----
         daily_buy = []
+        blocked_daily = []      # 被策略门拦截的候选（日K阶段采集，见 §4.1）
         scanned_count = 0
 
         def scan_daily(stock):
@@ -288,6 +304,20 @@ def _run_scan(max_stocks: int = 1000):
                 r["daily_name"] = stock.get("name", "")
                 r["daily_pct"] = stock.get("pct", 0)
                 return r
+            if r and _scan_is_gate_blocked(r):
+                # 信号达买入档但被「第一性原则策略门」降为观望：单独列出，供前端展示
+                with _scan_lock:
+                    blocked_daily.append({
+                        "symbol": r.get("symbol", ""),
+                        "name": stock.get("name", ""),
+                        "price": r.get("price", 0),
+                        "daily_pct": stock.get("pct", 0),
+                        "original_action": r.get("original_action", ""),
+                        "score": r.get("score", 0),
+                        "confidence": r.get("confidence", 0),
+                        "veto_reason": r.get("veto_reason", ""),
+                        "m_score": r.get("m_score", 50),
+                    })
             return None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get("SCAN_DAILY_MAX_WORKERS", "20"))) as executor:
@@ -302,7 +332,12 @@ def _run_scan(max_stocks: int = 1000):
                 except Exception:
                     pass
 
-        log.info(f"日K扫描完成: {total_stage1}只 → {len(daily_buy)}只有买入信号")
+        blocked_daily.sort(key=lambda x: x.get("score", 0) or 0, reverse=True)
+        blocked = blocked_daily[:20]
+        with _scan_lock:
+            _scan_state["blocked"] = blocked
+        log.info(f"日K扫描完成: {total_stage1}只 → {len(daily_buy)}只有买入信号，"
+                 f"{len(blocked_daily)}只被策略门拦截")
 
         # ---- 5. 对日K买入的股票，扫描周K ----
         with _scan_lock:
@@ -367,9 +402,11 @@ def _run_scan(max_stocks: int = 1000):
         with _scan_lock:
             _scan_state.update({
                 "status": "done",
-                "stage": f"完成: {len(dual_buy)}只双周期买入，取前{len(results)}",
+                "stage": f"完成: {len(dual_buy)}只双周期买入，取前{len(results)}"
+                         + (f"；策略门拦截{len(blocked)}" if blocked else ""),
                 "progress": 100,
                 "results": results,
+                "blocked": blocked,
                 "elapsed": elapsed,
             })
         _scan_persist_state()
@@ -403,7 +440,7 @@ def handle_scan(params: dict) -> dict:
             _scan_state.update({
                 "status": "idle", "stage": "", "progress": 0,
                 "total": 0, "scanned": 0, "found": 0,
-                "results": [], "error": "",
+                "results": [], "blocked": [], "error": "",
                 "failed_total": 0, "failed_symbols": [],
                 "daily_total": 0,
                 "elapsed": 0,
@@ -431,6 +468,7 @@ def handle_scan(params: dict) -> dict:
         "found": state["found"],
         "daily_total": state.get("daily_total", 0),
         "results": state["results"],
+        "blocked": state.get("blocked", []),
         "error": state.get("error", ""),
         "failed_total": failed_total,
         "failed_symbols": failed_symbols,

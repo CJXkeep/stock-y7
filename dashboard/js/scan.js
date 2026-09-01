@@ -207,13 +207,17 @@ export function renderScanProgress(data) {
 export function renderScanResults(data) {
   _scanFailedHint(data);
   const results = data.results || [];
+  const blocked = data.blocked || [];
   const elapsed = data.elapsed || 0;
   const archivedRun = archiveScanRun(data);   // 自动归档（幂等）
   if (!results.length) {
     document.getElementById('scan-content').innerHTML = `
       <div class="scan-empty">
         <div style="margin-bottom:12px;color:#aaa">扫描完成，未发现双周期买入信号</div>
-        <div style="color:#888;font-size:13px">当前市场可能处于调整期，可稍后再试</div>
+        <div style="color:#888;font-size:13px">${blocked.length
+          ? `有 <b style="color:#ffb74d">${blocked.length}</b> 只信号达到买入档位，但被「第一性原则策略门」按市场环境压住（M分&lt;30 或下降趋势），策略设计为极弱市场不新增仓位。`
+          : '当前市场可能处于调整期，可稍后再试'}</div>
+        ${blocked.length ? _scanBlockedHtml(blocked) : ''}
         <div style="margin-top:16px">
           <button class="scan-btn" onclick="renderScanIdle()">重新扫描</button>
           ${archivedRun ? `<button class="scan-btn scan-btn-ghost" onclick="closeScan();openSbSection('scan')">在左侧查看归档 (${getScanArchive().length})</button>` : ''}
@@ -225,13 +229,41 @@ export function renderScanResults(data) {
     <div class="scan-stats" style="margin-bottom:12px">
       <span>扫描完成，耗时 <b style="color:#ddd">${elapsed}s</b></span>
       <span>双周期买入: <b style="color:#ff9800">${results.length}</b> 只</span>
+      ${blocked.length ? `<span>被策略门拦截: <b style="color:#ffb74d">${blocked.length}</b> 只</span>` : ''}
       <span class="scan-archived-tag" title="结果已自动归档到本地，可在历史归档中回看">已归档✓</span>
       <button class="scan-btn scan-btn-ghost" style="padding:3px 12px;font-size:12px" onclick="closeScan();openSbSection('scan')">在左侧查看归档 (${getScanArchive().length})</button>
       <button class="scan-btn" style="margin-left:auto;padding:3px 12px;font-size:12px" onclick="renderScanIdle()">重新扫描</button>
     </div>
     ${_scanTableHtml(results)}
+    ${blocked.length ? _scanBlockedHtml(blocked) : ''}
     <div style="margin-top:10px;color:#888;font-size:11px">本次结果已自动归档，关闭弹窗后仍可在「历史归档」中回看与导出。</div>`;
   document.getElementById('scan-content').innerHTML = html;
+}
+
+// 被「第一性原则策略门」拦截的候选（达买入档但环境门压住，仅供观察、不可直接买入）
+export function _scanBlockedHtml(blocked) {
+  return `
+    <div style="margin-top:16px;border-top:1px solid #222;padding-top:10px">
+      <div style="color:#ffb74d;font-size:12px;font-weight:bold;margin-bottom:6px">
+        被策略门拦截（${blocked.length} 只）
+        <span style="color:#888;font-weight:normal;font-size:11px">— 信号达买入档但被市场环境/趋势门压住，不新增仓位；仅作观察</span>
+      </div>
+      <div class="scan-table-wrap">
+        <table class="scan-table">
+          <thead><tr><th>代码/名称</th><th>原始信号</th><th>综合分</th><th>M分</th><th>拦截原因</th></tr></thead>
+          <tbody>
+          ${blocked.map(b => `
+            <tr>
+              <td><b>${escHtml(b.name || b.symbol)}</b><span class="code">${escHtml(b.symbol)}</span></td>
+              <td style="color:#ff9800">${escHtml(b.original_action || '')}</td>
+              <td>${b.score != null ? b.score : '-'}</td>
+              <td>${b.m_score != null ? b.m_score : '-'}</td>
+              <td style="font-size:11px;color:#ffb74d">${escHtml(b.veto_reason || '')}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // 结果表格（实时结果与归档详情共用）
