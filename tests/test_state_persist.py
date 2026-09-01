@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """D2 任务状态持久化回归测试（scan / digest / notify 三合一）。
 
-三个服务的持久化同构：写 latest/状态文件 -> 模拟重启 -> 首次读取回填 -> 损坏文件静默回退。
+三个服务的持久化同构：写状态文件 -> 模拟重启 -> 首次读取回填 -> 损坏文件静默回退。
 合并前分属 test_scan_state_persist / test_digest_state_persist / test_notify_state_persist
-（2026-08-28 测试清理合并），逻辑未改。全部离线：不触发真实扫描/速递构建/巡检/网络。
+（2026-08-28 测试清理合并）；2026-09-01 I9.0 起读写统一走 server.task_store，
+断言改为对 data/tasks/<kind>.json 路径重定向，语义与迁移前完全一致。
+全部离线：不触发真实扫描/速递构建/巡检/网络。
 """
 import json
 import os
@@ -18,6 +20,19 @@ if ROOT not in sys.path:
 from server import scan_engine as se
 from server import digest_service as ds
 from server import notify_service as ns
+from server import task_store
+
+
+def _patch_task_path(kind: str, path: str):
+    """临时把某 kind 的状态文件重定向到测试目录；旧路径置空，避免读到真实数据。"""
+    saved = (task_store.TASK_PATHS[kind], task_store.OLD_PATHS[kind])
+    task_store.TASK_PATHS[kind] = path
+    task_store.OLD_PATHS[kind] = ""
+    return saved
+
+
+def _restore_task_path(kind: str, saved) -> None:
+    task_store.TASK_PATHS[kind], task_store.OLD_PATHS[kind] = saved
 
 
 # ================================================================ scan (D2.1)
@@ -35,10 +50,9 @@ def _reset_scan_state(status="idle", **overrides):
 
 def test_scan_latest_json_roundtrip():
     d = tempfile.mkdtemp(prefix="scan_state_")
-    old_file = se.SCAN_STATE_FILE
     old_loaded = se._scan_state_loaded
-    path = os.path.join(d, "latest.json")
-    se.SCAN_STATE_FILE = path
+    path = os.path.join(d, "scan.json")
+    saved = _patch_task_path("scan", path)
     try:
         # 构造一次已完成扫描的内存状态并落盘
         _reset_scan_state(
@@ -69,7 +83,7 @@ def test_scan_latest_json_roundtrip():
         assert resp["elapsed"] == 12.3
         assert resp["results"] == payload["results"]
     finally:
-        se.SCAN_STATE_FILE = old_file
+        _restore_task_path("scan", saved)
         se._scan_state_loaded = old_loaded
         _reset_scan_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -77,10 +91,9 @@ def test_scan_latest_json_roundtrip():
 
 def test_scan_corrupt_file_falls_back_idle():
     d = tempfile.mkdtemp(prefix="scan_state_bad_")
-    old_file = se.SCAN_STATE_FILE
     old_loaded = se._scan_state_loaded
-    path = os.path.join(d, "latest.json")
-    se.SCAN_STATE_FILE = path
+    path = os.path.join(d, "scan.json")
+    saved = _patch_task_path("scan", path)
     try:
         _reset_scan_state(status="error", error="旧错误")
         se._scan_persist_state()
@@ -95,7 +108,7 @@ def test_scan_corrupt_file_falls_back_idle():
         assert resp["error"] == ""
         assert resp["results"] == []
     finally:
-        se.SCAN_STATE_FILE = old_file
+        _restore_task_path("scan", saved)
         se._scan_state_loaded = old_loaded
         _reset_scan_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -113,10 +126,9 @@ def _reset_digest_state():
 
 def test_digest_error_snapshot_roundtrip():
     d = tempfile.mkdtemp(prefix="digest_state_")
-    old_file = ds._DIGEST_FILE
     old_loaded = ds._digest_loaded
-    path = os.path.join(d, "latest.json")
-    ds._DIGEST_FILE = path
+    path = os.path.join(d, "digest.json")
+    saved = _patch_task_path("digest", path)
     try:
         ds._digest_state.update({
             "status": "error", "stage": "生成失败", "progress": 60,
@@ -139,7 +151,7 @@ def test_digest_error_snapshot_roundtrip():
         assert resp["progress"] == 60
         assert resp["digest"] is None
     finally:
-        ds._DIGEST_FILE = old_file
+        _restore_task_path("digest", saved)
         ds._digest_loaded = old_loaded
         _reset_digest_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -147,10 +159,9 @@ def test_digest_error_snapshot_roundtrip():
 
 def test_digest_running_snapshot_roundtrip():
     d = tempfile.mkdtemp(prefix="digest_state_running_")
-    old_file = ds._DIGEST_FILE
     old_loaded = ds._digest_loaded
-    path = os.path.join(d, "latest.json")
-    ds._DIGEST_FILE = path
+    path = os.path.join(d, "digest.json")
+    saved = _patch_task_path("digest", path)
     try:
         ds._digest_state.update({
             "status": "running", "stage": "核心池扫描中", "progress": 42,
@@ -169,7 +180,7 @@ def test_digest_running_snapshot_roundtrip():
         assert resp["progress"] == 42
         assert resp["elapsed"] == 3.0
     finally:
-        ds._DIGEST_FILE = old_file
+        _restore_task_path("digest", saved)
         ds._digest_loaded = old_loaded
         _reset_digest_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -193,10 +204,9 @@ def _reset_notify_state():
 
 def test_notify_state_roundtrip():
     d = tempfile.mkdtemp(prefix="notify_state_")
-    old_file = ns.NOTIFY_STATE_FILE
     old_loaded = ns._notify_state_loaded
-    path = os.path.join(d, "notify_state.json")
-    ns.NOTIFY_STATE_FILE = path
+    path = os.path.join(d, "notify.json")
+    saved = _patch_task_path("notify", path)
     try:
         ns._set_state(
             status="error", last_run="10:00:00", last_run_at="2026-08-27 10:00:00",
@@ -226,7 +236,7 @@ def test_notify_state_roundtrip():
         assert state["failed_total"] == 1
         assert state["last_run_at"] == "2026-08-27 10:00:00"
     finally:
-        ns.NOTIFY_STATE_FILE = old_file
+        _restore_task_path("notify", saved)
         ns._notify_state_loaded = old_loaded
         _reset_notify_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -234,10 +244,9 @@ def test_notify_state_roundtrip():
 
 def test_notify_get_reads_back_state():
     d = tempfile.mkdtemp(prefix="notify_state_api_")
-    old_file = ns.NOTIFY_STATE_FILE
     old_loaded = ns._notify_state_loaded
-    path = os.path.join(d, "notify_state.json")
-    ns.NOTIFY_STATE_FILE = path
+    path = os.path.join(d, "notify.json")
+    saved = _patch_task_path("notify", path)
     orig_load_cfg = ns.load_notify_config
     orig_watchlist_codes = ns.watchlist_codes
     orig_scope_options = ns._watchlist_scope_options
@@ -263,7 +272,7 @@ def test_notify_get_reads_back_state():
         ns.load_notify_config = orig_load_cfg
         ns.watchlist_codes = orig_watchlist_codes
         ns._watchlist_scope_options = orig_scope_options
-        ns.NOTIFY_STATE_FILE = old_file
+        _restore_task_path("notify", saved)
         ns._notify_state_loaded = old_loaded
         _reset_notify_state()
         shutil.rmtree(d, ignore_errors=True)
@@ -271,10 +280,9 @@ def test_notify_get_reads_back_state():
 
 def test_notify_state_corrupt_falls_back_default():
     d = tempfile.mkdtemp(prefix="notify_state_bad_")
-    old_file = ns.NOTIFY_STATE_FILE
     old_loaded = ns._notify_state_loaded
-    path = os.path.join(d, "notify_state.json")
-    ns.NOTIFY_STATE_FILE = path
+    path = os.path.join(d, "notify.json")
+    saved = _patch_task_path("notify", path)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("{ 不是合法 json")
@@ -285,7 +293,7 @@ def test_notify_state_corrupt_falls_back_default():
         assert state["rounds"] == 0
         assert state["pushed_total"] == 0
     finally:
-        ns.NOTIFY_STATE_FILE = old_file
+        _restore_task_path("notify", saved)
         ns._notify_state_loaded = old_loaded
         _reset_notify_state()
         shutil.rmtree(d, ignore_errors=True)

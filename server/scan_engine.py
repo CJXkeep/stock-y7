@@ -57,7 +57,7 @@ _scan_state = {
 }
 _scan_lock = threading.Lock()
 _SCAN_STATE_SCHEMA = "v5.scan.latest.v1"
-SCAN_STATE_FILE = os.path.join(ROOT, "data", "scan", "latest.json")
+_SCAN_KIND = "scan"                    # I9.0：统一任务状态 kind（落盘 data/tasks/scan.json）
 _scan_state_loaded = False  # 模块级标记：是否已尝试从磁盘回填，避免每次 GET 都读盘
 
 # ---- 扫描两阶段资金流（optimization-round2）----
@@ -106,23 +106,19 @@ def _scan_record_failure(symbol: str, name: str, period: str, reason: Exception)
 
 
 def _scan_persist_state() -> None:
-    """把当前扫描状态完整快照原子写到 data/scan/latest.json；失败不阻塞扫描。"""
-    try:
-        with _scan_lock:
-            state = dict(_scan_state)
-        payload = dict(state)
-        payload.update({
-            "schema": _SCAN_STATE_SCHEMA,
-            "completed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        })
-        os.makedirs(os.path.dirname(SCAN_STATE_FILE), exist_ok=True)
-        tmp = SCAN_STATE_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        os.replace(tmp, SCAN_STATE_FILE)
-    except Exception as exc:
-        log.warning("扫描状态持久化失败（不影响运行）: %s", exc)
+    """把当前扫描状态完整快照原子写入任务状态存储；失败不阻塞扫描。
+
+    I9.0：经 server.task_store 统一落盘到 data/tasks/scan.json（旧路径由 task_store 迁移读，
+    schema/字段与行为保持不变）。
+    """
+    with _scan_lock:
+        state = dict(_scan_state)
+    payload = dict(state)
+    payload.update({
+        "schema": _SCAN_STATE_SCHEMA,
+        "completed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    task_store.save_state(_SCAN_KIND, payload)
 
 
 def _ensure_scan_state_loaded() -> None:
@@ -130,19 +126,9 @@ def _ensure_scan_state_loaded() -> None:
     global _scan_state_loaded
     if _scan_state_loaded:
         return
-    _scan_state_loaded = True
-    try:
-        with open(SCAN_STATE_FILE, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        if not isinstance(payload, dict) or payload.get("schema") != _SCAN_STATE_SCHEMA:
-            raise ValueError("scan schema 或结构非法")
-        with _scan_lock:
-            for key in list(_scan_state.keys()):
-                if key in payload:
-                    _scan_state[key] = payload[key]
-    except (OSError, ValueError) as exc:
-        # 缺失/损坏文件不改变初始 idle 状态
-        log.debug("扫描状态缓存读取失败（保持 idle）: %s", exc)
+    _scan_state_loaded = True  # 缺失/损坏也只尝试一次
+    with _scan_lock:
+        task_store.ensure_loaded(_SCAN_KIND, _SCAN_STATE_SCHEMA, _scan_state, force=True)
 
 
 def _run_signal(symbol: str, klines, quote, flows, index_klines, breadth, period: str) -> dict:
@@ -458,4 +444,5 @@ from server.signal_pipeline import (
     _rebuild_plain_summary, _sync_risk_level, _sync_signal_strength,
     _apply_signal_optimization, _localize_signal_text,
 )
+from server import task_store
 from server.http_utils import _parse_count

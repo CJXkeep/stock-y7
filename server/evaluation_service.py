@@ -23,6 +23,106 @@ import time
 
 _log = logging.getLogger("trend_app.evaluation_task")
 
+# 评估时间序列索引（I9.1）：手动/滚动评估共用同一写入函数，append-only
+_INDEX_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "evaluation", "index.jsonl")
+
+
+def _index_file() -> str:
+    return _INDEX_FILE
+
+
+def read_index_series(limit: int = 400) -> list:
+    """读取评估时间序列（按 created_at 升序返回最近 limit 条；坏行跳过，文件缺失返回 []）。
+
+    I9.1：显式按 created_at 排序（'YYYY-MM-DD HH:MM:SS' 字典序即时间序），
+    不依赖 append 文件序（防同秒乱序/手工写入）。
+    """
+    out = []
+    try:
+        with open(_index_file(), "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue  # 坏行跳过不中断
+    except OSError:
+        return []
+    out.sort(key=lambda r: str(r.get("created_at") or ""))
+    return out[-max(1, int(limit or 400)):]
+
+
+def append_index_row(row: dict) -> None:
+    """把一期评估摘要追加到 index.jsonl（失败仅告警，不影响评估结果）。"""
+    try:
+        os.makedirs(os.path.dirname(_index_file()), exist_ok=True)
+        with open(_index_file(), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        _log.warning("评估索引写入失败（不影响展示）: %s", exc)
+
+
+def _compact_returns(block: dict) -> dict:
+    """把 aggregate 的分块（r{h} 与 r{h}_excess 各为 _summary 结构）压成索引行字段。"""
+    from backtest import config as _cfg
+    out = {}
+    for h in _cfg.HORIZONS:
+        s = (block or {}).get("r%d" % h) or {}
+        out["r%d" % h] = {
+            "n": s.get("n"),
+            "win_rate": s.get("win_rate"),
+            "avg_return": s.get("avg_return"),
+        }
+        e = (block or {}).get("r%d_excess" % h) or {}
+        out["r%d_excess" % h] = {
+            "n": e.get("n"),
+            "excess_win_rate": e.get("win_rate"),     # 超额胜率 = 跑赢基准比例
+            "excess_mean": e.get("avg_return"),        # 超额均值
+        }
+    return out
+
+
+def build_index_row(snapshot_id: str, source: str, summary: dict,
+                    review_result: dict, elapsed: float, pool_version=None) -> dict:
+    """从 stats/review 返回值构造 index.jsonl 一行（手动与滚动共用）。
+
+    pool_version 优先用调用方透传（滚动路径直接来自 build_snapshot 的 manifest）；
+    未传时回退读快照 manifest.json。
+    """
+    from backtest import config as _cfg
+    summary = summary or {}
+    meta = summary.get("meta") or {}
+    overall = _compact_returns(summary.get("overall") or {})
+    tiers = {str(k): _compact_returns(v) for k, v in (summary.get("by_action") or {}).items()
+             if str(k) not in ("unknown",)}
+    rules = (review_result or {}).get("rules") or {}
+    triggered = [{"rule": str(rid), "status": (r or {}).get("status")}
+                 for rid, r in rules.items()
+                 if (r or {}).get("status") not in (None, "", "未触发")]
+    if pool_version is None:
+        try:
+            with open(os.path.join(_cfg.SNAPSHOT_DIR, snapshot_id, "manifest.json"),
+                      "r", encoding="utf-8") as fh:
+                pool_version = json.load(fh).get("pool_version")
+        except (OSError, ValueError):
+            pool_version = None
+    return {
+        "schema": "v5.eval-index.v1",
+        "snapshot_id": snapshot_id,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "pool_version": pool_version,
+        "source": source,                       # rolling | manual
+        "sample_count": meta.get("deduped_count", meta.get("raw_count", 0)),
+        "overall": overall,
+        "tiers": tiers,
+        "review_triggered": triggered,
+        "elapsed": round(float(elapsed or 0), 1),
+    }
+
 
 # ---------------------------------------------------------------- 状态机
 
@@ -125,6 +225,25 @@ def _expected_pool_version():
         return None
 
 
+def _eval_try_begin(task: str, snapshot: str, stage: str, progress: int) -> bool:
+    """仅当当前无任务运行时抢占状态（单任务互斥）；失败返回 False。
+
+    I9.1：滚动评估与手动 refresh/sensitivity 共用这把锁，任一 running 即互斥。
+    """
+    _eval_ensure_loaded()
+    with _eval_lock:
+        if _eval_state["status"] == "running":
+            return False
+        _eval_state.update({
+            "status": "running", "task": task, "snapshot": snapshot,
+            "stage": stage, "progress": progress,
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "finished_at": None, "elapsed": 0, "error": "",
+        })
+    _eval_persist()  # 运行中状态立即落盘，进程重启后可区分中断/失败
+    return True
+
+
 def _eval_begin(task: str, snapshot: str, stage: str, progress: int) -> None:
     with _eval_lock:
         _eval_state.update({
@@ -166,19 +285,24 @@ def _snapshot_exists(snapshot: str) -> bool:
 
 
 def _run_eval_refresh(snapshot: str) -> None:
-    """后台：stats + review（同一快照，与 CLI 同参数）。"""
+    """后台：stats + review（同一快照，与 CLI 同参数），成功后写评估索引。
+
+    I9.1：手动刷新与滚动评估共用 build_index_row/append_index_row。
+    """
     started = time.time()
     _eval_begin("refresh", snapshot, "校验快照与池版本...", 5)
     try:
         from backtest.stats import run_stats
         _eval_progress("统计（stats：报告/results.csv）...", 30)
-        run_stats(
+        summary = run_stats(
             snapshot, results_root=None,
             expected_pool_version=_expected_pool_version()
         )
         from backtest.review import run_review
         _eval_progress("评估规则（review：T1-T6）...", 70)
-        run_review(snapshot, results_root=None, decisions_dir=None)
+        review_result = run_review(snapshot, results_root=None, decisions_dir=None)
+        append_index_row(build_index_row(
+            snapshot, "manual", summary, review_result, time.time() - started))
         _eval_done("完成（stats + review）", round(time.time() - started, 1))
     except Exception as exc:
         _eval_fail(exc)

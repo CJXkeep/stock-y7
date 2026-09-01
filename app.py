@@ -59,15 +59,22 @@ from server.signal_pipeline import (
     _rebuild_plain_summary, _sync_risk_level, _sync_signal_strength,
     _apply_signal_optimization, _localize_signal_text,
 )
-from server.scan_engine import handle_scan
+from server.scan_engine import handle_scan, _SCAN_STATE_SCHEMA
 from server.digest_service import handle_digest
-from server.notify_service import handle_notify_get, handle_notify_post, start_watcher
+from server.notify_service import (handle_notify_get, handle_notify_post, start_watcher,
+                                   NOTIFY_STATE_SCHEMA)
+from server import task_store
+from server.candidates_api import handle_candidates_get, handle_candidates_post
+from server.candidate_validate import (handle_candidates_validate_get,
+                                       handle_candidates_validate_post)
+from server.advice_api import handle_advice
 from server.kline_sync import (handle_kline_store_get, handle_kline_store_post,
                                start_sync_service)
 from server.evaluation_api import (
     handle_evaluation_doc, handle_evaluation_list, handle_evaluation_summary,
 )
 from server.evaluation_service import handle_eval_refresh, handle_eval_sensitivity
+from server.rolling_eval_service import start_rolling_service
 from server.correct_service import handle_correct_validate, handle_correct_execute
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
@@ -99,16 +106,6 @@ def _apply_json_format() -> None:
 if os.environ.get("LOG_JSON", "").strip().lower() in ("1", "true", "yes", "on"):
     _apply_json_format()
     logging.getLogger(__name__).info("结构化日志已启用 (LOG_JSON=1)")
-
-
-def _load_state_file(rel: str):
-    """读取持久化的运行状态 JSON（D2 产物）；缺失/损坏返回 None。"""
-    path = os.path.join(ROOT, rel)
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except Exception:
-        return None
 
 
 def _pick_state(state, keys):
@@ -227,6 +224,19 @@ def handle_pool_post(body: dict) -> dict:
     if not ok:
         resp["error"] = message
     return resp
+
+
+def handle_tasks(params: dict) -> dict:
+    """只读聚合 scan / digest / notify 三套后台任务的最近落盘状态（I9.0）。
+
+    读取失败（缺失/损坏/schema 不符）返回空对象，不 500。
+    """
+    return {
+        "ok": True,
+        "scan": task_store.read_state("scan", _SCAN_STATE_SCHEMA),
+        "digest": task_store.read_state("digest", digest_builder.DIGEST_SCHEMA),
+        "notify": task_store.read_state("notify", NOTIFY_STATE_SCHEMA),
+    }
 
 
 def handle_snapshot_info(params: dict) -> dict:
@@ -571,6 +581,10 @@ _GET_ROUTES = {
     "/api/digest": handle_digest,
     "/api/notify": handle_notify_get,
     "/api/kline-store": handle_kline_store_get,
+    "/api/tasks": handle_tasks,
+    "/api/candidates": handle_candidates_get,
+    "/api/candidates/validate": handle_candidates_validate_get,
+    "/api/advice": handle_advice,
     "/api/evaluation": handle_evaluation_list,
     "/api/evaluation/summary": handle_evaluation_summary,
     "/api/evaluation/doc": handle_evaluation_doc,
@@ -724,15 +738,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({
                     "status": "ok",
                     "time": time.strftime("%H:%M:%S"),
-                    "scan": _pick_state(_load_state_file(
-                        os.path.join("data", "scan", "latest.json")),
-                        ("status", "stage", "progress", "found", "completed_at", "elapsed")),
-                    "digest": _pick_state(_load_state_file(
-                        os.path.join("data", "digest", "latest.json")),
+                    "scan": _pick_state(task_store.read_state("scan", _SCAN_STATE_SCHEMA),
+                                        ("status", "stage", "progress", "found",
+                                         "completed_at", "elapsed")),
+                    "digest": _pick_state(
+                        task_store.read_state("digest", digest_builder.DIGEST_SCHEMA),
                         ("status", "stage", "progress", "generated_at", "elapsed")),
-                    "notify": _pick_state(_load_state_file(
-                        os.path.join("data", "notify_state.json")),
-                        ("status", "last_run_at", "rounds", "pushed_total", "failed_total")),
+                    "notify": _pick_state(task_store.read_state("notify", NOTIFY_STATE_SCHEMA),
+                                          ("status", "last_run_at", "rounds",
+                                           "pushed_total", "failed_total")),
                 })
                 return
             if AUTH_ENABLED and not self._is_authed():
@@ -796,9 +810,11 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH_ENABLED and not self._is_authed():
             self._json({"error": "未授权"}, 401)
             return
-        if path not in ("/api/pool", "/api/watchlist", "/api/notify", "/api/kline-store",
-                        "/api/evaluation/refresh", "/api/evaluation/sensitivity",
-                        "/api/correct/validate", "/api/correct/execute"):
+        if path not in ("/api/pool", "/api/watchlist", "/api/candidates",
+                        "/api/candidates/validate", "/api/notify",
+                        "/api/kline-store", "/api/evaluation/refresh",
+                        "/api/evaluation/sensitivity", "/api/correct/validate",
+                        "/api/correct/execute"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -827,6 +843,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handle_correct_validate(body))
             elif path == "/api/correct/execute":
                 self._json(handle_correct_execute(body))
+            elif path == "/api/candidates":
+                self._json(handle_candidates_post(body))
+            elif path == "/api/candidates/validate":
+                self._json(handle_candidates_validate_post(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:
@@ -842,6 +862,8 @@ def main():
     start_watcher()
     # 启动K线收盘同步服务（kline-store：交易日15:30增量同步，启动时落后先追赶）
     start_sync_service()
+    # 启动月度滚动评估服务（I9.1：每交易日15:45自检，当月未跑且交易日才触发）
+    start_rolling_service()
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

@@ -346,14 +346,18 @@ def test_app_digest_ignores_refresh_while_running():
 def test_app_digest_latest_json_roundtrip_and_corrupt_fallback():
     import app
     import server.digest_service as ds
+    import server.task_store as task_store
     d = _tmpdir()
-    prev_file = ds._DIGEST_FILE
-    ds._DIGEST_FILE = os.path.join(d, "latest.json")
+    prev_task_path = (task_store.TASK_PATHS["digest"], task_store.OLD_PATHS["digest"])
+    path = os.path.join(d, "latest.json")
+    task_store.TASK_PATHS["digest"] = path
+    task_store.OLD_PATHS["digest"] = ""
+    task_store.reset_for_tests("digest")
     try:
         digest = B.build_digest(_ctx())
         ds._digest_persist(digest)
-        assert os.path.isfile(ds._DIGEST_FILE)
-        with open(ds._DIGEST_FILE, "r", encoding="utf-8") as fh:
+        assert os.path.isfile(path)
+        with open(path, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
         assert payload["schema"] == B.DIGEST_SCHEMA
         assert payload["status"] == "done"
@@ -367,14 +371,15 @@ def test_app_digest_latest_json_roundtrip_and_corrupt_fallback():
         assert resp["digest"]["meta"]["generated_at"] == digest["meta"]["generated_at"]
 
         # 损坏文件 → 回退 idle 并告警
-        with open(ds._DIGEST_FILE, "w", encoding="utf-8") as fh:
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write("{ 不是合法 json")
         _reset_digest_state(ds)
         ds._digest_loaded = False
         resp2 = app.handle_digest({})
         assert resp2["status"] == "idle" and resp2["digest"] is None
     finally:
-        ds._DIGEST_FILE = prev_file
+        task_store.TASK_PATHS["digest"], task_store.OLD_PATHS["digest"] = prev_task_path
+        task_store.reset_for_tests("digest")
         _reset_digest_state(ds)
 
 

@@ -338,6 +338,14 @@ def run_correct(plan_path: str, root: str = None, dry_run: bool = False,
         return result
 
     applied = _apply(plan, paths, now)
+    # I9.4 P27：pool_add 执行成功 → 候选池中对应候选置 promoted（尽力而为，失败仅告警）
+    if action == "pool_add" and plan.get("payload", {}).get("symbol"):
+        try:
+            from backtest import candidates as _cands
+            cands = _cands.load()
+            _cands.set_status(cands, str(plan["payload"]["symbol"]), "promoted")
+        except Exception as exc:
+            _log.warning("矫正执行成功但候选状态回写失败（不影响矫正结果）: %s", exc)
     log_entry = {"schema": DECISION_LOG_SCHEMA,
                  "date": now.strftime("%Y-%m-%d"),
                  "rule": plan.get("rule"),

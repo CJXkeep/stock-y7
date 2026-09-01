@@ -126,7 +126,44 @@ python -m backtest review <id>                    # 预承诺规则表 T1-T6 检
 - **矫正计划**（`POST /api/correct/validate` / `/api/correct/execute`）：表单生成计划 → dry-run 逐条展示门槛 PASS/FAIL → 全过才可填 operator + 勾选二次确认执行；与 CLI `correct` 同一 `run_correct` 代码路径，门槛执行侧现算复核，**前端无任何绕过路径**，计划文件留痕 `data/decisions/plans/`；
 - 后台任务单任务互斥（内存状态 + `data/evaluation/latest.json` 持久化），沿用单进程部署约束（workers=1）。
 
-## 测试
+## I9 选股层与滚动评估（候选池 → 验证 → 建议 → 月度滚动）
+
+评估基线（2026-08-29）显示 **α 高度依赖选股**：核心池当前几乎手动维护、入池没有数据关卡。
+I9 把"入池"变成**数据支撑 + 留痕**的管线；组合模拟押后至 v6 条件项。设计稿：`docs/i9/选股层与滚动评估设计.md`。
+
+### 1. 候选池（看板「档案 → 候选」页签 / `data/candidates.json`）
+
+- 与核心池**物理分离**（pool.json 结构零改动）；候选→核心池唯一通道 = 建议单 + 人工执行；
+- `POST /api/candidates`（action: add/remove/status/note/import），扫描结果可一键导入；
+- 状态机：`watching → validated → promoted/rejected`；`promoted/rejected` 后 **20 交易日冷却**（日历取指数日K bar 序列）；
+- 容量上限 `CANDIDATE_MAX_ITEMS=30`。
+
+### 2. 候选验证（无前视历史验证）
+
+```bash
+python -m backtest screen [--candidates data/candidates.json] [--workers 8]
+```
+
+- 对 `watching` 候选生成**候选快照**（manifest 增 `source:"screen"`/`candidates_version`）→ 无前视重放 → 统计 → `results/<id>/screen.md` + `screen.csv`；
+- **SCREEN_GATE**（买入侧合计，预承诺进 config）：`n≥10`、`r20_excess>0`、`r60_excess>0`、`r20/r60 超额胜率≥50%`；**样本不足永不 PASS**；分档只披露不设门槛；
+- 看板「候选验证」按钮走后台任务（单任务互斥，与评估共享）。
+
+### 3. 入池/出池建议（`python -m backtest advise <snapshot_id>`）
+
+- 读 `screen.csv` 的 PASS 候选 → `pool_add` 建议草稿；读评估 `results.csv` 对池内个股按最近 `REVIEW_ROLLING_WINDOW` 笔算滚动超额 → 跌破（负）且逐股样本 `≥SCREEN_ADVICE_MIN_N=10` → `pool_remove` 草稿；
+- 草稿写入 `data/decisions/plans/`，可被 `/api/correct/validate|execute` 直接消费（执行仍人工签字 + 二次确认）；**建议器只写 plans/，不自动改池**；
+- 看板「档案 → 候选 → 建议单」只读展示 + 跳转矫正页签。
+
+### 4. 月度滚动评估（`server/rolling_eval_service.py`）
+
+- 每交易日 **15:45** 例行自检（`ROLLING_EVAL_AT`，排在 KLINE_SYNC 15:30 之后）：仅当**当月未跑且当日为交易日**才跑 snapshot→replay→stats→review 一条龙；幂等键=月份；
+- 每期摘要 append 到 `data/evaluation/index.jsonl`，评估页签「历史趋势」逐期对比（总体/分档四视界绝对+超额、触发规则）；
+- 手动「生成评估」成功后同样落 index（同一写入函数）；`ROLLING_EVAL_ENABLED=0` 关闭调度；
+- 时间行为（月度幂等/自检/补跑）以注入时钟测试验收；"真实多期积累"随使用自然累积。
+
+### 5. 任务状态统一（I9.0）
+
+scan/digest/notify/screen 四套后台任务状态统一经 `server/task_store.py` 读写 `data/tasks/<kind>.json`（旧路径迁移读、保留不删）；`/api/tasks` 只读聚合。
 
 ## 测试
 

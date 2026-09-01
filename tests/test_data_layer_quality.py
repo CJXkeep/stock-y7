@@ -395,8 +395,11 @@ def test_digest_ctx_passes_snapshot_row():
         captured.update(symbol=symbol, row=row, market_date=market_date, live_ts=live_ts)
         return {"symbol": symbol}
 
-    saved_state_file = ksd._DIGEST_FILE
-    ksd._DIGEST_FILE = os.path.join(tempfile.gettempdir(), "digest_ctx_test.json")
+    # I9.0：速递状态统一走 task_store，仅隔离 data/tasks/digest.json 路径即可
+    from server import task_store
+    saved_task_path = task_store.TASK_PATHS["digest"]
+    task_store.TASK_PATHS["digest"] = os.path.join(tempfile.gettempdir(), "digest_ctx_test.json")
+    task_store.reset_for_tests("digest")
     patches = [
         _Patch(ksd, "fetch_index_kline", lambda *a, **k: []),
         _Patch(ksd, "fetch_market_breadth", lambda *a, **k: None),
@@ -413,7 +416,8 @@ def test_digest_ctx_passes_snapshot_row():
     finally:
         for p in patches:
             p.__exit__(None, None, None)
-        ksd._DIGEST_FILE = saved_state_file
+        task_store.TASK_PATHS["digest"] = saved_task_path
+        task_store.reset_for_tests("digest")
 
     assert captured["symbol"] == "600519"
     assert captured["row"] is not None and captured["row"]["name"] == "贵州茅台", \

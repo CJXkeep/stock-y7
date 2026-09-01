@@ -95,7 +95,17 @@ def handle_evaluation_list(params: dict) -> dict:
         "notice": _notice(),
         "task": _eval_task_state(),
         "snapshots": _list_snapshots(),
+        "series": _eval_index_series(),
     }
+
+
+def _eval_index_series() -> list:
+    """评估时间序列（I9.1）：读 index.jsonl，坏行跳过，按追加顺序返回。
+
+    记录的是原始 run_analysis 输出统计口径，与信号档案最终 action 不可混用。
+    """
+    from server.evaluation_service import read_index_series
+    return read_index_series()
 
 
 def _list_snapshots() -> list:
