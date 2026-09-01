@@ -247,6 +247,27 @@ def test_config_normalize():
     assert out["level_scale"]["normal"] == 0.0       # -1 夹到 0.0
 
 
+def test_config_partial_save_keeps_current():
+    """部分保存：未提供的字段沿用 current，不被重置回默认值。"""
+    base = sa.default_config()
+    base["enabled"] = True
+    base["initial_capital"] = 250000.0
+    base["universe"] = "watchlist"
+    base["max_positions"] = 8
+    base["min_score"] = 60
+    out = sa.normalize_config({"interval_min": 5}, current=base)
+    assert out["enabled"] is True
+    assert out["initial_capital"] == 250000.0
+    assert out["universe"] == "watchlist"
+    assert out["max_positions"] == 8
+    assert out["min_score"] == 60
+    assert out["interval_min"] == 5                  # 提供的字段正常更新
+    # data 非法/非 dict 时整体沿用 current
+    out2 = sa.normalize_config(None, current=base)
+    assert out2["enabled"] is True
+    assert out2["initial_capital"] == 250000.0
+
+
 # ---------------------------------------------------------------- 档位名映射与 reason
 
 def test_norm_levels_old_names_mapped():

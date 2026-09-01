@@ -303,8 +303,15 @@ def _norm_float(raw, default: float, low: float, high: float) -> float:
 
 def normalize_config(data: dict, current: dict = None) -> dict:
     """规范化外部输入为合法配置；未提供的字段沿用 current，否则取默认值。"""
-    out = default_config()
     cur = current if isinstance(current, dict) else {}
+    # 部分保存：未提供的字段以 current 为底（current 本身是规范化后的合法配置），
+    # 再由 data 覆盖，避免 API 只传子集时把其余字段重置回默认值。
+    if cur:
+        merged = dict(cur)
+        if isinstance(data, dict):
+            merged.update(data)
+        data = merged
+    out = default_config()
     if isinstance(cur, dict):
         out["version"] = cur.get("version", 1) if isinstance(cur.get("version"), int) else 1
         out["updated_at"] = cur.get("updated_at") or out["updated_at"]
