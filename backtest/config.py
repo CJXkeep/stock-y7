@@ -83,3 +83,26 @@ SIM_HORIZON = 60            # 模拟最长持有交易日
 SLIPPAGE_RATE = 0.001       # 滑点（双边对称、不利方向，I8.1）
 EXIT_POSTPONE_LIMIT = 5     # 涨停买入/跌停卖出顺延上限（日），超出 unfilled/forced（I8.1）
 SAMPLE_MIN = 10             # 分组样本量低于该值标注「样本不足」（设计稿 §7.5，I8.1）
+
+# ---- 模拟账户（v6 sim-account；口径参数集中此处，改动须留痕） ----
+SIM_DIR = os.path.join(ROOT, "data", "sim")
+SIM_CAPITAL_DEFAULT = 100000.0   # 初始资金（元）
+SIM_UNIVERSE = "scan"            # 选股范围：scan(全A筛选) | watchlist(自选) | pool(核心池)
+SIM_SCAN_LIMIT = 300             # scan 模式：成交额前 N 只作为选股池
+SIM_MAX_POSITIONS = 5            # 并发持仓上限（只）
+SIM_PER_TRADE_PCT = 20.0         # 单笔基准仓位：占总资产比例（%）
+SIM_LEVEL_SCALE = {              # 按 Decision.level 的仓位系数（与策略档位名解耦）
+    "strong": 1.0,
+    "normal": 0.7,
+    "cautious": 0.4,
+}
+SIM_BUY_LEVELS = ("strong", "normal", "cautious")   # 触发买入的 level（由适配器从最终 action 映射）
+SIM_STRATEGY = "qushi_v5"        # 当前启用的策略适配器 ID（可插拔）
+SIM_REQUIRE_WEEKLY = True        # 双周期选股：候选做周 K 二次验证（与扫描买入口径一致）
+SIM_INTERVAL_MIN = 15            # 交易时段巡检间隔（分钟）
+SIM_SCREENING_INTERVAL_MIN = 60  # 全市场选股最小间隔（分钟，选股比持仓巡检贵）
+SIM_MAX_HOLD_DAYS = 0            # 最长持有交易日（0=不限）
+SIM_TRADE_LOG_LIMIT = 500        # /api/sim 返回的成交流水条数上限
+SIM_EQUITY_LIMIT = 2000          # 净值快照返回条数上限
+SIM_MAX_WORKERS = int(os.environ.get("SIM_MAX_WORKERS", "12"))  # 选股并发
+SIM_METRICS_MIN_SAMPLES = 20     # 组合级指标最小净值样本点数（低于则标注样本不足）

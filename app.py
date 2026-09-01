@@ -78,6 +78,9 @@ from server.evaluation_api import (
 from server.evaluation_service import handle_eval_refresh, handle_eval_sensitivity
 from server.rolling_eval_service import start_rolling_service
 from server.correct_service import handle_correct_validate, handle_correct_execute
+from server.sim_service import (
+    handle_sim_get, handle_sim_post, start_watcher as start_sim_watcher,
+)
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -591,6 +594,7 @@ _GET_ROUTES = {
     "/api/evaluation": handle_evaluation_list,
     "/api/evaluation/summary": handle_evaluation_summary,
     "/api/evaluation/doc": handle_evaluation_doc,
+    "/api/sim": handle_sim_get,
 }
 
 class Handler(BaseHTTPRequestHandler):
@@ -820,7 +824,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/api/candidates/validate", "/api/notify",
                         "/api/kline-store", "/api/evaluation/refresh",
                         "/api/evaluation/sensitivity", "/api/correct/validate",
-                        "/api/correct/execute"):
+                        "/api/correct/execute", "/api/sim"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -853,6 +857,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handle_candidates_post(body))
             elif path == "/api/candidates/validate":
                 self._json(handle_candidates_validate_post(body))
+            elif path == "/api/sim":
+                self._json(handle_sim_post(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:
@@ -870,6 +876,8 @@ def main():
     start_sync_service()
     # 启动月度滚动评估服务（I9.1：每交易日15:45自检，当月未跑且交易日才触发）
     start_rolling_service()
+    # 启动模拟账户巡检 watcher（v6 sim-account：交易时段内按配置间隔自动选股与买卖）
+    start_sim_watcher()
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

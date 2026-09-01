@@ -8,6 +8,7 @@ import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
 import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, clearScanArchive, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan } from './scan.js';
 import { loadNotifySettings, saveNotifySettings, testNotify, runNotifyOnce, refreshNotifyStatus } from './notify.js';
+import { loadSimPanel, saveSimConfig, runSimOnce, resetSimAccount, simBuy, simSell, simBuyPrompt, onSimResize } from './sim.js';
 /* 趋势分析看板主逻辑 —— 自 index.html 拆分（frontend-ux-v42 P0） */
 
 
@@ -837,6 +838,7 @@ initCharts();
 updateBadges();
 loadMode();
 loadNotifySettings();      // 钉钉推送：启动即拉取配置与状态（设置面板回显用）
+loadSimPanel();            // 模拟账户：启动即拉取账户状态（「模拟」分区回显用）
 _ssInit();                  // 顶部状态栏（时钟 + 最近状态）
 // 工作台分区 tab 点击
 const _sbTabs = document.getElementById('sb-tabs');
@@ -947,8 +949,9 @@ Object.assign(window, {
   applyRange, updateQuote, renderPoolPanel, refreshDigest, stopScanPolling,
   saveNotifySettings, testNotify, runNotifyOnce,
   openSbSection, togglePoolImport, jumpToPoint,
+  simBuyPrompt, simBuy, simSell, saveSimConfig, runSimOnce, resetSimAccount,
 });
 
-// 侧边栏开合需要图表 resize（chart 实例为 chart.js 私有）
-registerResizeHook(resizeAllChartsSafe);
+// 侧边栏开合需要图表 resize（chart 实例为 chart.js 私有；净值曲线同样需要）
+registerResizeHook(() => { resizeAllChartsSafe(); onSimResize(); });
 

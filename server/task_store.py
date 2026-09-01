@@ -22,7 +22,7 @@ if ROOT not in sys.path:
 
 log = logging.getLogger("trend_app")
 
-KINDS = ("scan", "digest", "notify", "screen")
+KINDS = ("scan", "digest", "notify", "screen", "sim")
 
 TASK_DIR = os.path.join(ROOT, "data", "tasks")
 TASK_PATHS = {kind: os.path.join(TASK_DIR, f"{kind}.json") for kind in KINDS}
@@ -31,6 +31,7 @@ OLD_PATHS = {
     "digest": os.path.join(ROOT, "data", "digest", "latest.json"),
     "notify": os.path.join(ROOT, "data", "notify_state.json"),
     "screen": "",   # I9.5：候选验证任务状态无旧路径
+    "sim": "",      # v6：模拟账户巡检任务状态无旧路径
 }
 
 _loaded: dict[str, bool] = {}

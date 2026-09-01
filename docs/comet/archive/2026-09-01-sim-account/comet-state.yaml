@@ -1,0 +1,433 @@
+schema: comet.native.v4
+name: sim-account
+language: zh-CN
+phase: archive
+status: done
+state_version: 15
+brief: brief.md
+spec_changes:
+  - capability: sim-account
+    operation: create
+    source: specs/sim-account/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 2
+  iteration: 3
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: "**A1** 选股：`universe=scan` 时全 A 快照剔除 ST / 退市 / 停牌后按成交额取前 N；
+      命中买入档位的候选补拉资金流重算，其最终动作与 `/api/analyze` 同标的同口径一致。"
+    result: passed
+    reason:
+      text: ScanUniverse 剔ST/退/停牌按成交额取前N；QushiV5Adapter 两阶段资金流与 /api/analyze 同口径
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: "**A2** 决策：候选按综合分降序；已持有、同 `trigger_date` 已买、当日卖出过、 评分低于
+      `min_score`、持仓数达上限、现金不足一手的候选均不买入。"
+    result: passed
+    reason:
+      text: 六种不买情形（已持有/同trigger_date已买/当日卖出过/评分不足/持仓满/现金不足）全实现
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "**A3** 仓位：强烈买入 / 买入 / 谨慎买入三档的实际买入金额 ≈ 总资产 × `per_trade_pct` × 档位系数（1.0 /
+      0.7 / 0.4），且货款 + 费用不超过可用资金。"
+    result: passed
+    reason:
+      text: budget=总资产×per_trade_pct×level_scale(1.0/0.7/0.4)，货款+费用≤可用资金
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "**A4** 撮合：成交价 = 行情价 ± 0.1% 滑点（买上浮 / 卖下压，0.01 元步进）； 费用 = 佣金 `max(0.025% ×
+      金额, 5 元)` 双边 + 印花税卖出 0.05%；按 100 股整手下单。"
+    result: passed
+    reason:
+      text: 滑点±0.1%买上浮卖下压0.01步进；佣金max(0.025%,5元)双边+印花税卖出0.05%；整手100股
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "**A5** T+1 与单仓位：当日买入的持仓当日不可卖出；单标的单仓位，已持有不再买入。"
+    result: passed
+    reason:
+      text: buy_date==today返回t1_restriction；已持有返回already_holding（单仓位）
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "**A6** 卖出：超期 / 止损 / 止盈 / 信号 / 手动五类原因均可触发卖出， 判定顺序为 超期 → 止损 → 止盈 → 信号。"
+    result: passed
+    reason:
+      text: 判定顺序 超期→止损→止盈→信号，支持手动
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: "**A7** 记账：`cost_basis` 含买入费用；卖出盈亏 = 卖出净收入 − 结转成本（净盈亏已扣
+      全部费用）；`trades.jsonl` 逐笔可手工核对，资金守恒 （现金 + 持仓市值 = 初始资金 + 累计净盈亏）。"
+    result: passed
+    reason:
+      text: cost_basis含买入费用；盈亏=净收入−结转成本；资金守恒测试通过
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: "**A8** 绩效：净值序列上可算出年化 / 最大回撤 / 夏普 / 卡玛，数值可手算复核， 样本不足时明确标注而非硬算。"
+    result: passed
+    reason:
+      text: 年化/最大回撤/夏普(rf=0%)/卡玛手算复核；样本不足标注
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: "**A9** 调度：默认关闭；开启后仅在交易时段按 `interval_min` 巡检；选股受 `screening_interval_min`
+      节流；持仓数达上限时跳过选股。"
+    result: passed
+    reason:
+      text: 默认关闭；交易时段按interval_min巡检；screening_interval_min节流；持仓满跳选股
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: "**A10** 持久化：配置 / 状态 / 流水 / 净值均落 `data/sim/`，服务重启后账户状态完整恢复。"
+    result: passed
+    reason:
+      text: config/state/trades/equity落data/sim/，原子写；重启恢复；task_store kind=sim
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: "**A11** 接口：`GET /api/sim` 返回配置 + 账户 + 持仓 + 流水 + 净值 + 状态； `POST /api/sim`
+      支持 save / run_once / reset / buy / sell，非法输入返回明确错误而非 500。"
+    result: passed
+    reason:
+      text: GET返回配置+账户+持仓+流水+净值+状态；POST save/run_once/reset/buy/sell，非法输入明确错误
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: "**A12** 前端：看板「模拟」分区可看概览 / 持仓 / 流水 / 净值曲线， 可开关自动交易、可手动买卖，行情延迟与「非投资建议」有披露。"
+    result: passed
+    reason:
+      text: 「模拟」分区概览/持仓/流水/净值曲线/配置面板/手动买卖，披露行情延迟与非投资建议
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: "**A13** 回归：新增测试覆盖撮合费滑点、T+1、止损止盈判定、仓位计算、持久化恢复、 重启回填；`python
+      run_all_tests.py` 全绿。"
+    result: passed
+    reason:
+      text: 新增测试覆盖费滑点/T+1/止损止盈/仓位/持久化/涨跌停/解耦；run_all_tests.py 49/49全绿
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: "**A14** 文档：README / 版本路线图 / CLAUDE.md 同步，并沉淀一份 `docs/` 总设计文档。"
+    result: passed
+    reason:
+      text: README/版本路线图/CLAUDE.md 已同步；docs/模拟账户设计.md 已沉淀
+      truncated: false
+  - id: A15
+    source: brief.md
+    text: "**A15** 涨跌停顺延：买入触及涨停价不成交并顺延，顺延超过 5 次记 `unfilled`； 卖出触及跌停价顺延，达 5
+      次按当时价强制成交并标 `forced`； 涨跌幅阈值函数与 `stats.simulate_signal` 同源（区分主板 / 创业板 / 科创板
+      / ST）。"
+    result: passed
+    reason:
+      text: 涨停不成交顺延超5次unfilled；跌停顺延达5次强制成交标forced；阈值与回测同源
+      truncated: false
+  - id: A16
+    source: brief.md
+    text: "**A16** 策略解耦：`backtest/sim_account.py` 不 import 信号引擎；注入假 `Decision`
+      即可完整跑通「买入 → 持仓 → 卖出 → 记账 → 绩效」全链路；`QushiV5Adapter` 的 action → Decision
+      映射有独立测试；替换适配器不影响账户层测试。"
+    result: passed
+    reason:
+      text: sim_account.py不import信号引擎（自省断言）；假Decision跑通全链路；映射独立测试
+      truncated: false
+  - id: A17
+    source: specs/sim-account/spec.md
+    text: 虚拟资金 + 策略自己选股 + 自动买卖 + 记账 + 组合级绩效指标的模拟账户。
+    result: passed
+    reason:
+      text: 周K二次验证真正实现：evaluate透传period=week至K线/评估，非死代码
+      truncated: false
+  - id: A18
+    source: specs/sim-account/spec.md
+    text: 选股：全 A 扫描默认取成交额前 300 只，剔除 ST / 退市 / 停牌；命中买入档位的候选补拉资金流重算，并做周 K 二次验证。
+    result: passed
+    reason:
+      text: 选股行为：全A前300剔ST/退/停牌；候选补资金流重算；周K二次验证
+      truncated: false
+  - id: A19
+    source: specs/sim-account/spec.md
+    text: 决策：候选按综合分降序；已持有、同信号已买、当日卖出过、评分不足、持仓满、现金不足一手的候选不买入。
+    result: passed
+    reason:
+      text: 决策：综合分降序+六种不买情形
+      truncated: false
+  - id: A20
+    source: specs/sim-account/spec.md
+    text: 仓位：单笔金额 = 总资产 × per_trade_pct × level 档位系数（strong 1.0 / normal 0.7 /
+      cautious 0.4）。
+    result: passed
+    reason:
+      text: 仓位：总资产×per_trade_pct×level档位系数
+      truncated: false
+  - id: A21
+    source: specs/sim-account/spec.md
+    text: 撮合：滑点 0.1%、佣金 max(0.025% × 金额, 5 元) 双边、印花税卖出 0.05%、整手 100 股、T+1、单标的单仓位。
+    result: passed
+    reason:
+      text: 撮合：滑点/佣金/印花税/整手100/T+1/单仓位
+      truncated: false
+  - id: A22
+    source: specs/sim-account/spec.md
+    text: 卖出：超期 → 止损 → 止盈 → 信号，支持手动；涨停顺延 5 次记 unfilled，跌停顺延 5 次强制成交标 forced。
+    result: passed
+    reason:
+      text: 卖出：超期→止损→止盈→信号+手动；涨停5unfilled/跌停5forced
+      truncated: false
+  - id: A23
+    source: specs/sim-account/spec.md
+    text: 记账：data/sim/ 下 config.json / state.json / trades.jsonl /
+      equity.jsonl；cost_basis 含买入费用。
+    result: passed
+    reason:
+      text: 记账：data/sim四文件，cost_basis含买入费用
+      truncated: false
+  - id: A24
+    source: specs/sim-account/spec.md
+    text: 绩效：年化 / 最大回撤 / 夏普（无风险利率 0% 并披露）/ 卡玛。
+    result: passed
+    reason:
+      text: 绩效：年化/回撤/夏普(rf=0%披露)/卡玛，样本不足标注
+      truncated: false
+  - id: A25
+    source: specs/sim-account/spec.md
+    text: 调度：默认关闭；交易时段内按 interval_min 巡检；选股受 screening_interval_min 节流；单进程约束不变。
+    result: passed
+    reason:
+      text: 调度：默认关闭/交易时段按interval/选股节流/单进程约束
+      truncated: false
+  - id: A26
+    source: specs/sim-account/spec.md
+    text: 接口：GET /api/sim；POST /api/sim 支持 save / run_once / reset / buy / sell。
+    result: passed
+    reason:
+      text: 接口：GET+POST save/run_once/reset/buy/sell
+      truncated: false
+  - id: A27
+    source: specs/sim-account/spec.md
+    text: 前端：看板新增「模拟」分区，展示概览 / 持仓 / 流水 / 净值曲线 / 配置面板。
+    result: passed
+    reason:
+      text: 前端：「模拟」分区概览/持仓/流水/净值曲线/配置面板
+      truncated: false
+  - id: A28
+    source: specs/sim-account/spec.md
+    text: 账户层不 import 信号引擎，只依赖 Decision 契约。
+    result: passed
+    reason:
+      text: 账户层不import信号引擎，只依赖Decision契约
+      truncated: false
+  - id: A29
+    source: specs/sim-account/spec.md
+    text: 成交口径与 stats.simulate_signal 同源。
+    result: passed
+    reason:
+      text: 成交口径与stats.simulate_signal同源（滑点/费率/整手/涨跌停阈值逐项一致）
+      truncated: false
+  - id: A30
+    source: specs/sim-account/spec.md
+    text: 模拟成交不写 data/journal 信号档案。
+    result: passed
+    reason:
+      text: 模拟成交不写data/journal信号档案
+      truncated: false
+  - id: A31
+    source: specs/sim-account/spec.md
+    text: 单进程部署约束不变。
+    result: passed
+    reason:
+      text: 单进程部署约束保留
+      truncated: false
+  - id: A32
+    source: specs/sim-account/spec.md
+    text: A1、A2、A3、A4、A5、A6、A7、A8、A9、A10、A11、A12、A13、A14、A15、A16。
+    result: passed
+    reason:
+      text: 验收映射A1-A16现已全部通过
+      truncated: false
+builder_handoff:
+  candidate_id: fb9ea7d2-d99e-4db0-b295-983347afe9f9
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:cbfac061-6d5c-4bc9-a089-5e36463bb65f
+  iteration: 3
+  summary:
+    text: 修复 Verifier 指出的两项：1) A17/A32 周K二次验证真正实现——QushiV5Adapter.evaluate 支持 period
+      参数，screen 对日K买入候选以 period='week' 评估（周K由本地日K聚合），仅保留周K同为 buy 的候选；新增
+      tests/test_sim_strategy.py 三条测试验证 period 透传与过滤；2) A14 文档同步——README 新增「v6
+      模拟账户」使用说明、docs/版本路线图.md 新增 v6 落地记录、CLAUDE.md 新增目录与 v6 关键口径章节、沉淀
+      docs/模拟账户设计.md 总设计文档。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+  checks:
+    - name:
+        text: python tests/test_sim_account.py
+        truncated: false
+      result: passed
+      note:
+        text: 14/14
+        truncated: false
+    - name:
+        text: python tests/test_sim_strategy.py
+        truncated: false
+      result: passed
+      note:
+        text: 9/9（含周K period 透传与过滤三条新测试）
+        truncated: false
+    - name:
+        text: python tests/test_frontend_wiring.py
+        truncated: false
+      result: passed
+      note:
+        text: 通过
+        truncated: false
+    - name:
+        text: python tests/test_server_split.py
+        truncated: false
+      result: passed
+      note:
+        text: 通过
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 全量 49/49 通过（连跑两次确认，偶发时序不影响）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 持仓巡检与净值估值依赖实时行情，行情源失败时按成本价兜底估值；
+      truncated: false
+    - text: v1 只挂载 qushi_v5 单策略，多策略并行为架构预留；
+      truncated: false
+    - text: 模拟成交不写 data/journal 信号档案；
+      truncated: false
+    - text: 选股双周期（require_weekly 默认 true）周K由本地日K聚合，冷启动依赖网络兜底；
+      truncated: false
+    - text: 夏普无风险利率取 0%，净值样本 <20 点时组合指标标注样本不足仅参考。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-09-01T10:50:17.976Z
+blockers: []
+verification:
+  candidate_id: fb9ea7d2-d99e-4db0-b295-983347afe9f9
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:c4286581-27d8-4686-829d-ed2ef1a9a4f2
+  iteration: 3
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: 32/32 全部通过。修复项 A17/A32 周K二次验证由伪实现改为 evaluate 透传
+      period='week'（sim_strategy.py），并有3条新测试验证透传与过滤；A14
+      文档四件套（README/版本路线图/CLAUDE/总设计）齐备。账户内核/策略/前端/接口与 spec、D12 一致，可进入 Archive。
+    truncated: false
+  risks: []
+  risks_truncated: false
+  completed_at: 2026-09-01T10:52:15.682Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Formal requirement write requested for brief.md
+      truncated: false
+    completed_at: 2026-09-01T10:27:03.495Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Observed implementation write before .codebuddy/tmp/sim_dispatch.json
+      truncated: false
+    completed_at: 2026-09-01T10:40:00.121Z
+  - goal_cycle: 2
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Verifier 判定 A17/A32 周K二次验证未真正实现（require_weekly 只重复跑日线，period=week
+        为死代码）、A14 文档未同步。按 --revise-implementation 回到 Build 修复实现与文档。
+      truncated: false
+    completed_at: 2026-09-01T10:44:26.722Z
+  - goal_cycle: 2
+    iteration: 3
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 32/32 全部通过。修复项 A17/A32 周K二次验证由伪实现改为 evaluate 透传
+        period='week'（sim_strategy.py），并有3条新测试验证透传与过滤；A14
+        文档四件套（README/版本路线图/CLAUDE/总设计）齐备。账户内核/策略/前端/接口与 spec、D12 一致，可进入 Archive。
+      truncated: false
+    completed_at: 2026-09-01T10:52:15.682Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-09-01T09:06:45.651Z

@@ -50,10 +50,10 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 | `app.py` | 唯一入口：标准库 `ThreadingHTTPServer`，路由表 `_GET_ROUTES` + `do_POST` 分发到 `server/` 域模块 |
 | `analysis/` | 信号引擎（`signal_engine.py`，五模块：trend/momentum/volume_price/pattern/breakout）+ 缠论（`chanlun_daily.py`/`chanlun_minute.py`） |
 | `data/` | 行情抓取层：`kline_fetcher.py`（腾讯→东财多源）、`kline_store.py`（本地 SQLite 日K库） |
-| `server/` | 后端域模块（技术债拆分自 app.py）：journal_hooks、signal_pipeline、scan_engine、digest_service、notify_service、kline_sync、evaluation_api/service、correct_service、task_store（I9.0）、rolling_eval_service（I9.1）、candidates_api + candidate_validate（I9.2/I9.5）、advice_api（I9.4）、http_utils |
-| `backtest/` | 快照/无前视重放/统计/敏感性/评审/矫正（cli.py + `__main__.py`）；journal.py（信号档案）、pool.py（核心池）、candidates.py（I9.2 候选池）、screen.py（I9.3 候选验证）、advise.py（I9.4 建议） |
+| `server/` | 后端域模块（技术债拆分自 app.py）：journal_hooks、signal_pipeline、scan_engine、digest_service、notify_service、kline_sync、evaluation_api/service、correct_service、task_store（I9.0）、rolling_eval_service（I9.1）、candidates_api + candidate_validate（I9.2/I9.5）、advice_api（I9.4）、http_utils、**sim_service + sim_strategy（v6 模拟账户编排与策略适配层）** |
+| `backtest/` | 快照/无前视重放/统计/敏感性/评审/矫正（cli.py + `__main__.py`）；journal.py（信号档案）、pool.py（核心池）、candidates.py（I9.2 候选池）、screen.py（I9.3 候选验证）、advise.py（I9.4 建议）、**sim_account.py（v6 模拟账户账户内核：Decision 契约/撮合/记账/绩效）** |
 | `digest/` | 每日速递聚合 |
-| `dashboard/` | 前端看板（原生 ESM JS，无构建步骤）：index.html + js/ + vendor/，I9 新增 `js/candidates.js`（候选/建议/验证进度） |
+| `dashboard/` | 前端看板（原生 ESM JS，无构建步骤）：index.html + js/ + vendor/，I9 新增 `js/candidates.js`（候选/建议/验证进度），v6 新增 `js/sim.js`（模拟账户分区） |
 | `tests/` | 回归测试（`run_all_tests.py` 统一跑，47 个文件） |
 | `docs/` | 设计文档与版本路线图（`docs/comet/` 为 Comet 工作流归档） |
 | `libs/` | 第三方 vendored 库，一般不改 |
@@ -68,6 +68,7 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 - 评估时间序列：`data/evaluation/index.jsonl`（I9.1，append-only）+ `data/evaluation/latest.json`
 - 决策留痕：`data/decisions/`（review-state.json、plans/、决策日志）；参数覆盖：`data/params_override.json`
 - 配置：`data/notify.json`（钉钉 webhook 脱敏存储）
+- 模拟账户（v6）：`data/sim/`（config.json / state.json / trades.jsonl / equity.jsonl；`.gitignore` 已忽略）
 
 ## I9 关键口径（改动前必读）
 
@@ -77,6 +78,15 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 - **滚动评估幂等键=月份**：每交易日 15:45 自检，当月已跑即跳过；pool.version 只记录不作跳过条件；时间行为用注入时钟测试；
 - **单任务互斥**：评估 refresh/sensitivity/滚动评估/候选验证 共用 evaluation_service 的任务锁；
 - **pool_add 执行成功 → 候选置 promoted**：由 `correct.py` run_correct 统一回写（CLI 与前端共用）。
+
+## v6 模拟账户关键口径（改动前必读）
+
+- **账户与策略解耦**：`backtest/sim_account.py` 只认 `Decision` 契约（side/level/score/stop/target/trigger_date/strategy），**不 import 信号引擎**；策略专有逻辑集中在 `server/sim_strategy.py` 的 `QushiV5Adapter`（action→Decision 映射）。换策略只改适配层。
+- **成交口径与 stats.simulate_signal 同源**：滑点 0.1%（买上浮/卖下压，0.01 步进）、佣金 max(0.025%×金额,5元) 双边、印花税卖出 0.05%、整手 100 股、T+1、单标的单仓位；涨停不追/跌停卖不出，顺延超 `EXIT_POSTPONE_LIMIT`(5) 记 unfilled/强制成交标 forced。
+- **默认关闭**：`enabled=false` 时 watcher 静默待机，与钉钉推送一致。
+- **模拟成交不写 `data/journal/`**：账户流水以 `data/sim/trades.jsonl` 为事实来源。
+- **绩效**：年化按净值序列**按日期去重后**的交易日数；夏普 rf=0% 并披露；样本 <20 点标注「样本不足」。
+- 数据事实来源 `data/sim/`（config/state/trades/equity）；任务状态经 task_store kind=sim。
 
 ## 硬性约束
 

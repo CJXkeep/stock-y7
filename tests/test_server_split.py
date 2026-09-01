@@ -34,6 +34,7 @@ EXPECTED_GET_ROUTES = {
     "/api/kline-store", "/api/tasks", "/api/candidates",
     "/api/candidates/validate", "/api/candidates/doc", "/api/advice",
     "/api/evaluation", "/api/evaluation/summary", "/api/evaluation/doc",
+    "/api/sim",
 }
 
 

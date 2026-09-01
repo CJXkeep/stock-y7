@@ -1127,3 +1127,34 @@ body.fx-off .wc-change-badge { animation: none !important; }
 .eval-gate-list { margin-top: 6px; }
 .eval-gate-item { font-size: 11px; color: var(--c-text-2, #bbb); padding: 3px 0; line-height: 1.6; }
 .eval-gate-item b { color: var(--c-text, #ddd); margin-right: 4px; }
+
+/* ===== 模拟账户（v6 sim-account） ===== */
+.sim-panel { padding: 8px 10px 20px; }
+.sim-section { margin-bottom: 14px; }
+.sim-title { font-size: 12px; font-weight: bold; color: #ff9800; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.sim-title .scan-btn { margin-left: auto; }
+.sim-hint { font-size: 10px; color: #777; font-weight: normal; }
+.sim-ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.sim-ov-item { background: #141414; border: 1px solid #222; border-radius: 6px; padding: 6px 8px; }
+.sim-ov-label { display: block; font-size: 10px; color: #888; margin-bottom: 2px; }
+.sim-ov-val { font-size: 13px; color: #ddd; font-weight: bold; }
+.sim-ov-val.up { color: var(--c-up, #00b35c); }
+.sim-ov-val.down { color: var(--c-down, #ff2d2d); }
+.sim-metrics-note { font-size: 10px; color: #777; margin-top: 4px; }
+.sim-miss { color: #ffb74d; font-size: 10px; }
+.sim-chart { height: 180px; background: #101010; border: 1px solid #222; border-radius: 6px; }
+.sim-empty { font-size: 11px; color: #777; padding: 8px 2px; }
+.sim-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.sim-table th { text-align: left; color: #888; font-weight: normal; padding: 4px 6px; border-bottom: 1px solid #222; }
+.sim-table td { padding: 5px 6px; border-bottom: 1px solid #1a1a1a; color: #ccc; }
+.sim-table td.up { color: var(--c-up, #00b35c); }
+.sim-table td.down { color: var(--c-down, #ff2d2d); }
+.sim-sub { font-size: 10px; color: #888; }
+.sim-side { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+.sim-buy { color: var(--c-up, #00b35c); border: 1px solid rgba(0,179,92,.4); }
+.sim-sell { color: var(--c-down, #ff2d2d); border: 1px solid rgba(255,45,45,.4); }
+.sim-tag { margin-left: 4px; color: #ffb74d; font-size: 9px; border: 1px solid rgba(255,183,77,.5); border-radius: 3px; padding: 0 3px; }
+.sim-config .sim-cfg-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; align-items: center; }
+.sim-config label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #bbb; }
+.sim-config input[type=number], .sim-config select { width: 84px; font-size: 11px; padding: 3px 4px; background: #101010; color: #ddd; border: 1px solid #2a2a2a; border-radius: 4px; }
+.sim-cfg-label { color: #888; font-size: 11px; margin-right: 4px; }

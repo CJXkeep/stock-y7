@@ -21,6 +21,7 @@ data/decisions/
 data/cache/
 data/kline/
 data/watchlist.json
+data/sim/
 
 # 工作区与日志
 .worktrees/
