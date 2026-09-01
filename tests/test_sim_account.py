@@ -84,7 +84,8 @@ def test_plan_buy_lots_and_fee_cap():
 def test_t1_restriction():
     state, _deci, _trade = _buy_deci()
     trade, err = sa.execute_sell(state, "600000", 110.0, sa.REASON_MANUAL,
-                                 pre_close=105.0, now=NOW1)   # 同日
+                                 pre_close=105.0, now=NOW1,
+                                 sim_dir_override=_shared_dir())   # 同日
     assert err == "t1_restriction"
     assert trade is None
 
@@ -93,7 +94,8 @@ def test_single_position_no_add():
     state, _deci, _trade = _buy_deci()
     deci2 = sa.Decision(symbol="600000", side="buy", level="strong",
                         price=105.0, pre_close=103.0, trigger_date="2026-09-01")
-    trade, err = sa.execute_buy(state, deci2, budget=50000.0, now=NOW2)
+    trade, err = sa.execute_buy(state, deci2, budget=50000.0, now=NOW2,
+                                sim_dir_override=_shared_dir())
     assert err == "already_holding"
     assert trade is None
 
@@ -106,7 +108,8 @@ def test_buy_sell_full_flow_conservation():
     assert state["cash"] == 100000.0 - 10015.0    # 100000 - cost(10015)
 
     trade, err = sa.execute_sell(state, "600000", 110.0, sa.REASON_MANUAL,
-                                 pre_close=105.0, now=NOW2)
+                                 pre_close=105.0, now=NOW2,
+                                 sim_dir_override=_shared_dir())
     assert err == "", err
     # fill=110*0.999=109.89，gross=10989，fee=佣金5+印花税5.4945=10.4945→10.49，net=10978.51
     assert trade["price"] == 109.89
@@ -125,7 +128,8 @@ def test_buy_sell_full_flow_conservation():
 def test_partial_sell_cost_transfer():
     state, _deci, _trade = _buy_deci()   # 100 股，cost_basis=10015
     trade, err = sa.execute_sell(state, "600000", 110.0, sa.REASON_MANUAL,
-                                 shares=50, pre_close=105.0, now=NOW2)
+                                 shares=50, pre_close=105.0, now=NOW2,
+                                 sim_dir_override=_shared_dir())
     assert err == "", err
     assert trade["shares"] == 50
     pos = state["positions"]["600000"]
@@ -134,7 +138,8 @@ def test_partial_sell_cost_transfer():
     assert abs(pos["cost_basis"] - 10015.0 / 2) < 0.02
     # 全清后 position 移除
     trade2, err2 = sa.execute_sell(state, "600000", 115.0, sa.REASON_MANUAL,
-                                   pre_close=110.0, now=NOW3)
+                                   pre_close=110.0, now=NOW3,
+                                   sim_dir_override=_shared_dir())
     assert err2 == "", err2
     assert "600000" not in state["positions"]
 
@@ -146,7 +151,8 @@ def test_limit_up_deferred():
                        price=100.0, pre_close=90.0,  # 涨停 90*1.0995=98.955
                        trigger_date="2026-09-01", strategy="qushi_v5")
     state = sa.default_state(100000.0)
-    trade, err = sa.execute_buy(state, deci, budget=20000.0, now=NOW1)
+    trade, err = sa.execute_buy(state, deci, budget=20000.0, now=NOW1,
+                                sim_dir_override=_shared_dir())
     assert err == "limit_up_deferred"
     assert trade is None
     assert "600001" not in state["positions"]
@@ -156,12 +162,14 @@ def test_limit_down_deferred_and_force():
     state, _deci, _trade = _buy_deci()
     # 构造跌停场景：pre_close=120 → 跌停 120*0.9005=108.06，卖价 108 ≤ 跌停
     trade, err = sa.execute_sell(state, "600000", 108.0, sa.REASON_STOP,
-                                 pre_close=120.0, now=NOW2)
+                                 pre_close=120.0, now=NOW2,
+                                 sim_dir_override=_shared_dir())
     assert err == "limit_down_deferred"
     assert trade is None
     # force=True 跳过跌停拦截
     trade, err = sa.execute_sell(state, "600000", 108.0, sa.REASON_STOP,
-                                 pre_close=120.0, now=NOW2, force=True)
+                                 pre_close=120.0, now=NOW2, force=True,
+                                 sim_dir_override=_shared_dir())
     assert err == "", err
     assert trade["note"] == "forced"
 
@@ -340,7 +348,8 @@ def test_execute_buy_reason_param():
                        price=10.0, pre_close=9.8, trigger_date="2026-09-01",
                        strategy="qushi_v5")
     state = sa.default_state(100000.0)
-    trade, err = sa.execute_buy(state, deci, budget=20000.0, now=NOW1, reason="manual")
+    trade, err = sa.execute_buy(state, deci, budget=20000.0, now=NOW1, reason="manual",
+                                sim_dir_override=_shared_dir())
     assert err == ""
     assert trade["reason"] == "manual"
     assert state["positions"]["600003"]["strategy"] == "qushi_v5"
@@ -355,7 +364,8 @@ def test_decision_coupling_full_chain():
     assert state["positions"]["600000"]["strategy"] == "fake_strategy"
     # 卖出
     t2, err = sa.execute_sell(state, "600000", 110.0, sa.REASON_SIGNAL,
-                              pre_close=105.0, now=NOW2, strategy="fake_strategy")
+                              pre_close=105.0, now=NOW2, strategy="fake_strategy",
+                              sim_dir_override=_shared_dir())
     assert err == "", err
     assert t2["strategy"] == "fake_strategy"
     # 净值与绩效
