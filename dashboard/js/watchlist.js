@@ -357,7 +357,7 @@ const LEGACY_TO_PRIMARY = {
   tasks: 'tasks', scan: 'tasks', digest: 'tasks',
   archive: 'archive', history: 'archive', journal: 'archive', pool: 'archive',
   eval: 'archive', candidates: 'archive',
-  sim: 'sim',
+  sim: 'watch',   // 模拟已移出侧边栏（主页面顶栏入口），历史存储回退到自选
 };
 
 function _primaryOf(sec) { return LEGACY_TO_PRIMARY[sec] || 'watch'; }

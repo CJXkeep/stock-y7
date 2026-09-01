@@ -19,6 +19,7 @@
   <div class="mode-toggle">
     <button class="mt-btn active" id="mt-pro" onclick="setMode('pro')">完整</button>
     <button class="mt-btn" id="mt-simple" onclick="setMode('simple')">简化</button>
+    <button class="mt-btn" id="mt-sim" title="模拟账户（独立大页）" onclick="window.location.href='/sim.html'">模拟账户</button>
     <button class="mt-btn" id="mt-settings" title="设置" onclick="toggleSettings()">⚙</button>
     <button class="mt-btn" id="btn-logout" title="退出登录" style="display:none" onclick="doLogout()">退出</button>
   </div>
@@ -50,7 +51,6 @@
     <button class="sb-tab active" data-sb="watch">自选</button>
     <button class="sb-tab" data-sb="tasks">任务</button>
     <button class="sb-tab" data-sb="archive">档案</button>
-    <button class="sb-tab" data-sb="sim">模拟</button>
   </div>
 
   <!-- 分区：自选（窄栏 + 可展开全列表对比） -->
@@ -105,75 +105,6 @@
       <div class="wp-footer" id="wp-footer" style="display:none">
         <span class="wp-footer-info" id="wp-footer-info"></span>
         <button class="wp-clear" id="wp-clear-btn" onclick="clearCurrentTab()">清空</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 分区：模拟账户（v6 sim-account） -->
-  <div id="sb-pane-sim" class="sb-pane" role="tabpanel">
-    <div class="sb-pane-desc">模拟账户：策略自动选股与买卖（虚拟资金），交易时段内自动巡检记账。<a class="sim-bigpage-link" href="/sim.html" target="_blank" title="在新窗口打开模拟账户大页">大页模式 ↗</a></div>
-    <div class="sim-panel">
-      <div class="sim-section">
-        <div class="sim-title">账户概览</div>
-        <div id="sim-overview"></div>
-      </div>
-      <div class="sim-section">
-        <div class="sim-title">组合指标 <span class="sim-hint">年化 / 回撤 / 夏普（rf=0%）/ 卡玛</span></div>
-        <div id="sim-metrics"></div>
-      </div>
-      <div class="sim-section">
-        <div class="sim-title">净值曲线</div>
-        <div id="sim-equity-chart" class="sim-chart"></div>
-      </div>
-      <div class="sim-section">
-        <div class="sim-title">持仓</div>
-        <div id="sim-positions"></div>
-      </div>
-      <div class="sim-section">
-        <div class="sim-title">成交流水 <button class="scan-btn" onclick="simBuyPrompt()">手动买入</button></div>
-        <div id="sim-trades"></div>
-      </div>
-      <div class="sim-section">
-        <div class="sim-title">配置 <span class="sim-hint">默认关闭；开启后交易时段内自动巡检</span></div>
-        <div class="sim-config">
-          <label class="notify-switch"><input type="checkbox" id="sim-enabled"> 启用自动交易</label>
-          <div class="sim-cfg-row">
-            <label>初始资金<input type="number" id="sim-initial-capital" step="1000" min="1000"></label>
-            <label>选股范围
-              <select id="sim-universe">
-                <option value="scan">全A扫描</option>
-                <option value="watchlist">自选股</option>
-                <option value="pool">核心池</option>
-              </select>
-            </label>
-            <label>成交额前N<input type="number" id="sim-scan-limit" min="10" max="6000"></label>
-          </div>
-          <div class="sim-cfg-row">
-            <label>巡检间隔(分)<input type="number" id="sim-interval" min="1" max="240"></label>
-            <label>选股节流(分)<input type="number" id="sim-screening" min="1" max="1440"></label>
-            <label>持仓上限<input type="number" id="sim-max-positions" min="1" max="50"></label>
-            <label>单笔仓位%<input type="number" id="sim-per-trade" min="1" max="100"></label>
-          </div>
-          <div class="sim-cfg-row">
-            <label>最长持有(交易日,0不限)<input type="number" id="sim-max-hold" min="0" max="1000"></label>
-          </div>
-          <div class="sim-cfg-row">
-            <span class="sim-cfg-label">策略参数 <span class="sim-hint">由当前策略声明，随策略自动变化</span></span>
-          </div>
-          <div id="sim-strategy-params"></div>
-          <div class="sim-cfg-row">
-            <label class="notify-switch"><input type="checkbox" id="sim-auto_sell"> 自动卖出</label>
-            <label class="notify-switch"><input type="checkbox" id="sim-stop_loss_enabled"> 自动止损</label>
-            <label class="notify-switch"><input type="checkbox" id="sim-take_profit_enabled"> 自动止盈</label>
-          </div>
-          <div class="settings-row">
-            <button class="settings-btn" onclick="saveSimConfig()">保存配置</button>
-            <button class="settings-btn" onclick="runSimOnce()">立即执行一轮</button>
-            <button class="settings-btn" onclick="resetSimAccount()">重置账户</button>
-          </div>
-          <div class="settings-hint" id="sim-state-line">加载中…</div>
-          <div class="settings-hint">模拟成交价按行情价±0.1%滑点，含佣金与印花税；免费行情源有延迟，模拟成交价 ≠ 实盘成交价；自用参考非投资建议。</div>
-        </div>
       </div>
     </div>
   </div>
