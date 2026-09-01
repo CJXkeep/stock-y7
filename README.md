@@ -128,8 +128,6 @@ python -m backtest review <id>                    # 预承诺规则表 T1-T6 检
 
 ## 测试
 
-## 测试
-
 ```bash
 python run_all_tests.py            # 全量回归
 python run_all_tests.py --list     # 列出测试文件
