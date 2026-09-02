@@ -34,6 +34,12 @@
     <div id="sim-overview"></div>
   </div>
 
+  <!-- 待执行计划（close_nextday：收盘定档生成，次日交易时段执行） -->
+  <div class="sp-card">
+    <div class="sp-card-title">待执行计划 <span class="sim-hint">收盘定档生成，次日交易时段执行；信号卖出在定档时判定，止损/止盈/超期仍盘中实时</span></div>
+    <div id="sim-plans"></div>
+  </div>
+
   <!-- 净值曲线 + 组合指标 -->
   <div class="sp-grid">
     <div class="sp-card">
@@ -94,6 +100,12 @@
           <select id="sim-benchmark">
             <option value="000300">沪深300</option>
             <option value="000905">中证500</option>
+          </select>
+        </label>
+        <label>信号执行
+          <select id="sim-signal-mode">
+            <option value="close_nextday">收盘定档·次日执行</option>
+            <option value="intraday">盘中实时（旧）</option>
           </select>
         </label>
       </div>

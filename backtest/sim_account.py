@@ -262,6 +262,7 @@ def default_config() -> dict:
         "per_trade_pct": float(config.SIM_PER_TRADE_PCT),
         "strategy": config.SIM_STRATEGY,
         "benchmark": _BENCHMARK_DEFAULT,
+        "signal_mode": config.SIM_SIGNAL_MODE,
         "auto_sell": True,
         "stop_loss_enabled": True,
         "take_profit_enabled": True,
@@ -304,6 +305,15 @@ def _norm_level_scale(raw) -> dict:
 def _norm_universe(raw) -> str:
     item = str(raw or "").strip().lower()
     return item if item in ("scan", "watchlist", "pool") else config.SIM_UNIVERSE
+
+
+_SIGNAL_MODES = ("close_nextday", "intraday")
+
+
+def _norm_signal_mode(raw) -> str:
+    """信号执行模式：收盘定档次日执行 / 盘中实时选股；非法值回退默认。"""
+    item = str(raw or "").strip().lower()
+    return item if item in _SIGNAL_MODES else config.SIM_SIGNAL_MODE
 
 
 def _norm_int(raw, default: int, low: int, high: int) -> int:
@@ -367,6 +377,8 @@ def normalize_config(data: dict, current: dict = None) -> dict:
         out["strategy"] = item or config.SIM_STRATEGY
     if "benchmark" in data:
         out["benchmark"] = _norm_benchmark(data.get("benchmark"))
+    if "signal_mode" in data:
+        out["signal_mode"] = _norm_signal_mode(data.get("signal_mode"))
     if "auto_sell" in data:
         out["auto_sell"] = bool(data.get("auto_sell"))
     if "stop_loss_enabled" in data:
@@ -457,6 +469,9 @@ def default_state(initial_capital: float = None) -> dict:
         "loss_count": 0,
         "recent": {},              # symbol -> {"side","trigger_date","date"}
         "pending_buys": {},        # symbol -> {"trigger_date","count","level","name"}
+        "buy_queue": [],           # 收盘定档买入清单（close_nextday：次日执行）
+        "sell_queue": [],          # 收盘定档信号卖出清单（close_nextday：次日执行）
+        "last_screen_date": "",    # 最近一次收盘定档日期（幂等键）
         "last_screening_at": "",
         "last_cycle_at": "",
         "rounds": 0,
@@ -481,6 +496,12 @@ def normalize_state(data: dict) -> dict:
         base["recent"] = {k: v for k, v in data["recent"].items() if isinstance(v, dict)}
     if isinstance(data.get("pending_buys"), dict):
         base["pending_buys"] = {k: v for k, v in data["pending_buys"].items() if isinstance(v, dict)}
+    if isinstance(data.get("buy_queue"), list):
+        base["buy_queue"] = [v for v in data["buy_queue"] if isinstance(v, dict)]
+    if isinstance(data.get("sell_queue"), list):
+        base["sell_queue"] = [v for v in data["sell_queue"] if isinstance(v, dict)]
+    if isinstance(data.get("last_screen_date"), str):
+        base["last_screen_date"] = data["last_screen_date"]
     base["updated_at"] = _now_iso()
     return base
 

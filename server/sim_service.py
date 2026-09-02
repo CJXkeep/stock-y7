@@ -41,6 +41,7 @@ from data.kline_fetcher import (
     in_trading_session as _market_trading_session,
 )
 from server.kline_sync import SYNC_AT as _KLINE_SYNC_AT
+from server.rolling_eval_service import _is_trading_day_today as _rolling_trading_day_today
 from server import task_store
 
 log = logging.getLogger("trend_app")
@@ -50,6 +51,11 @@ _SIM_KIND = "sim"
 
 #: 基准指数展示名（v8 基准对比；代码归一化在账户内核 _norm_benchmark）
 _BENCHMARK_NAMES = {"000300": "沪深300", "000905": "中证500"}
+
+#: 信号执行模式（close_nextday=收盘定档·次日执行 / intraday=盘中实时选股）
+_SIGNAL_MODES = ("close_nextday", "intraday")
+#: 收盘定档最早触发时刻（HH:MM，SIM_CLOSE_SCREEN_AT 可覆盖；与 rolling 15:45、sync 15:30 错峰）
+_CLOSE_SCREEN_AT = os.environ.get("SIM_CLOSE_SCREEN_AT", "15:05").strip() or "15:05"
 
 # ---------------------------------------------------------------- 任务状态（task_store）
 
@@ -142,6 +148,137 @@ def _explain(err: str) -> str:
         "no_shares": "无可用持仓",
     }.get(err, err or "未知原因")
 
+# ---------------------------------------------------------------- 收盘定档（close_nextday）
+
+def _is_trading_day(now_dt: datetime.datetime) -> bool:
+    """当日是否为市场交易日（收盘定档幂等判定用）；判定失败按否处理（下轮重试）。"""
+    try:
+        return bool(_rolling_trading_day_today(now_dt))
+    except Exception:
+        return False
+
+
+def _close_screen_due(now: datetime.datetime, state: dict) -> bool:
+    """收盘定档是否到期：到点后、今日尚未定档、且当日为交易日。"""
+    try:
+        hh, mm = _CLOSE_SCREEN_AT.split(":")[:2]
+        gate = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+    except (ValueError, IndexError):
+        gate = now.replace(hour=15, minute=5, second=0, microsecond=0)
+    if now < gate:
+        return False
+    if str(state.get("last_screen_date", "")) == today_str(now):
+        return False
+    return _is_trading_day(now)
+
+
+def _days_span(a: str, b: str) -> int:
+    """两个日期字符串的自然日差（绝对值）；非法输入返回 0。"""
+    try:
+        da = datetime.date.fromisoformat(str(a)[:10])
+        db = datetime.date.fromisoformat(str(b)[:10])
+        return abs((db - da).days)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _close_screen(state: dict, cfg: dict, now: datetime.datetime, adapter) -> None:
+    """收盘定档（close_nextday）：完整日 K 收盘口径评估 → 明日买入清单 + 信号卖出清单。
+
+    - 幂等键 = 当天（state.last_screen_date）；行情源限流时不动清单、不记日期，
+      下轮巡检重试（避免把「半截样本」当收盘信号）；
+    - 卖出清单只覆盖「信号卖出」；止损/止盈/超期仍在盘中价格触发，不受影响。
+    """
+    ctx = build_context()
+    try:
+        items = get_universe(cfg).symbols(ctx)
+        buy_decisions = adapter.screen(items, ctx, close_mode=True) or []
+    except SourceThrottledError as exc:
+        _set_state(source_throttled=True, last_error=str(exc))
+        _sim_save_state()
+        log.warning("模拟账户收盘定档提前终止（行情源限流）: %s", exc)
+        return
+    _set_state(source_throttled=False)
+    buy_decisions.sort(key=lambda d: (d.score, d.confidence), reverse=True)
+    state["buy_queue"] = [d.to_dict() for d in buy_decisions]
+    sell_queue = []
+    if cfg.get("auto_sell"):
+        for symbol, pos in list(state.get("positions", {}).items()):
+            try:
+                deci = adapter.evaluate(
+                    {"symbol": symbol, "name": pos.get("name", "")}, ctx, close_mode=True)
+            except Exception:
+                deci = None
+            if deci and deci.side == "sell":
+                sell_queue.append({
+                    "symbol": symbol,
+                    "name": pos.get("name") or deci.name,
+                    "signal_date": today_str(now),
+                    "strategy": deci.strategy,
+                })
+    state["sell_queue"] = sell_queue
+    state["last_screen_date"] = today_str(now)
+    state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _pop_sell_queue(state: dict, symbol: str) -> None:
+    """信号卖出成交确认后，移除该标的的卖出清单条目。"""
+    state["sell_queue"] = [e for e in (state.get("sell_queue") or [])
+                           if not (isinstance(e, dict) and e.get("symbol") == symbol)]
+
+
+def _execute_buy_queue(state: dict, cfg: dict, adapter, stats: dict,
+                       now: datetime.datetime) -> None:
+    """执行收盘定档买入清单（close_nextday 交易时段巡检时调用，不重新选股）。
+
+    受持仓上限 / 单仓位 / 当日卖出去重 / 资金 / 涨停顺延约束；已持有、同信号已买、
+    当日已卖、超过 STALE_DAYS 的条目作废移除；资金不足与满仓条目保留至下次
+    （当天收盘定档会整体重建清单，天然避免陈旧信号长期挂单）。
+    """
+    today = today_str(now)
+    max_positions = int(cfg.get("max_positions", 0) or 0)
+    per_trade_pct = float(cfg.get("per_trade_pct", 20.0) or 20.0)
+    queue = state.get("buy_queue") or []
+    kept = []
+    for entry in queue:
+        if not isinstance(entry, dict):
+            continue
+        signal_date = str(entry.get("trigger_date") or entry.get("signal_date") or "")
+        if signal_date and _days_span(signal_date, today) > int(journal_config.SIM_QUEUE_STALE_DAYS):
+            log.info("模拟账户买入清单过期丢弃: %s %s", entry.get("symbol"), signal_date)
+            continue
+        if len(state.get("positions", {})) >= max_positions:
+            kept.append(entry)
+            continue
+        symbol = str(entry.get("symbol", ""))
+        if not symbol:
+            continue
+        if symbol in state.get("positions", {}):
+            continue                      # 单标单仓位：已持有则清单条目作废
+        recent = (state.get("recent") or {}).get(symbol)
+        if recent and recent.get("side") == "buy" and recent.get("trigger_date") == signal_date and signal_date:
+            continue                      # 同信号已买过
+        if recent and recent.get("side") == "sell" and recent.get("date") == today:
+            continue                      # 当日卖出过不再买
+        try:
+            deci = Decision(**entry)
+        except (TypeError, ValueError):
+            continue
+        summary = portfolio_summary(state, {}, now)
+        budget = summary["equity"] * per_trade_pct / 100.0 * adapter.position_scale(deci.level)
+        trade, err = execute_buy(state, deci, budget=budget, now=now)
+        if err == "limit_up_deferred":
+            if _track_pending(state, deci):
+                stats["unfilled"] = stats.get("unfilled", 0) + 1
+            continue                      # 顺延计数，条目作废（当日收盘会重建）
+        if err == "insufficient_cash":
+            kept.append(entry)
+            continue
+        if err == "" and trade:
+            stats["bought"] = stats.get("bought", 0) + 1
+        # 成功 / already_holding / bad_price / bad_side：条目作废
+    state["buy_queue"] = kept
+
 
 # ---------------------------------------------------------------- 周期编排
 
@@ -166,21 +303,60 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
             _set_state(status="idle", last_error="")
             _sim_save_state()
             return {"status": "idle", "reason": "未启用"}
-        if not force and not _market_trading_session():
+        mode = str(cfg.get("signal_mode", "close_nextday") or "close_nextday")
+        in_session = _market_trading_session()
+        stats = {"bought": 0, "sold": 0, "unfilled": 0, "skipped": []}
+
+        # 收盘定档（close_nextday）：非交易时段且到点 → 完整日K收盘口径 → 次日清单
+        #（15:05 起触发，排在 K 线同步 15:30 / 滚动评估 15:45 之前，错峰；当日幂等）
+        if not in_session and mode == "close_nextday":
+            if not _close_screen_due(now, state):
+                reason = "非A股交易时段"
+                if force:
+                    reason = "非交易时段且未到收盘定档时刻（force 不做盘外下单）"
+                _set_state(status="waiting_market", last_error="" if not force else reason)
+                _sim_save_state()
+                return {"status": "waiting_market", "reason": reason}
+            _set_state(status="running")
+            adapter = get_adapter(cfg)
+            fallback_alert = ""
+            if cfg.get("strategy") and adapter.id != str(cfg.get("strategy")).strip().lower():
+                fallback_alert = f"未知策略 {cfg.get('strategy')}，已回退 {adapter.id}"
+            _close_screen(state, cfg, now, adapter)
+            summary = _snapshot_equity(state, now, cfg=cfg)
+            save_state(state)
+            rounds = get_sim_state().get("rounds", 0) + 1
+            _set_state(
+                status="done",
+                last_run_at=now.strftime("%Y-%m-%d %H:%M:%S"),
+                last_cycle_at=now.strftime("%Y-%m-%d %H:%M:%S"),
+                last_screening_at=state.get("last_screening_at", ""),
+                rounds=rounds,
+                last_bought=0, last_sold=0, last_unfilled=0,
+                last_equity=round(summary["equity"], 2),
+                last_error=fallback_alert,
+            )
+            _sim_save_state()
+            log.info("模拟账户收盘定档完成：买入清单 %d 只，卖出清单 %d 只",
+                     len(state.get("buy_queue") or []), len(state.get("sell_queue") or []))
+            return {"status": "done", "close_screen": True, "equity": summary["equity"]}
+        if not in_session and not force:
             _set_state(status="waiting_market", last_error="")
             _sim_save_state()
             return {"status": "waiting_market", "reason": "非A股交易时段"}
 
         _set_state(status="running")
-        stats = {"bought": 0, "sold": 0, "unfilled": 0, "skipped": []}
         ctx = build_context()
         adapter = get_adapter(cfg)
         fallback_alert = ""
         if cfg.get("strategy") and adapter.id != str(cfg.get("strategy")).strip().lower():
             fallback_alert = f"未知策略 {cfg.get('strategy')}，已回退 {adapter.id}"
 
-        _check_positions(state, cfg, ctx, now, adapter, stats)
-        _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
+        _check_positions(state, cfg, ctx, now, adapter, stats, signal_mode=mode)
+        if mode == "close_nextday":
+            _execute_buy_queue(state, cfg, adapter, stats, now)
+        else:
+            _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
         summary = _snapshot_equity(state, now, cfg=cfg)
         save_state(state)
 
@@ -211,8 +387,12 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
 
 
 def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
-                     adapter, stats: dict) -> None:
-    """持仓巡检：超期 → 止损 → 止盈 → 信号（T+1 与跌停顺延在撮合层处理）。"""
+                     adapter, stats: dict, signal_mode="close_nextday") -> None:
+    """持仓巡检：超期 → 止损 → 止盈 → 信号（T+1 与跌停顺延在撮合层处理）。
+
+    信号卖出（signal_mode=close_nextday）：不再盘中重跑日线信号，改读上一交易日
+    收盘定档的 sell_queue（收盘口径）；intraday 模式维持盘中实时评估（旧行为）。
+    """
     for symbol, pos in list(state.get("positions", {}).items()):
         try:
             quote = fetch_quote(symbol)
@@ -237,9 +417,14 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
         elif cfg.get("take_profit_enabled") and pos.get("target") and quote.price >= float(pos["target"]):
             reason = REASON_TARGET
         elif cfg.get("auto_sell"):
-            deci = adapter.evaluate({"symbol": symbol, "name": pos.get("name", "")}, ctx)
-            if deci.side == "sell":
-                reason = REASON_SIGNAL
+            if signal_mode == "close_nextday":
+                in_queue = any(isinstance(e, dict) and e.get("symbol") == symbol
+                               for e in (state.get("sell_queue") or []))
+                reason = REASON_SIGNAL if in_queue else None
+            else:
+                deci = adapter.evaluate({"symbol": symbol, "name": pos.get("name", "")}, ctx)
+                if deci.side == "sell":
+                    reason = REASON_SIGNAL
         if not reason:
             continue
 
@@ -254,6 +439,7 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
                                            pre_close=quote.pre_close, now=now, force=True)
                 if err2 == "" and trade:
                     stats["sold"] += 1
+                    _pop_sell_queue(state, symbol)
                     pos = None                # 已平仓
                 else:
                     pos["exit_postpone"] = postpone
@@ -262,6 +448,7 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             continue
         if err == "" and trade:
             stats["sold"] += 1
+            _pop_sell_queue(state, symbol)
 
 
 def _normalize_strategy_params(target_strategy: str, base, incoming) -> dict:
@@ -379,7 +566,10 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
 
 def _track_pending(state: dict, deci: Decision) -> str:
     """涨停顺延计数：超过 EXIT_POSTPONE_LIMIT 记 unfilled 并放弃。"""
-    pending = state.get("pending_buys") or {}
+    # 必须写回原 dict：空 dict 是 falsy，`or {}` 会拿新对象导致计数全部丢失（存量 bug）
+    if not isinstance(state.get("pending_buys"), dict):
+        state["pending_buys"] = {}
+    pending = state["pending_buys"]
     pb = pending.get(deci.symbol)
     if not pb or pb.get("trigger_date") != deci.trigger_date:
         pb = {"count": 0, "trigger_date": deci.trigger_date,
@@ -546,6 +736,11 @@ def handle_sim_get(params: dict) -> dict:
         "trades": trades,
         "equity": equity,
         "metrics": metrics,
+        "queues": {
+            "screen_date": state.get("last_screen_date", ""),
+            "buys": [q for q in (state.get("buy_queue") or []) if isinstance(q, dict)],
+            "sells": [q for q in (state.get("sell_queue") or []) if isinstance(q, dict)],
+        },
         "state": {
             "status": run_state.get("status"),
             "last_run_at": run_state.get("last_run_at"),
@@ -581,7 +776,7 @@ def handle_sim_post(body: dict) -> dict:
                 "config": {k: saved.get(k) for k in (
                     "enabled", "universe", "scan_limit", "interval_min",
                     "screening_interval_min", "max_positions",
-                    "per_trade_pct", "strategy", "benchmark",
+                    "per_trade_pct", "strategy", "benchmark", "signal_mode",
                     "auto_sell", "stop_loss_enabled", "take_profit_enabled",
                     "max_hold_days", "initial_capital",
                     "strategy_params")}}

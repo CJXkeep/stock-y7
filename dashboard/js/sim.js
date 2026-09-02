@@ -327,6 +327,7 @@ function _renderConfig(data) {
   set('sim-per-trade', cfg.per_trade_pct);
   set('sim-max-hold', cfg.max_hold_days);
   set('sim-benchmark', cfg.benchmark || '000300');
+  set('sim-signal-mode', cfg.signal_mode || 'close_nextday');
   _renderStrategyOptions(data);
   ['auto_sell', 'stop_loss_enabled', 'take_profit_enabled'].forEach((k) => {
     const el = document.getElementById('sim-' + k);
@@ -335,6 +336,46 @@ function _renderConfig(data) {
   _renderStrategyParams(data);
 }
 
+
+// ---------------------------------------------------------------- 待执行计划（close_nextday）
+
+function _renderPlans(data) {
+  const el = document.getElementById('sim-plans');
+  if (!el) return;
+  const q = data.queues || {};
+  const buys = q.buys || [];
+  const sells = q.sells || [];
+  if (!buys.length && !sells.length) {
+    el.innerHTML = '<div class="sim-empty">暂无待执行计划。开启自动交易后，每个交易日收盘后定档生成「次日」买入/信号卖出清单。</div>';
+    return;
+  }
+  const LEVEL = { strong: '强烈买入', normal: '买入', cautious: '谨慎买入' };
+  let html = '';
+  if (buys.length) {
+    html += '<div class="eval-notice-line">明日买入 ' + buys.length + ' 只 · 收盘定档 ' + escHtml(q.screen_date || '--') + '</div>'
+      + '<table class="sim-table"><thead><tr><th>代码 / 名称</th><th>档位</th><th>综合分</th><th>止损</th><th>目标</th></tr></thead><tbody>'
+      + buys.map((b) => '<tr>'
+          + '<td><a class="sim-jump" href="/?symbol=' + escHtml(b.symbol) + '" title="回看板分析该股"><b>' + escHtml(b.name || b.symbol) + '</b><span class="code">' + escHtml(b.symbol) + '</span></a></td>'
+          + '<td>' + escHtml(LEVEL[b.level] || b.level || '--') + '</td>'
+          + '<td>' + (b.score == null ? '—' : Number(b.score).toFixed(0)) + '</td>'
+          + '<td>' + (b.stop ? Number(b.stop).toFixed(2) : '—') + '</td>'
+          + '<td>' + (b.target ? Number(b.target).toFixed(2) : '—') + '</td>'
+          + '</tr>').join('')
+      + '</tbody></table>';
+  }
+  if (sells.length) {
+    html += (html ? '<div style="height:8px"></div>' : '')
+      + '<div class="eval-notice-line">明日信号卖出 ' + sells.length + ' 只（止损/止盈/超期仍盘中实时）</div>'
+      + '<table class="sim-table"><thead><tr><th>代码 / 名称</th><th>信号日</th><th>策略</th></tr></thead><tbody>'
+      + sells.map((t) => '<tr>'
+          + '<td><a class="sim-jump" href="/?symbol=' + escHtml(t.symbol) + '" title="回看板分析该股">' + escHtml(t.name || t.symbol) + '<span class="code">' + escHtml(t.symbol) + '</span></a></td>'
+          + '<td class="sim-sub">' + escHtml(String(t.signal_date || '').slice(0, 10) || '—') + '</td>'
+          + '<td class="sim-sub">' + escHtml(t.strategy || '—') + '</td>'
+          + '</tr>').join('')
+      + '</tbody></table>';
+  }
+  el.innerHTML = html;
+}
 // ---------------------------------------------------------------- 状态行与自动交易胶囊
 
 function _renderStateLine(data) {
@@ -357,6 +398,11 @@ function _renderStateLine(data) {
   if (s.last_unfilled) bits.push('放弃 ' + s.last_unfilled);
   if (s.last_equity) bits.push('净值 ' + _fmtMoney(s.last_equity));
   if (s.rounds) bits.push('累计 ' + s.rounds + ' 轮');
+  const plans = data.queues || {};
+  if ((cfg.signal_mode || 'close_nextday') !== 'intraday') {
+    if ((plans.buys || []).length) bits.push('明日买单 ' + plans.buys.length);
+    if ((plans.sells || []).length) bits.push('明日卖单 ' + plans.sells.length);
+  }
   if (s.screen_deferred) bits.push('⏸ ' + escHtml(s.screen_deferred));
   if (s.source_throttled) bits.push('⚠ 行情源限流，上轮选股提前终止');
   let text = bits.join(' · ');
@@ -390,6 +436,7 @@ export async function loadSimPanel() {
     _renderMetrics(data);
     _renderPositions(data);
     _renderTrades(data);
+    _renderPlans(data);
     _renderEquity(data);
     _renderConfig(data);
     _renderStateLine(data);
@@ -421,6 +468,7 @@ function _readConfigForm() {
     // 策略与基准（v8）：策略下拉由注册表枚举驱动；基准属账户/引擎参数
     strategy: val('sim-strategy') || 'qushi_v5',
     benchmark: val('sim-benchmark') || '000300',
+    signal_mode: val('sim-signal-mode') || 'close_nextday',
     auto_sell: !!((document.getElementById('sim-auto_sell') || {}).checked),
     stop_loss_enabled: !!((document.getElementById('sim-stop_loss_enabled') || {}).checked),
     take_profit_enabled: !!((document.getElementById('sim-take_profit_enabled') || {}).checked),

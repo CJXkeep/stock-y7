@@ -356,10 +356,13 @@ class QushiV5Adapter(StrategyAdapter):
             reason=action,
         )
 
-    def _klines_for(self, item: dict, ctx: dict, period: str = "day"):
+    def _klines_for(self, item: dict, ctx: dict, period: str = "day",
+                     close_mode: bool = False):
+        """取 K 线与行情。close_mode=True（收盘定档）：跳过实时快照合成当日 bar，
+        直接拉完整日 K（收盘后当日 bar 已成型），信号与回测/档案的收盘口径一致。"""
         row = item.get("row") if isinstance(item, dict) else None
         symbol = item["symbol"]
-        if row and period == "day":
+        if row and period == "day" and not close_mode:
             quote = quote_from_row(symbol, row, ts=(ctx or {}).get("live_ts", ""))
             live_bar = synthesize_bar_from_row(row, market_date=(ctx or {}).get("market_date", ""))
             klines = fetch_kline(symbol, count=journal_config.REPLAY_WINDOW, period=period,
@@ -369,17 +372,24 @@ class QushiV5Adapter(StrategyAdapter):
             quote = fetch_quote(symbol)
         return klines, quote
 
-    def evaluate(self, item: dict, ctx: dict = None, period: str = "day") -> Decision:
+    def evaluate(self, item: dict, ctx: dict = None, period: str = "day",
+                 close_mode: bool = False) -> Decision:
         """单标的评估 → Decision（buy/sell/hold）；失败返回 hold 决策（side=hold）。
 
         ``period="week"`` 用于周 K 二次验证（screen 对日 K 买入候选执行）；
         周 K 走本地日 K 聚合（kline-store），不额外拉资金流。
+        close_mode=True（收盘定档）：跳过盘中合成 bar，收盘口径评估。
         """
         symbol = item.get("symbol", "")
         name = item.get("name", "")
         ctx = ctx or {}
         try:
-            klines, quote = self._klines_for(item, ctx, period)
+            # close_mode 仅对声明了新签名的实现传关键字；旧签名（测试桩/假适配器）保持不变
+            if close_mode:
+                klines, quote = self._klines_for(item, ctx, period, close_mode=True)
+            else:
+                klines, quote = self._klines_for(item, ctx, period)
+            
             if len(klines) < 30 or not quote:
                 return Decision(symbol=symbol, name=name, side="hold", strategy=self.id)
             index_klines = ctx.get("index_klines") or []
@@ -400,19 +410,27 @@ class QushiV5Adapter(StrategyAdapter):
         else:
             self._consec_source_fails = 0   # 成功评估打断「连续失败」计数
 
-    def screen(self, items: list, ctx: dict = None) -> list:
+    def screen(self, items: list, ctx: dict = None, close_mode: bool = False) -> list:
         """批量筛选买入决策：日线并发评估 → 策略过滤 → 周 K 二次验证（可选）。
 
         连续 ``abort_threshold`` 只候选行情源失败（WAF/限流类异常）时抛
         :class:`SourceThrottledError`，由调用方标记 ``source_throttled`` 并丢弃
         部分结果（样本截断偏差）。
+        close_mode=True：收盘定档（完整日 K，无盘中合成 bar），评估为收盘口径。
         """
         ctx = ctx or {}
         self._consec_source_fails = 0
         buy_decisions = []
         max_workers = max(1, int(os.environ.get("SIM_MAX_WORKERS", "12")))
+
+        def _eval(item):
+            # 兼容旧签名（测试桩/假适配器不声明 close_mode）：仅收盘定档传关键字
+            if close_mode:
+                return self.evaluate(item, ctx, close_mode=True)
+            return self.evaluate(item, ctx)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self.evaluate, item, ctx): item for item in items}
+            futures = {ex.submit(_eval, item): item for item in items}
             for fut in concurrent.futures.as_completed(futures):
                 try:
                     deci = fut.result()
@@ -434,7 +452,11 @@ class QushiV5Adapter(StrategyAdapter):
             item = {"symbol": deci.symbol, "name": deci.name}
             # 周 K 二次验证：period="week"，周 K 由本地日 K 聚合（kline-store），
             # 仅保留周 K 同属买入档位的候选（与看板「扫描买入」双周期口径一致）
-            week = self.evaluate(item, {**ctx, "breadth": None}, period="week")
+            if close_mode:
+                week = self.evaluate(item, {**ctx, "breadth": None}, period="week",
+                                     close_mode=True)
+            else:
+                week = self.evaluate(item, {**ctx, "breadth": None}, period="week")
             if week.side == "buy":
                 verified.append(deci)
         return verified
