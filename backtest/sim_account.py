@@ -20,7 +20,8 @@
 - ``config.json``  —— 策略与风控配置（原子写，version 递增）；
 - ``state.json``   —— 账户可变状态（现金 / 持仓 / 统计，原子写）；
 - ``trades.jsonl`` —— 成交流水（append-only）；
-- ``equity.jsonl`` —— 净值快照（append-only，每巡检周期一行）。
+- ``equity.jsonl`` —— 净值快照（append-only，每巡检周期一行；v8 起附带
+  ``benchmark``/``benchmark_code``/``positions``，供超额指标与空仓披露使用）。
 
 本模块全离线、纯标准库、无网络请求，可注入假 ``Decision`` 做完整回归测试。
 """
@@ -230,6 +231,21 @@ def limit_down_price(prev_close: float, symbol: str = "", name: str = "",
 
 # ---------------------------------------------------------------- 配置
 
+#: 可选基准指数（v8 基准对比）：沪深300（默认）/ 中证500
+_BENCHMARK_CODES = ("000300", "000905")
+_BENCHMARK_DEFAULT = "000300"
+
+
+def _norm_benchmark(raw) -> str:
+    """基准代码归一化：仅允许 000300/000905，非法回退默认沪深300。
+
+    ``benchmark`` 属账户/引擎参数（与策略无关），归一化放在账户内核，
+    供 ``normalize_config`` 与服务层（快照/展示）共用。
+    """
+    item = str(raw or "").strip()
+    return item if item in _BENCHMARK_CODES else _BENCHMARK_DEFAULT
+
+
 def default_config() -> dict:
     """v7 默认配置：账户/引擎参数 + 空的 strategy_params（由 adapter 填充默认值）。"""
     return {
@@ -245,6 +261,7 @@ def default_config() -> dict:
         "max_positions": int(config.SIM_MAX_POSITIONS),
         "per_trade_pct": float(config.SIM_PER_TRADE_PCT),
         "strategy": config.SIM_STRATEGY,
+        "benchmark": _BENCHMARK_DEFAULT,
         "auto_sell": True,
         "stop_loss_enabled": True,
         "take_profit_enabled": True,
@@ -348,6 +365,8 @@ def normalize_config(data: dict, current: dict = None) -> dict:
     if "strategy" in data:
         item = str(data.get("strategy", "")).strip()
         out["strategy"] = item or config.SIM_STRATEGY
+    if "benchmark" in data:
+        out["benchmark"] = _norm_benchmark(data.get("benchmark"))
     if "auto_sell" in data:
         out["auto_sell"] = bool(data.get("auto_sell"))
     if "stop_loss_enabled" in data:
@@ -918,9 +937,16 @@ def portfolio_summary(state: dict, price_map: dict = None,
 # ---------------------------------------------------------------- 绩效指标
 
 def _equity_daily_series(rows: list) -> list:
-    """按日期去重（每天保留最后一行），返回按时间正序的 [(date, equity)]。"""
+    """按日期去重（每天保留最后一行），返回按时间正序的整行 dict 列表。
+
+    v8：由 ``[(date, equity)]`` 改为整行 dict（date/equity 归一化，
+    ``benchmark``/``benchmark_code``/``positions`` 原样保留），组合指标与
+    超额指标共用同一去重来源，避免口径漂移。
+    """
     by_date = {}
     for row in rows:
+        if not isinstance(row, dict):
+            continue
         date = str(row.get("date", "")) or str(row.get("ts", ""))[:10]
         if not date:
             continue
@@ -928,21 +954,118 @@ def _equity_daily_series(rows: list) -> list:
             equity = float(row.get("equity", 0.0) or 0.0)
         except (TypeError, ValueError):
             continue
-        by_date[date] = equity
-    dates = sorted(by_date.keys())
-    return [(d, by_date[d]) for d in dates]
+        item = dict(row)
+        item["date"] = date
+        item["equity"] = equity
+        by_date[date] = item
+    return [by_date[d] for d in sorted(by_date.keys())]
 
 
-def compute_metrics(equity_rows: list, initial_capital: float = None) -> dict:
-    """在净值序列上计算组合级指标（年化 / 最大回撤 / 夏普 / 卡玛）。
+def _excess_metrics(series: list, benchmark_code: str) -> dict:
+    """超额指标（相对基准，日收益差分口径，Spec v8 §4.2/§8.2）。
 
-    口径（Spec §6）：
-    - 年化 = (末值/初值) ^ (252/N) − 1，N = 按日期去重后的交易日数；
+    - 对齐序列 = 去重后 ``benchmark_code`` 与当前配置一致的行中基准值有效者；
+      只取与当前配置一致的代码行——切换基准 = 超额起算点重置，历史基准不参与；
+    - ``re = rp − rb`` 从对齐序列第 2 点起算（第 1 点为基准起点）；
+    - 超额年化 = (1+Σre)^(252/(N−1)) − 1，N 为对齐序列点数（与组合年化 n−1 一致）；
+    - 超额最大回撤按超额财富曲线 1+累积re 计算；
+    - 信息比率 = mean(re)/std(re, ddof=1)×√252，re 样本 ≥ ``SIM_METRICS_MIN_SAMPLES``
+      才给数；re 全为 0 时返回 None 并在 note 说明；
+    - 覆盖天数/空仓天数从去重行聚合推导（``benchmark_code`` 一致即计，
+      基准值缺失的日照常计入覆盖与空仓、仅跳过超额收益计算）。
+    """
+    result = {
+        "excess_annualized": None, "excess_max_drawdown": None,
+        "excess_information_ratio": None,
+        "excess_coverage_days": 0, "excess_idle_days": 0,
+        "excess_idle_ratio": None, "excess_sample_sufficient": False,
+        "excess_note": "",
+    }
+    matched = [row for row in series
+               if str(row.get("benchmark_code") or "").strip() == benchmark_code]
+    coverage = len(matched)
+    result["excess_coverage_days"] = coverage
+    idle = sum(1 for row in matched if row.get("positions") == 0)
+    result["excess_idle_days"] = idle
+    if coverage:
+        result["excess_idle_ratio"] = round(idle / coverage * 100.0, 2)
+    min_samples = int(config.SIM_METRICS_MIN_SAMPLES)
+    result["excess_sample_sufficient"] = coverage >= min_samples
+
+    aligned = []
+    for row in matched:
+        try:
+            bench = float(row.get("benchmark"))
+        except (TypeError, ValueError):
+            continue
+        if bench > 0:
+            aligned.append((row["equity"], bench))
+    if len(aligned) < 2:
+        result["excess_note"] = "基准数据不足（等待净值快照写入基准），无法计算超额指标"
+        return result
+
+    re_list = []
+    for i in range(1, len(aligned)):
+        prev_eq, prev_bench = aligned[i - 1]
+        if prev_eq <= 0 or prev_bench <= 0:
+            continue
+        rp = aligned[i][0] / prev_eq - 1.0
+        rb = aligned[i][1] / prev_bench - 1.0
+        re_list.append(rp - rb)
+    if not re_list:
+        result["excess_note"] = "有效超额收益样本不足，无法计算"
+        return result
+
+    total_re = sum(re_list)
+    n = len(aligned)
+    excess_ann = None
+    if 1.0 + total_re > 0:
+        excess_ann = (1.0 + total_re) ** (252.0 / (n - 1)) - 1.0
+
+    # 超额财富曲线回撤：w_i = 1 + 累积re，与超额年化的累加口径同源
+    cum = 0.0
+    peak = 1.0
+    max_dd = 0.0
+    for r in re_list:
+        cum += r
+        w = 1.0 + cum
+        if w > peak:
+            peak = w
+        if peak > 0:
+            dd = 1.0 - w / peak
+            if dd > max_dd:
+                max_dd = dd
+
+    ir = None
+    if len(re_list) >= min_samples:
+        mean_r = total_re / len(re_list)
+        var_r = sum((r - mean_r) ** 2 for r in re_list) / (len(re_list) - 1)
+        std_r = math.sqrt(var_r)
+        if std_r > 0:
+            ir = mean_r / std_r * math.sqrt(252.0)
+        else:
+            result["excess_note"] = "超额日收益恒为 0（与基准同涨跌），信息比率不适用"
+
+    result["excess_annualized"] = round(excess_ann * 100.0, 4) if excess_ann is not None else None
+    result["excess_max_drawdown"] = round(max_dd * 100.0, 4)
+    result["excess_information_ratio"] = round(ir, 4) if ir is not None else None
+    return result
+
+
+def compute_metrics(equity_rows: list, initial_capital: float = None,
+                    benchmark_code: str = None) -> dict:
+    """在净值序列上计算组合级指标（年化 / 最大回撤 / 夏普 / 卡玛）与超额指标。
+
+    口径（Spec §6 / v8 §4.2、§8.2）：
+    - 年化 = (末值/初值) ^ (252/(N−1)) − 1，N = 按日期去重后的交易日数；
     - 最大回撤 = max(1 − v_i / max(v_j, j≤i))；
     - 夏普 = 年化 / (日收益标准差 × √252)，无风险利率取 0；
     - 卡玛 = 年化 / 最大回撤（回撤为 0 时返回 None 并在 note 说明）；
     - 样本不足（点数 < ``SIM_METRICS_MIN_SAMPLES``）时 sample_sufficient=False，
-      四项指标照常计算但由前端标注「样本不足」。
+      四项指标照常计算但由前端标注「样本不足」；
+    - ``benchmark_code`` 给定时追加 ``excess_*`` 超额指标（超额年化 / 超额最大回撤 /
+      信息比率 / 覆盖天数 / 空仓占比）；不传时行为与 v7 完全一致（向后兼容
+      评估/重放调用方）。本函数保持离线：只读行数据，不联网取基准。
     """
     series = _equity_daily_series(equity_rows)
     n_days = len(series)
@@ -954,10 +1077,14 @@ def compute_metrics(equity_rows: list, initial_capital: float = None) -> dict:
     }
     if n_days < 2:
         result["note"] = "净值点数不足，无法计算组合指标"
+        if benchmark_code:
+            result.update(_excess_metrics(series, _norm_benchmark(benchmark_code)))
         return result
-    first, last = series[0][1], series[-1][1]
+    first, last = series[0]["equity"], series[-1]["equity"]
     if first <= 0:
         result["note"] = "净值序列初值非法"
+        if benchmark_code:
+            result.update(_excess_metrics(series, _norm_benchmark(benchmark_code)))
         return result
     annualized = None
     if last > 0:
@@ -966,15 +1093,16 @@ def compute_metrics(equity_rows: list, initial_capital: float = None) -> dict:
     peak = -1.0
     max_dd = 0.0
     returns = []
-    for i, (_, v) in enumerate(series):
+    for i, row in enumerate(series):
+        v = row["equity"]
         if v > peak:
             peak = v
         if peak > 0:
             dd = 1.0 - v / peak
             if dd > max_dd:
                 max_dd = dd
-        if i > 0 and series[i - 1][1] > 0:
-            returns.append(v / series[i - 1][1] - 1.0)
+        if i > 0 and series[i - 1]["equity"] > 0:
+            returns.append(v / series[i - 1]["equity"] - 1.0)
 
     sharpe = None
     if len(returns) >= 2 and annualized is not None:
@@ -995,6 +1123,8 @@ def compute_metrics(equity_rows: list, initial_capital: float = None) -> dict:
     result["calmar"] = round(calmar, 4) if calmar is not None else None
     if max_dd == 0:
         result["note"] = "最大回撤为 0，卡玛不适用"
+    if benchmark_code:
+        result.update(_excess_metrics(series, _norm_benchmark(benchmark_code)))
     return result
 
 

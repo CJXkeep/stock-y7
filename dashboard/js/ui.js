@@ -1,8 +1,8 @@
 // ==================== 通用 UI 层（improvements #13） ====================
 // 转义/事件委托/术语即点即译/风险大白话/toast/搜索推荐/首访引导/更多菜单。
-import { C, S } from './shared.js';
+import { C, S, escHtml, showToastMsg } from './shared.js';
 import { API, fetchWithTimeout } from './api.js';
-import { analyze, setMode, toggleSettings, doLogout, fxEnabled } from './main.js';
+import { analyze, setMode, toggleSettings, doLogout, fxEnabled, simBuyCurrent } from './main.js';
 import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
 import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
 import { poolNote, poolMove, poolRemove, poolAddCurrent,
@@ -197,12 +197,15 @@ const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 let searchTimer = null;
 
-searchInput.addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  const kw = searchInput.value.trim();
-  if (!kw) { showHotStocksPanel(); return; }
-  searchTimer = setTimeout(() => doSuggest(kw), 250);
-});
+// sim.html 等无搜索框页面复用本模块：searchInput 不存在时跳过搜索框绑定（模块仍可导入）
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const kw = searchInput.value.trim();
+    if (!kw) { showHotStocksPanel(); return; }
+    searchTimer = setTimeout(() => doSuggest(kw), 250);
+  });
+}
 
 // improvements #12：热门股从顶栏移入搜索框聚焦推荐面板
 const HOT_STOCKS = [
@@ -224,27 +227,29 @@ export function showHotStocksPanel() {
     ).join('');
   searchResults.style.display = 'block';
 }
-searchInput.addEventListener('focus', () => {
-  if (!searchInput.value.trim()) showHotStocksPanel();
-});
+if (searchInput) {
+  searchInput.addEventListener('focus', () => {
+    if (!searchInput.value.trim()) showHotStocksPanel();
+  });
 
-searchInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    searchResults.style.display = 'none';
-    const kw = searchInput.value.trim();
-    if (/^\d{6}$/.test(kw)) analyze(kw);
-    else doSearch();
-  }
-});
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      searchResults.style.display = 'none';
+      const kw = searchInput.value.trim();
+      if (/^\d{6}$/.test(kw)) analyze(kw);
+      else doSearch();
+    }
+  });
 
-// blur 延迟收起联想（fe-smoke：联想下拉右缘会盖住周期工具栏，误点联想项
-// 会分析错误的股票；150ms 延迟保证联想项自身的 click 先于隐藏执行）。
-searchInput.addEventListener('blur', () => {
-  setTimeout(() => { searchResults.style.display = 'none'; }, 150);
-});
+  // blur 延迟收起联想（fe-smoke：联想下拉右缘会盖住周期工具栏，误点联想项
+  // 会分析错误的股票；150ms 延迟保证联想项自身的 click 先于隐藏执行）。
+  searchInput.addEventListener('blur', () => {
+    setTimeout(() => { searchResults.style.display = 'none'; }, 150);
+  });
+}
 
 document.addEventListener('click', e => {
-  if (!e.target.closest('.search-wrap')) searchResults.style.display = 'none';
+  if (searchResults && !e.target.closest('.search-wrap')) searchResults.style.display = 'none';
 });
 
 export async function doSuggest(kw) {
@@ -282,10 +287,9 @@ export function selectStock(code, name) {
   analyze(code);
 }
 
-export function escHtml(s) {
-  if (!s) return '';
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+// escHtml/showToastMsg 已下沉 shared.js（v8：sim 大页与看板模块图解耦）；
+// 此处 re-export 保持既有十余个引用方兼容。
+export { escHtml, showToastMsg };
 
 // ==================== XSS 加固：统一事件委托（improvements #1） ====================
 // 规范：innerHTML 模板中的动态文本必须经 escHtml() 转义；
@@ -326,8 +330,9 @@ export const DELEGATED_ACTIONS = {
   evalCorrectAction: () => correctPayload(),
   evalCorrectValidate: () => correctValidate(),
   evalCorrectExecute: el => correctExecute(el),
-  candAdd: () => candAdd(),
+  candAdd: el => candAdd(el),
   candRemove: el => candRemove(el),
+  simBuyCurrent: el => simBuyCurrent(el),
   candStatus: el => candStatus(el),
   candNote: el => candNote(el),
   candImportScan: () => candImportScan(),
@@ -375,15 +380,6 @@ function _delegateDispatch(e, attr) {
 document.addEventListener('click', e => _delegateDispatch(e, 'data-act'));
 document.addEventListener('dblclick', e => _delegateDispatch(e, 'data-dblact'));
 document.addEventListener('change', e => _delegateDispatch(e, 'data-chgact'));
-
-
-export function showToastMsg(msg) {
-  const c = document.getElementById('toast-container'); if (!c) return;
-  const d = document.createElement('div');
-  d.className = 'toast msg-toast'; d.textContent = msg;
-  c.appendChild(d);
-  setTimeout(() => { d.classList.add('removing'); setTimeout(() => d.remove(), 350); }, 2200);
-}
 
 
 export function showToast(name, code, oldAction, newAction, price) {

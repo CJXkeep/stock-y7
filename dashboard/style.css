@@ -1138,8 +1138,11 @@ body.fx-off .wc-change-badge { animation: none !important; }
 .sim-ov-item { background: #141414; border: 1px solid #222; border-radius: 6px; padding: 6px 8px; }
 .sim-ov-label { display: block; font-size: 10px; color: #888; margin-bottom: 2px; }
 .sim-ov-val { font-size: 13px; color: #ddd; font-weight: bold; }
-.sim-ov-val.up { color: var(--c-up, #00b35c); }
-.sim-ov-val.down { color: var(--c-down, #ff2d2d); }
+/* 涨跌配色遵循 A 股规则（涨红跌绿）。注意全站约定：:root 的 --c-up/--c-down
+   本身是美股语义（up=绿/down=红），涨跌类规则一律交叉引用（.up 取 --c-down），
+   与主站 .up/.down、.sig-buy、.toast.buy 等规则保持一致。 */
+.sim-ov-val.up { color: var(--c-down); }
+.sim-ov-val.down { color: var(--c-up); }
 .sim-metrics-note { font-size: 10px; color: #777; margin-top: 4px; }
 .sim-miss { color: #ffb74d; font-size: 10px; }
 .sim-chart { height: 180px; background: #101010; border: 1px solid #222; border-radius: 6px; }
@@ -1147,12 +1150,12 @@ body.fx-off .wc-change-badge { animation: none !important; }
 .sim-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .sim-table th { text-align: left; color: #888; font-weight: normal; padding: 4px 6px; border-bottom: 1px solid #222; }
 .sim-table td { padding: 5px 6px; border-bottom: 1px solid #1a1a1a; color: #ccc; }
-.sim-table td.up { color: var(--c-up, #00b35c); }
-.sim-table td.down { color: var(--c-down, #ff2d2d); }
+.sim-table td.up { color: var(--c-down); }
+.sim-table td.down { color: var(--c-up); }
 .sim-sub { font-size: 10px; color: #888; }
 .sim-side { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
-.sim-buy { color: var(--c-up, #00b35c); border: 1px solid rgba(0,179,92,.4); }
-.sim-sell { color: var(--c-down, #ff2d2d); border: 1px solid rgba(255,45,45,.4); }
+.sim-buy { color: var(--c-down); border: 1px solid rgba(255,45,45,.4); }
+.sim-sell { color: var(--c-up); border: 1px solid rgba(0,179,92,.4); }
 .sim-tag { margin-left: 4px; color: #ffb74d; font-size: 9px; border: 1px solid rgba(255,183,77,.5); border-radius: 3px; padding: 0 3px; }
 .sim-config .sim-cfg-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; align-items: center; }
 .sim-config label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #bbb; }
@@ -1169,6 +1172,26 @@ body.sim-page { margin: 0; background: #0d0d0d; color: #ddd; font-family: "Micro
 .sp-back { font-size: 12px; color: #4fc3f7; text-decoration: none; border: 1px solid rgba(79,195,247,.4); border-radius: 4px; padding: 3px 10px; }
 .sp-back:hover { background: rgba(79,195,247,.1); }
 .sp-state { font-size: 11px; color: #888; flex: 1; min-width: 200px; }
+/* v8 自动交易状态胶囊（顶栏常驻 + 一键暂停/恢复） */
+.sim-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; border-radius: 12px; padding: 3px 6px 3px 10px; border: 1px solid #2a2a2a; white-space: nowrap; }
+.sim-pill-on { color: #7ee2a8; border-color: rgba(0,179,92,.45); background: rgba(0,179,92,.08); }
+.sim-pill-paused { color: #ffb74d; border-color: rgba(255,183,77,.5); background: rgba(255,183,77,.08); }
+.sim-pill-btn { font-size: 10px; padding: 1px 8px; border-radius: 10px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
+.sim-pill-btn:hover { background: rgba(255,255,255,.08); }
+.sim-excess-title { font-size: 11px; color: #b58a4c; font-weight: bold; margin: 10px 0 6px; display: flex; align-items: center; gap: 6px; }
+/* v8 迭代：配置卡片折叠 + 脏状态提示 */
+.sim-cfg-caret { background: transparent; border: none; color: #ff9800; font-size: 13px; cursor: pointer; padding: 0 2px; line-height: 1; }
+.sim-cfg-caret:hover { color: #ffb74d; }
+.sim-dirty-badge { font-size: 10px; color: #ffb74d; border: 1px solid rgba(255,183,77,.5); border-radius: 3px; padding: 1px 6px; font-weight: normal; }
+.sim-config-card.cfg-dirty { border-color: rgba(255,183,77,.45); }
+/* v8 迭代：动线引导（四问动作区 / 候选-评估互链 / sim→看板深链） */
+.plan-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #222; }
+.plan-actions .settings-btn { font-size: 11px; padding: 4px 10px; }
+.cand-next-btn { font-size: 10px; padding: 1px 8px; border: 1px solid rgba(79,195,247,.4); background: transparent; color: #4fc3f7; border-radius: 4px; cursor: pointer; margin-left: 6px; white-space: nowrap; }
+.cand-next-btn:hover { background: rgba(79,195,247,.1); }
+.sim-jump { color: inherit; text-decoration: none; }
+.sim-jump:hover { color: #4fc3f7; }
+.sim-jump:hover .code { color: #4fc3f7; }
 .sp-actions { display: flex; gap: 8px; }
 .sp-actions .sp-danger { color: #ff8a80; border-color: rgba(255,138,128,.4); }
 .sp-wrap { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 14px; }

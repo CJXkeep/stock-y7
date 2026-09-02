@@ -293,15 +293,26 @@ function renderTradePlan(signal) {
   const period = plan.holding_period || '';
   const notes = plan.notes || '';
 
+  // 动作区（v8 迭代）：看板 ↔ 候选池/模拟账户 互导；观察/卖出信号不提供模拟买入
+  const sym = escHtml(S.currentSymbol || '');
+  const symName = escHtml(S._currentStockName || '');
+  let actionsHtml = '';
+  if (sym) {
+    actionsHtml = '<div class="plan-actions">'
+      + (!isSell && !isWatch ? '<button class="settings-btn" data-act="simBuyCurrent" data-symbol="' + sym + '" title="模拟账户按现价买入，预算按「单笔仓位%」规则">模拟买入</button>' : '')
+      + '<button class="settings-btn" data-act="candAdd" data-code="' + sym + '" data-name="' + symName + '" title="加入候选池（观察名单）">加入候选</button>'
+      + '</div>';
+  }
+
   if (isWatch) {
     const vetoReason = signal.veto_reason || '';
     const vetoHtml = vetoReason ? '<div style="padding:6px 8px;margin-bottom:6px;background:rgba(255,107,107,0.08);border-radius:6px;border:1px solid rgba(255,107,107,0.15);font-size:11px;color:#ff6b6b;line-height:1.5">⚠ ' + vetoReason + '</div>' : '';
-    el.innerHTML = vetoHtml + '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#ffc107">当前建议：</span>' + pos + '</div>' : '') + (period ? '<div style="margin-bottom:6px"><span style="color:#888">适合周期：</span>' + period + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>';
+    el.innerHTML = vetoHtml + '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#ffc107">当前建议：</span>' + pos + '</div>' : '') + (period ? '<div style="margin-bottom:6px"><span style="color:#888">适合周期：</span>' + period + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>' + actionsHtml;
     return;
   }
 
   if (isSell) {
-    el.innerHTML = '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#00b35c">操作建议：</span>' + pos + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>';
+    el.innerHTML = '<div style="padding:8px 0;font-size:13px;color:#aaa;line-height:1.6">' + (pos ? '<div style="margin-bottom:6px"><span style="color:#00b35c">操作建议：</span>' + pos + '</div>' : '') + (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + '</div>' + actionsHtml;
     return;
   }
 
@@ -318,7 +329,22 @@ function renderTradePlan(signal) {
     '</div>' +
     '<div class="plan-row"><span class="plan-label">建议仓位 <span class="plan-tip">投多少钱</span></span><span class="plan-val" style="color:#ff9800">' + (pos || '') + '</span></div>' +
     '<div class="plan-row"><span class="plan-label">持有周期 <span class="plan-tip">大概持多久</span></span><span class="plan-val">' + period + '</span></div>' +
-    (notes ? '<div class="plan-notes">' + notes + '</div>' : '');
+    (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + actionsHtml;
+}
+
+// ===== 看板 → 模拟账户：四问卡一键模拟买入（v8 迭代） =====
+export async function simBuyCurrent(el) {
+  const symbol = (el && el.dataset && el.dataset.symbol) || S.currentSymbol;
+  if (!symbol) return;
+  if (!window.confirm('在模拟账户按现价买入 ' + symbol + '？（预算按模拟账户「单笔仓位%」规则，滑点费用照计）')) return;
+  try {
+    const r = await fetchWithTimeout(API + '/api/sim', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'buy', symbol }),
+    });
+    const d = await r.json().catch(() => null);
+    showToastMsg(d && d.ok ? '已模拟买入 ' + symbol : ((d && d.error) || '模拟买入失败'));
+  } catch (e) { showToastMsg('请求失败，请稍后再试'); }
 }
 
 
@@ -840,6 +866,11 @@ loadMode();
 loadNotifySettings();      // 钉钉推送：启动即拉取配置与状态（设置面板回显用）
 loadSimPanel();            // 模拟账户：启动即拉取账户状态（「模拟」分区回显用）
 _ssInit();                  // 顶部状态栏（时钟 + 最近状态）
+// 深链（v8 迭代）：sim 大页持仓/流水点标的跳转 /?symbol=600000 → 直接分析该股
+try {
+  const _deepSymbol = new URLSearchParams(location.search).get('symbol');
+  if (_deepSymbol && /^\d{6}$/.test(_deepSymbol)) analyze(_deepSymbol);
+} catch (e) {}
 // 工作台分区 tab 点击
 const _sbTabs = document.getElementById('sb-tabs');
 if (_sbTabs) _sbTabs.addEventListener('click', e => {

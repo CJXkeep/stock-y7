@@ -44,6 +44,16 @@ function _listHtml(cands) {
   html += '<div class="eval-notice-line">容量 ' + escHtml(String(items.length))
     + '/' + '30 · version ' + escHtml(String(cands.version || 1))
     + ' · 冷却：入池/拒绝后 20 交易日内不重复入池</div>';
+  // 工作流动线：状态摘要 + 下一步直达（已验证候选的下一站是「评估 → 建议单」）
+  const byStatus = {};
+  for (const it of items) byStatus[it.status] = (byStatus[it.status] || 0) + 1;
+  html += '<div class="eval-notice-line">状态：'
+    + Object.keys(STATUS_LABEL).map(s =>
+      escHtml(STATUS_LABEL[s]) + ' ' + (byStatus[s] || 0)).join(' · ')
+    + (byStatus.validated
+      ? '　<button class="cand-next-btn" data-act="openArchiveSeg" data-seg="eval">已验证候选去评估 →</button>'
+      : '')
+    + '</div>';
   html += '<div class="eval-row eval-ops-btns">'
     + '<button data-act="candAdd">添加候选</button>'
     + '<button data-act="candImportScan">从最近扫描导入</button>'
@@ -216,16 +226,26 @@ function _stopPoll() { if (_candPollTimer) { clearInterval(_candPollTimer); _can
 
 // ---------------------------------------------------------------- 操作
 
-export async function candAdd() {
+export async function candAddSymbol(symbol, name, source) {
+  symbol = String(symbol || '').trim();
+  if (!/^\d{6}$/.test(symbol)) { showToastMsg('请输入 6 位股票代码'); return false; }
+  try {
+    const data = await _post(API + '/api/candidates',
+      { action: 'add', symbol, name: String(name || '').trim(), source: source || 'manual' });
+    showToastMsg(data.ok ? '已加入候选 ' + symbol : (data.error || '加入失败'));
+    if (data.ok) await loadCandidates();
+    return !!data.ok;
+  } catch (e) { showToastMsg(e.message || '加入失败'); return false; }
+}
+
+export async function candAdd(el) {
+  // 带预填（扫描行/四问卡传入 data-code）：跳过输入直接入候选
+  const pre = el && el.dataset && el.dataset.code;
+  if (pre) { await candAddSymbol(pre, el.dataset.name || '', el.dataset.source || 'scan'); return; }
   const symbol = window.prompt('输入 6 位股票代码：', '');
   if (!symbol) return;
   const name = window.prompt('名称（可选）：', '') || '';
-  try {
-    const data = await _post(API + '/api/candidates',
-      { action: 'add', symbol: symbol.trim(), name: name.trim(), source: 'manual' });
-    showToastMsg(data.ok ? '已加入候选' : (data.error || '加入失败'));
-    if (data.ok) await loadCandidates();
-  } catch (e) { showToastMsg(e.message || '加入失败'); }
+  await candAddSymbol(symbol, name, 'manual');
 }
 
 export async function candRemove(el) {

@@ -279,6 +279,7 @@ export function switchTab(tab) {
   else if (tab === 'journal') loadJournal();
   else if (tab === 'pool') loadPool();
   else if (tab === 'eval') loadEvaluation();
+  else if (tab === 'candidates') loadCandidates();   // 既有断线修复：切页签从未触发加载，候选页签空壳
   else if (tab === 'digest') loadDigest();
   // 底部操作栏
   const footer = document.getElementById('wp-footer');
@@ -295,6 +296,9 @@ export function switchTab(tab) {
 }
 
 export function clearCurrentTab() {
+  // 破坏性操作必须确认（自选含分组结构，清空不可恢复）
+  const label = _currentTab === 'watch' ? '全部自选（含分组）' : '当前列表';
+  if (!window.confirm(`确定清空${label}？此操作不可恢复。`)) return;
   if (_currentTab === 'watch') {
     // 同上：必须逐个真删——传空数组给 saveWatchlist 连循环都进不去，等于空操作
     for (const s of getWatchlist()) removeStockEverywhere(s.code);

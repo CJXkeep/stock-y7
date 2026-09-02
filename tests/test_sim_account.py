@@ -9,6 +9,7 @@
 临时目录完成测试。
 """
 import datetime
+import math
 import os
 import shutil
 import sys
@@ -203,6 +204,154 @@ def test_metrics_insufficient_note():
     assert m["note"] == "净值点数不足，无法计算组合指标"
 
 
+# ---------------------------------------------------------------- v8 超额指标手算复核
+
+def _bench_rows():
+    """5 个交易日的组合/基准 fixture：rp = +10%,0%,-10%,+10%；rb = +5%,0%,-5%,+5%。"""
+    return [
+        {"date": "2026-09-01", "equity": 100000.0, "benchmark": 1000.0,
+         "benchmark_code": "000300", "positions": 0},
+        {"date": "2026-09-02", "equity": 110000.0, "benchmark": 1050.0,
+         "benchmark_code": "000300", "positions": 1},
+        {"date": "2026-09-03", "equity": 110000.0, "benchmark": 1050.0,
+         "benchmark_code": "000300", "positions": 1},   # 同日多行取最后一行的场景由去重保证
+        {"date": "2026-09-04", "equity": 99000.0, "benchmark": 997.5,
+         "benchmark_code": "000300", "positions": 2},
+        {"date": "2026-09-07", "equity": 108900.0, "benchmark": 1047.375,
+         "benchmark_code": "000300", "positions": 0},
+    ]
+
+
+def test_excess_metrics_hand_calc():
+    """A3：超额年化/超额回撤手算复核；组合指标不受基准影响。"""
+    rows = _bench_rows()
+    m = sa.compute_metrics(rows, initial_capital=100000.0, benchmark_code="000300")
+    # re = rp - rb = [+5%, 0, -5%, +5%]，Σre = 5%，对齐点数 N=5 → 分母 N-1=4
+    expect_ann = (1.0 + 0.05) ** (252.0 / 4) - 1.0
+    assert abs(m["excess_annualized"] - round(expect_ann * 100.0, 4)) < 1e-6
+    # 超额财富曲线 1+累积re：1.05 → 1.05 → 1.00 → 1.05，回撤 = 1 - 1/1.05
+    expect_dd = (1.0 - 1.0 / 1.05) * 100.0
+    assert abs(m["excess_max_drawdown"] - round(expect_dd, 4)) < 1e-6
+    # 覆盖/空仓：5 个对齐日中 positions==0 的有 2 天
+    assert m["excess_coverage_days"] == 5
+    assert m["excess_idle_days"] == 2
+    assert m["excess_idle_ratio"] == 40.0
+    assert m["excess_sample_sufficient"] is False       # 对齐样本 5 < 20
+    assert m["excess_note"] == ""
+    # 信息比率：re 样本 4 < 20，不给数（披露纪律）
+    assert m["excess_information_ratio"] is None
+    # 组合指标与不传基准时完全一致（超额不污染组合口径）
+    m0 = sa.compute_metrics(rows, initial_capital=100000.0)
+    assert m["annualized"] == m0["annualized"]
+    assert m["max_drawdown"] == m0["max_drawdown"]
+    assert m["sharpe"] == m0["sharpe"]
+    assert m["calmar"] == m0["calmar"]
+    assert "excess_annualized" not in m0                # 不传 benchmark_code 行为与 v7 一致
+
+
+def test_excess_information_ratio_hand_calc():
+    """A3：信息比率手算复核（21 个对齐日，re 交替 0.01/0.02，样本 ≥20 给数）。"""
+    rows = [{"date": "2026-08-01", "equity": 100000.0, "benchmark": 1000.0,
+             "benchmark_code": "000300", "positions": 1}]
+    eq, bench = 100000.0, 1000.0
+    for i in range(20):
+        re_i = 0.01 if i % 2 == 0 else 0.02
+        rp = 0.005 + re_i          # 基准每日 +0.5%，组合 = 基准 + re
+        bench *= 1.005
+        eq *= (1.0 + rp)
+        rows.append({"date": f"2026-08-{i + 2:02d}", "equity": round(eq, 6),
+                     "benchmark": round(bench, 6), "benchmark_code": "000300",
+                     "positions": 1})
+    m = sa.compute_metrics(rows, initial_capital=100000.0, benchmark_code="000300")
+    assert m["excess_coverage_days"] == 21
+    assert m["excess_idle_days"] == 0
+    assert m["excess_idle_ratio"] == 0.0
+    assert m["excess_sample_sufficient"] is True
+    # Σre = 10×(0.01+0.02) = 0.3，对齐点数 N=21 → 分母 20
+    expect_ann = 1.3 ** (252.0 / 20) - 1.0
+    assert abs(m["excess_annualized"] - round(expect_ann * 100.0, 4)) < 1e-4
+    # IR = mean(re)/std(re, ddof=1) × √252
+    re_list = [0.01, 0.02] * 10
+    mean_r = 0.015
+    var_r = sum((r - mean_r) ** 2 for r in re_list) / 19
+    expect_ir = mean_r / math.sqrt(var_r) * math.sqrt(252.0)
+    assert abs(m["excess_information_ratio"] - round(expect_ir, 4)) < 1e-3
+
+
+def test_excess_metrics_ir_gate_and_zero_variance():
+    """信息比率：re 样本 < 20 不给数；re 全为 0 时返回 None 并在 note 说明。"""
+    rows = _bench_rows()
+    m = sa.compute_metrics(rows, initial_capital=100000.0, benchmark_code="000300")
+    assert m["excess_information_ratio"] is None        # re 样本 4 < 20
+    # 构造 21 个对齐日、组合与基准每日收益均为 0 → re 精确全 0（无浮点噪声）
+    flat = [{"date": f"2026-08-{i + 1:02d}", "equity": 100000.0,
+             "benchmark": 1000.0, "benchmark_code": "000300", "positions": 1}
+            for i in range(21)]
+    m2 = sa.compute_metrics(flat, initial_capital=100000.0, benchmark_code="000300")
+    assert m2["excess_annualized"] is not None
+    assert abs(m2["excess_annualized"]) < 1e-6          # Σre=0 → 超额年化 0
+    assert m2["excess_information_ratio"] is None
+    assert "信息比率不适用" in m2["excess_note"]
+
+
+def test_excess_metrics_code_filter_and_null_benchmark():
+    """Q3：超额只取 benchmark_code 与当前配置一致的行；基准缺失日跳过收益计算。"""
+    rows = [
+        {"date": "2026-09-01", "equity": 100000.0, "benchmark": 1000.0,
+         "benchmark_code": "000300", "positions": 0},
+        {"date": "2026-09-02", "equity": 110000.0, "benchmark": 1050.0,
+         "benchmark_code": "000300", "positions": 1},
+        {"date": "2026-09-03", "equity": 120000.0, "benchmark": 2000.0,
+         "benchmark_code": "000905", "positions": 1},   # 代码不一致 → 不参与超额
+        {"date": "2026-09-04", "equity": 130000.0, "benchmark": None,
+         "benchmark_code": "000300", "positions": 1},   # 基准缺失 → 跳过收益计算
+        {"date": "2026-09-07", "equity": 108900.0, "benchmark": 1076.0,
+         "benchmark_code": "000300", "positions": 0},
+    ]
+    m = sa.compute_metrics(rows, initial_capital=100000.0, benchmark_code="000300")
+    # 覆盖天数按代码一致计（含 benchmark=null 的 09-04），空仓 2/4
+    assert m["excess_coverage_days"] == 4
+    assert m["excess_idle_days"] == 2
+    assert m["excess_idle_ratio"] == 50.0
+    # 对齐序列 = 09-01/09-02/09-07；re：09-02 = 0.10-0.05；09-07 按各自区间收益差分
+    rp3 = 108900.0 / 110000.0 - 1.0
+    rb3 = 1076.0 / 1050.0 - 1.0
+    expect_ann = (1.0 + 0.05 + (rp3 - rb3)) ** (252.0 / 2) - 1.0
+    assert abs(m["excess_annualized"] - round(expect_ann * 100.0, 4)) < 1e-6
+    assert m["excess_information_ratio"] is None        # re 样本 2 < 20
+    assert m["excess_sample_sufficient"] is False
+
+
+def test_excess_metrics_no_benchmark_data():
+    rows = [{"date": "2026-09-01", "equity": 100000.0},
+            {"date": "2026-09-02", "equity": 101000.0}]
+    m = sa.compute_metrics(rows, initial_capital=100000.0, benchmark_code="000300")
+    assert m["excess_coverage_days"] == 0
+    assert m["excess_idle_ratio"] is None
+    assert m["excess_annualized"] is None
+    assert m["excess_note"]                             # 有说明，不下结论
+
+
+def test_equity_daily_series_returns_rows():
+    """v8：去重后返回整行 dict（每天取末行），benchmark/positions 原样保留。"""
+    rows = [
+        {"date": "2026-09-01", "equity": 100.0, "benchmark": 1000.0,
+         "benchmark_code": "000300", "positions": 0},
+        {"date": "2026-09-01", "equity": 101.0, "benchmark": 1001.0,
+         "benchmark_code": "000300", "positions": 1},
+        {"date": "2026-09-02", "equity": 102.0},
+    ]
+    series = sa._equity_daily_series(rows)
+    assert len(series) == 2
+    assert series[0]["date"] == "2026-09-01"
+    assert series[0]["equity"] == 101.0                 # 每天保留最后一行
+    assert series[0]["benchmark"] == 1001.0
+    assert series[0]["benchmark_code"] == "000300"
+    assert series[0]["positions"] == 1
+    assert series[1].get("benchmark") is None           # 无基准字段不报错
+    assert series[1]["equity"] == 102.0
+
+
 # ---------------------------------------------------------------- A10 持久化与重置
 
 def test_persistence_and_reset():
@@ -330,6 +479,46 @@ def test_config_v6_migration():
         again = sa.load_config(d)
         assert again["version"] == 4                      # 幂等：不再递增
         assert again["strategy_params"]["min_score"] == 60
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- v8 基准配置
+
+def test_benchmark_norm_and_config():
+    """A5：benchmark 归一化（000300 默认 / 000905 可选 / 非法回退），配置可保存。"""
+    assert sa._norm_benchmark("000300") == "000300"
+    assert sa._norm_benchmark("000905") == "000905"
+    assert sa._norm_benchmark(None) == "000300"
+    assert sa._norm_benchmark("") == "000300"
+    assert sa._norm_benchmark("399006") == "000300"     # 非法回退默认
+    assert sa.default_config()["benchmark"] == "000300"
+    out = sa.normalize_config({"benchmark": "000905"}, current=sa.default_config())
+    assert out["benchmark"] == "000905"
+    out2 = sa.normalize_config({"benchmark": "junk"}, current=None)
+    assert out2["benchmark"] == "000300"
+    # 部分保存：未提供的字段沿用 current
+    base = sa.default_config()
+    base["benchmark"] = "000905"
+    out3 = sa.normalize_config({"interval_min": 5}, current=base)
+    assert out3["benchmark"] == "000905"
+    assert out3["interval_min"] == 5
+
+
+def test_config_v7_without_benchmark_compat():
+    """A5：v7 落盘配置无 benchmark 字段，读取后回退默认 000300，无破坏性迁移。"""
+    d = tempfile.mkdtemp(prefix="sim_bench_compat_")
+    try:
+        v7 = sa.default_config()
+        v7.pop("benchmark")
+        v7["enabled"] = True
+        v7["initial_capital"] = 250000.0
+        sa._atomic_write_json(sa.config_path(d), v7)
+        cfg = sa.load_config(d)
+        assert cfg["schema"] == sa.SIM_SCHEMA_CONFIG
+        assert cfg["benchmark"] == "000300"
+        assert cfg["enabled"] is True
+        assert cfg["initial_capital"] == 250000.0
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

@@ -1,0 +1,62 @@
+{
+  "schema": "v5.snapshot.v1",
+  "snapshot_id": "20260902T015344Z",
+  "created_at": "2026-09-02T01:53:45Z",
+  "pool_version": 1,
+  "source": "pool",
+  "config": {
+    "history_bars": 750,
+    "replay_window": 250,
+    "index_window": 60,
+    "horizons": [
+      5,
+      10,
+      20,
+      60
+    ]
+  },
+  "symbols": {
+    "601800": {
+      "name": "中国交建",
+      "bars": 642,
+      "start": "2024-01-08",
+      "end": "2026-09-01",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "000630": {
+      "name": "铜陵有色",
+      "bars": 642,
+      "start": "2024-01-08",
+      "end": "2026-09-01",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    }
+  },
+  "indexes": {
+    "_idx_000001": {
+      "bars": 400,
+      "start": "2025-01-09",
+      "end": "2026-09-02"
+    },
+    "_idx_000300": {
+      "bars": 750,
+      "start": "2023-08-01",
+      "end": "2026-09-02"
+    }
+  },
+  "usable_symbols": 2,
+  "total_symbols": 2,
+  "files": {
+    "bars_jsonl_sha256": "06bd9df1465b77abfc9f711f61290dbf3d9b318281189cd9de3cc00a1f90ee84"
+  },
+  "config_hash": "137e4e0e4a21cf11"
+}

@@ -13,6 +13,10 @@
   <div class="sp-header">
     <a class="sp-back" href="/" title="返回看板">← 看板</a>
     <h1>模拟账户</h1>
+    <span class="sim-pill sim-pill-paused" id="sim-auto-pill">
+      <span id="sim-auto-pill-text">自动交易已暂停</span>
+      <button class="sim-pill-btn" id="sim-auto-toggle-btn" onclick="simToggleAuto()">恢复</button>
+    </span>
     <span class="sp-state" id="sim-state-line">加载中…</span>
     <div class="sp-actions">
       <button class="settings-btn" onclick="simBuyPrompt()">手动买入</button>
@@ -33,11 +37,11 @@
   <!-- 净值曲线 + 组合指标 -->
   <div class="sp-grid">
     <div class="sp-card">
-      <div class="sp-card-title">净值曲线 <span class="sim-hint">含初始资金基准线；每轮巡检追加一个净值点</span></div>
+      <div class="sp-card-title">净值曲线 <span class="sim-hint">含初始资金基准线与对比基准线（净值首日=100，右轴）；每轮巡检追加一个净值点</span></div>
       <div id="sim-equity-chart" class="sp-chart"></div>
     </div>
     <div class="sp-card">
-      <div class="sp-card-title">组合指标 <span class="sim-hint">年化 / 回撤 / 夏普（rf=0%）/ 卡玛</span></div>
+      <div class="sp-card-title">组合指标 <span class="sim-hint">年化 / 回撤 / 夏普（rf=0%）/ 卡玛 + 超额（基准对比）</span></div>
       <div id="sim-metrics"></div>
     </div>
   </div>
@@ -54,10 +58,15 @@
     </div>
   </div>
 
-  <!-- 配置 -->
-  <div class="sp-card">
-    <div class="sp-card-title">配置 <span class="sim-hint">默认关闭；开启后交易时段内按巡检间隔自动巡检，选股受选股节流间隔约束</span></div>
-    <div class="sim-config">
+  <!-- 配置（默认收起，点标题展开；有未保存修改时黄框+徽标提示） -->
+  <div class="sp-card sim-config-card" id="sim-config-card">
+    <div class="sp-card-title">
+      <button class="sim-cfg-caret" id="sim-config-caret" onclick="simToggleConfig()" title="展开/收起配置">▸</button>
+      <span>配置</span>
+      <span class="sim-hint">默认关闭；开启后交易时段内按巡检间隔自动巡检（策略直连执行、无人工确认环节），选股受选股节流间隔约束</span>
+      <span class="sim-dirty-badge" id="sim-dirty-badge" hidden>有未保存修改</span>
+    </div>
+    <div class="sim-config" id="sim-config-body" hidden>
       <label class="notify-switch"><input type="checkbox" id="sim-enabled"> 启用自动交易</label>
       <div class="sim-cfg-row">
         <label>初始资金<input type="number" id="sim-initial-capital" step="1000" min="1000"></label>
@@ -78,6 +87,15 @@
       </div>
       <div class="sim-cfg-row">
         <label>最长持有(交易日,0不限)<input type="number" id="sim-max-hold" min="0" max="1000"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <label>策略 <select id="sim-strategy"></select></label>
+        <label>对比基准
+          <select id="sim-benchmark">
+            <option value="000300">沪深300</option>
+            <option value="000905">中证500</option>
+          </select>
+        </label>
       </div>
       <div class="sim-cfg-row">
         <span class="sim-cfg-label">策略参数 <span class="sim-hint">由当前策略声明，随策略自动变化</span></span>

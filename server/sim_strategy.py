@@ -207,9 +207,13 @@ class StrategyAdapter:
     v7 起策略参数由 adapter 自描述：``params_schema()`` 声明可配置参数
     （type/default/min/max/options/label），``normalize_params()`` 按声明归一化；
     配置中的 ``strategy_params`` 字典对本层之外的代码不透明。
+
+    v8：``label`` 为配置面板「策略」下拉的展示名；未声明（假 adapter 直接继承）
+    时由 :func:`list_strategies` 回退为 ``id``。
     """
 
     id = "base"
+    label = None
 
     def params_schema(self) -> dict:
         raise NotImplementedError
@@ -241,6 +245,7 @@ class QushiV5Adapter(StrategyAdapter):
     """
 
     id = "qushi_v5"
+    label = "趋势策略 v5"
 
     #: 初筛连续行情源失败提前终止阈值（SIM_SCREEN_ABORT_THRESHOLD 可覆盖）
     abort_threshold = max(1, int(os.environ.get("SIM_SCREEN_ABORT_THRESHOLD", "20")))
@@ -443,6 +448,29 @@ _ADAPTER_REGISTRY = {"qushi_v5": QushiV5Adapter}
 def register_adapter(adapter_cls) -> None:
     """注册策略适配器（测试或后续新策略用）。"""
     _ADAPTER_REGISTRY[str(adapter_cls.id).strip().lower()] = adapter_cls
+
+
+def list_strategies() -> list:
+    """注册表枚举（v8 配置面板「策略」下拉数据源）：[{"id", "label", "params_schema"?}]。
+
+    单策略也返回完整列表；``label`` 未声明的 adapter 回退为 ``id``（兼容测试假
+    adapter）。``params_schema`` 供前端切换策略时**即时**按新 schema 重渲染参数区
+    （不必等保存+重载）；实例化/取 schema 失败时省略该键，不影响下拉枚举。
+    多策略并行时此注册表即前端选项来源。
+    """
+    out = []
+    for cid, cls in _ADAPTER_REGISTRY.items():
+        item = {"id": cid, "label": str(getattr(cls, "label", None) or cid)}
+        try:
+            try:
+                adapter = cls(params={})
+            except TypeError:
+                adapter = cls()          # 兼容未声明 params 形参的 adapter
+            item["params_schema"] = adapter.params_schema()
+        except Exception:
+            pass
+        out.append(item)
+    return out
 
 
 def get_adapter(cfg: dict) -> StrategyAdapter:

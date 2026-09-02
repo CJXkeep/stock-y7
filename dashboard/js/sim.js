@@ -1,10 +1,14 @@
 // ==================== 模拟账户（v6 sim-account：策略自动买卖 + 记账 + 绩效）====================
+// 注意：本模块被 sim.html 大页独立加载（sim_page.js），只依赖 api.js 与 shared.js
+// 两个零 DOM 依赖模块——不得 import ui.js（看板模块图在 sim.html 上会抛错）。
 import { API, fetchWithTimeout } from './api.js';
-import { showToastMsg, escHtml } from './ui.js';
+import { showToastMsg, escHtml } from './shared.js';
 
 let _simData = null;
 let _equityChart = null;
 let _strategySchema = {};   // 当前策略参数 schema（/api/sim strategy_schema）
+let _strategyOptions = [];  // 注册表枚举 [{id, label, params_schema?}]（策略切换即时重渲染用）
+let _cfgDirty = false;      // 配置表单有未保存修改：自动刷新跳过表单重置（防冲掉编辑）
 
 const _fmtMoney = (v) => (v == null ? '--' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const _fmtPct = (v) => (v == null ? '--' : `${Number(v).toFixed(2)}%`);
@@ -48,9 +52,31 @@ function _renderMetrics(data) {
   const el = document.getElementById('sim-metrics');
   if (!el) return;
   const m = data.metrics || {};
+  const binfo = data.benchmark_info || {};
   const insufficient = m.sample_sufficient === false && (m.days || 0) > 0
     ? '<span class="sim-miss" title="净值样本不足 20 个交易日，指标仅供参考">样本不足</span>' : '';
   const note = (m.days || 0) < 2 ? '<span class="sim-miss">净值点数不足，暂无法计算</span>' : '';
+  const benchName = escHtml(binfo.name || binfo.code || '基准');
+  // 超额区（v8 基准对比）：对齐样本不足照常计算但标注；信息比率额外要求样本 ≥20 才给数
+  let excessHtml = '';
+  if (m.excess_coverage_days != null && (binfo.coverage_days || 0) > 0) {
+    const exInsufficient = m.excess_sample_sufficient === false
+      ? '<span class="sim-miss" title="对齐基准样本不足 20 个交易日，超额指标仅供参考">样本不足</span>' : '';
+    const irCell = m.excess_information_ratio == null
+      ? (m.excess_sample_sufficient ? '--' : '<span class="sim-miss">样本不足</span>')
+      : Number(m.excess_information_ratio).toFixed(2);
+    excessHtml = `
+      <div class="sim-excess-title">超额（vs ${benchName}）${exInsufficient}</div>
+      <div class="sim-ov-grid">
+        <div class="sim-ov-item"><span class="sim-ov-label">超额年化</span><span class="sim-ov-val ${_pnlClass(m.excess_annualized)}">${_fmtPct(m.excess_annualized)}</span></div>
+        <div class="sim-ov-item"><span class="sim-ov-label">超额最大回撤</span><span class="sim-ov-val down">${m.excess_max_drawdown == null ? '--' : '-' + Number(m.excess_max_drawdown).toFixed(2) + '%'}</span></div>
+        <div class="sim-ov-item"><span class="sim-ov-label">信息比率</span><span class="sim-ov-val">${irCell}</span></div>
+        <div class="sim-ov-item"><span class="sim-ov-label">空仓天数占比</span><span class="sim-ov-val">${binfo.idle_ratio == null ? '--' : Number(binfo.idle_ratio).toFixed(1) + '%'}</span></div>
+      </div>
+      <div class="sim-metrics-note">覆盖 ${binfo.coverage_days || 0} 个交易日（其中空仓 ${binfo.idle_days || 0} 天）；口径：组合日收益 − 基准日收益；空仓占比高时超额可能来自「空仓躲跌」；切换基准后超额从新基准重新起算。</div>`;
+  } else {
+    excessHtml = '<div class="sim-metrics-note">暂无基准数据：等待下一轮净值快照写入「' + benchName + '」后开始计算超额。</div>';
+  }
   el.innerHTML = `
     <div class="sim-ov-grid">
       <div class="sim-ov-item"><span class="sim-ov-label">年化收益率</span><span class="sim-ov-val ${_pnlClass(m.annualized)}">${_fmtPct(m.annualized)}</span></div>
@@ -59,7 +85,7 @@ function _renderMetrics(data) {
       <div class="sim-ov-item"><span class="sim-ov-label">卡玛</span><span class="sim-ov-val">${m.calmar == null ? '--' : Number(m.calmar).toFixed(2)}</span></div>
     </div>
     <div class="sim-metrics-note">${insufficient}${note}${insufficient || note ? '　' : ''}口径：无风险利率 0%；样本不足时仅参考。</div>
-  `;
+    ${excessHtml}`;
 }
 
 // ---------------------------------------------------------------- 持仓
@@ -79,7 +105,7 @@ function _renderPositions(data) {
     </tr></thead><tbody>
     ${positions.map((p) => `
       <tr>
-        <td><b>${escHtml(p.name || p.symbol)}</b><span class="code">${escHtml(p.symbol)}</span></td>
+        <td><a class="sim-jump" href="/?symbol=${escHtml(p.symbol)}" title="回看板分析该股"><b>${escHtml(p.name || p.symbol)}</b><span class="code">${escHtml(p.symbol)}</span></a></td>
         <td>${p.shares}</td>
         <td>${Number(p.avg_cost).toFixed(2)}</td>
         <td>${p.current_price == null ? '—' : Number(p.current_price).toFixed(2)}</td>
@@ -111,7 +137,7 @@ function _renderTrades(data) {
       return `<tr>
         <td class="sim-sub">${escHtml(t.date || '')} ${escHtml((t.ts || '').slice(11, 16))}</td>
         <td><span class="sim-side ${isBuy ? 'sim-buy' : 'sim-sell'}">${isBuy ? '买入' : '卖出'}</span></td>
-        <td>${escHtml(t.name || t.symbol)}<span class="code">${escHtml(t.symbol)}</span></td>
+        <td><a class="sim-jump" href="/?symbol=${escHtml(t.symbol)}" title="回看板分析该股">${escHtml(t.name || t.symbol)}<span class="code">${escHtml(t.symbol)}</span></a></td>
         <td>${t.price == null ? '—' : Number(t.price).toFixed(2)}</td>
         <td>${t.shares}</td>
         <td>${t.fees == null ? '—' : Number(t.fees).toFixed(2)}</td>
@@ -136,32 +162,62 @@ function _renderEquity(data) {
   const dates = rows.map((r) => (r.date || (r.ts || '').slice(0, 10)));
   const vals = rows.map((r) => Number(r.equity || 0));
   const initial = (data.account || {}).initial_capital || null;
-  if (_equityChart == null) _equityChart = echarts.init(el);
-  _equityChart.setOption({
-    grid: { left: 60, right: 16, top: 24, bottom: 28 },
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: dates, axisLabel: { color: '#888', fontSize: 10 } },
-    yAxis: { type: 'value', scale: true, axisLabel: { color: '#888', fontSize: 10 } },
-    series: [{
-      name: '总资产', type: 'line', data: vals, showSymbol: false,
-      lineStyle: { color: '#4fc3f7', width: 1.5 },
-      areaStyle: { color: 'rgba(79,195,247,0.08)' },
-    }, ...(initial ? [{
+  // 基准线（v8）：快照行内基准值归一化到「净值首日=100」画右轴，单一数据源（equity 行）
+  const benchName = (data.benchmark_info || {}).name || '基准';
+  const benchRaw = rows.map((r) => {
+    if (r.benchmark == null || !r.benchmark_code) return null;
+    const n = Number(r.benchmark);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+  const firstBench = benchRaw.find((v) => v != null);
+  const benchVals = firstBench
+    ? benchRaw.map((v) => (v == null ? null : +(v / firstBench * 100).toFixed(2)))
+    : null;
+  const hasBench = !!benchVals && benchVals.filter((v) => v != null).length >= 2;
+
+  const series = [{
+    name: '总资产', type: 'line', data: vals, showSymbol: false,
+    lineStyle: { color: '#4fc3f7', width: 1.5 },
+    areaStyle: { color: 'rgba(79,195,247,0.08)' },
+  }];
+  if (initial) {
+    series.push({
       name: '初始资金', type: 'line', data: dates.map(() => initial), showSymbol: false,
       lineStyle: { color: '#888', type: 'dashed', width: 1 }, silent: true,
-    }] : [])],
-  });
+    });
+  }
+  if (hasBench) {
+    series.push({
+      name: benchName, type: 'line', data: benchVals, yAxisIndex: 1,
+      showSymbol: false, connectNulls: true,
+      lineStyle: { color: '#ffb74d', width: 1.2 },
+    });
+  }
+  const yAxis = [{ type: 'value', scale: true, axisLabel: { color: '#888', fontSize: 10 } }];
+  if (hasBench) {
+    yAxis.push({
+      type: 'value', scale: true, position: 'right',
+      axisLabel: { color: '#b58a4c', fontSize: 10 }, splitLine: { show: false },
+    });
+  }
+  if (_equityChart == null) _equityChart = echarts.init(el);
+  _equityChart.setOption({
+    grid: { left: 60, right: hasBench ? 52 : 16, top: 24, bottom: 28 },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#888', fontSize: 10 } },
+    yAxis,
+    series,
+  }, true);
 }
 
 // ---------------------------------------------------------------- 配置面板
 
 // ---------------------------------------------------------------- 策略参数动态渲染（v7 解耦）
 
-function _renderStrategyParams(data) {
+function _renderStrategyParamsFor(schema, params) {
   const el = document.getElementById('sim-strategy-params');
   if (!el) return;
-  _strategySchema = data.strategy_schema || {};
-  const params = (data.config || {}).strategy_params || {};
+  _strategySchema = schema || {};
   const keys = Object.keys(_strategySchema);
   if (!keys.length) {
     el.innerHTML = '<div class="sim-empty">当前策略无可配置参数。</div>';
@@ -189,6 +245,11 @@ function _renderStrategyParams(data) {
   }).join('');
 }
 
+function _renderStrategyParams(data) {
+  _renderStrategyParamsFor((data || {}).strategy_schema || {},
+                           ((data || {}).config || {}).strategy_params || {});
+}
+
 function _readStrategyParams() {
   const out = {};
   document.querySelectorAll('[data-sp]').forEach((el) => {
@@ -213,7 +274,21 @@ function _readStrategyParams() {
   return out;
 }
 
+function _renderStrategyOptions(data) {
+  const el = document.getElementById('sim-strategy');
+  if (!el) return;
+  const cfg = data.config || {};
+  const options = data.strategy_options || [];
+  if (!options.length) return;   // 后端异常时保留下拉现状，避免清空选项
+  _strategyOptions = options;
+  el.innerHTML = options.map((o) =>
+    `<option value="${escHtml(o.id)}">${escHtml(o.label || o.id)}</option>`).join('');
+  el.value = cfg.strategy || (options[0] && options[0].id) || '';
+}
+
 function _renderConfig(data) {
+  // 脏状态保护：有未保存修改时自动刷新不重置表单（含策略下拉与参数区），保留用户编辑
+  if (_cfgDirty) return;
   const cfg = data.config || {};
   const set = (id, val) => {
     const el = document.getElementById(id);
@@ -229,6 +304,8 @@ function _renderConfig(data) {
   set('sim-max-positions', cfg.max_positions);
   set('sim-per-trade', cfg.per_trade_pct);
   set('sim-max-hold', cfg.max_hold_days);
+  set('sim-benchmark', cfg.benchmark || '000300');
+  _renderStrategyOptions(data);
   ['auto_sell', 'stop_loss_enabled', 'take_profit_enabled'].forEach((k) => {
     const el = document.getElementById('sim-' + k);
     if (el) el.checked = !!cfg[k];
@@ -236,7 +313,7 @@ function _renderConfig(data) {
   _renderStrategyParams(data);
 }
 
-// ---------------------------------------------------------------- 状态行
+// ---------------------------------------------------------------- 状态行与自动交易胶囊
 
 function _renderStateLine(data) {
   const el = document.getElementById('sim-state-line');
@@ -248,6 +325,11 @@ function _renderStateLine(data) {
   const statusMap = { running: '巡检中', done: '已完成', error: '异常', waiting_market: '等待开盘', busy: '巡检中', idle: '' };
   if (statusMap[s.status]) bits.push(statusMap[s.status]);
   if (s.last_run_at) bits.push('最近巡检 ' + (s.last_run_at || '').slice(5, 16));
+  if (s.next_run_at) {
+    bits.push('下次巡检 ' + String(s.next_run_at).slice(5, 16));
+  } else if (cfg.enabled && s.next_run_reason && s.status !== 'waiting_market') {
+    bits.push(escHtml(s.next_run_reason));
+  }
   if (s.last_bought) bits.push('本轮买 ' + s.last_bought);
   if (s.last_sold) bits.push('本轮卖 ' + s.last_sold);
   if (s.last_unfilled) bits.push('放弃 ' + s.last_unfilled);
@@ -260,6 +342,18 @@ function _renderStateLine(data) {
   el.innerHTML = text;
 }
 
+function _renderAutoPill(data) {
+  const pill = document.getElementById('sim-auto-pill');
+  const textEl = document.getElementById('sim-auto-pill-text');
+  const btn = document.getElementById('sim-auto-toggle-btn');
+  if (!pill || !textEl || !btn) return;
+  const enabled = !!((data.config || {}).enabled);
+  pill.classList.toggle('sim-pill-on', enabled);
+  pill.classList.toggle('sim-pill-paused', !enabled);
+  textEl.textContent = enabled ? '自动交易已开启' : '自动交易已暂停';
+  btn.textContent = enabled ? '暂停' : '恢复';
+}
+
 // ---------------------------------------------------------------- 交互
 
 export async function loadSimPanel() {
@@ -269,6 +363,7 @@ export async function loadSimPanel() {
     const data = await resp.json();
     if (!data || data.ok === false) return;
     _simData = data;
+    _renderAutoPill(data);
     _renderOverview(data);
     _renderMetrics(data);
     _renderPositions(data);
@@ -301,6 +396,9 @@ function _readConfigForm() {
     max_positions: int('sim-max-positions', 5),
     per_trade_pct: num('sim-per-trade', 20),
     max_hold_days: int('sim-max-hold', 0),
+    // 策略与基准（v8）：策略下拉由注册表枚举驱动；基准属账户/引擎参数
+    strategy: val('sim-strategy') || 'qushi_v5',
+    benchmark: val('sim-benchmark') || '000300',
     auto_sell: !!((document.getElementById('sim-auto_sell') || {}).checked),
     stop_loss_enabled: !!((document.getElementById('sim-stop_loss_enabled') || {}).checked),
     take_profit_enabled: !!((document.getElementById('sim-take_profit_enabled') || {}).checked),
@@ -318,6 +416,7 @@ export async function saveSimConfig() {
     });
     const data = await resp.json();
     showToastMsg(data.ok ? '模拟账户配置已保存' : (data.error || '保存失败'));
+    if (data.ok) _clearDirty();   // 保存成功后恢复自动刷新表单同步
   } catch (e) {
     showToastMsg('保存请求失败，请稍后再试');
   }
@@ -401,6 +500,102 @@ export async function simBuyPrompt() {
   if (!/^\d{6}$/.test(symbol)) { showToastMsg('请输入 6 位股票代码'); return; }
   simBuy(symbol);
 }
+
+export async function simToggleAuto() {
+  const cfg = (_simData || {}).config || {};
+  const next = !cfg.enabled;
+  try {
+    const resp = await fetchWithTimeout(`${API}/api/sim`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save', enabled: next }),
+    });
+    const data = await resp.json();
+    showToastMsg(data.ok
+      ? (next ? '自动交易已开启：交易时段内按策略自动选股与买卖（无人工确认环节）' : '自动交易已暂停：不再自动巡检与下单')
+      : (data.error || '操作失败'));
+  } catch (e) {
+    showToastMsg('请求失败，请稍后再试');
+  }
+  loadSimPanel();
+}
+
+// ---------------------------------------------------------------- 配置变更确认与脏状态（v8 迭代）
+
+function _markDirty() {
+  if (_cfgDirty) return;
+  _cfgDirty = true;
+  const card = document.getElementById('sim-config-card');
+  const badge = document.getElementById('sim-dirty-badge');
+  if (card) card.classList.add('cfg-dirty');
+  if (badge) badge.hidden = false;
+  _setConfigCollapsed(false);   // 脏状态下自动展开，保证提示与表单可见
+}
+
+function _clearDirty() {
+  _cfgDirty = false;
+  const card = document.getElementById('sim-config-card');
+  const badge = document.getElementById('sim-dirty-badge');
+  if (card) card.classList.remove('cfg-dirty');
+  if (badge) badge.hidden = true;
+}
+
+export function simToggleConfig() {
+  const body = document.getElementById('sim-config-body');
+  if (!body) return;
+  _setConfigCollapsed(!body.hidden);
+}
+
+function _setConfigCollapsed(collapsed) {
+  const body = document.getElementById('sim-config-body');
+  const caret = document.getElementById('sim-config-caret');
+  if (body) body.hidden = !!collapsed;
+  if (caret) caret.textContent = collapsed ? '▸' : '▾';
+}
+
+function _bindConfigGuards() {
+  const strategyEl = document.getElementById('sim-strategy');
+  if (strategyEl && !strategyEl.dataset.simGuard) {
+    strategyEl.dataset.simGuard = '1';
+    strategyEl.addEventListener('change', () => {
+      const cfg = (_simData || {}).config || {};
+      if (!cfg.strategy || strategyEl.value === cfg.strategy) return;
+      const positions = (((_simData || {}).account || {}).position_count) || 0;
+      // 带持仓切换（Q1/Q4）：现有持仓由新策略接管卖出信号，止损/止盈/超期仍按建仓价位生效
+      if (positions > 0 && !window.confirm(
+        `切换策略后，现有 ${positions} 个持仓将由新策略接管卖出信号，止损/止盈/超期卖出仍按建仓时价位生效。确定切换？`)) {
+        strategyEl.value = cfg.strategy;
+        return;
+      }
+      // 切换即重渲染：按新策略 schema 以默认值渲染参数区（保存时服务端仍会归一化，双保险）
+      const opt = _strategyOptions.find((o) => o.id === strategyEl.value);
+      if (opt && opt.params_schema) _renderStrategyParamsFor(opt.params_schema, {});
+    });
+  }
+  const benchEl = document.getElementById('sim-benchmark');
+  if (benchEl && !benchEl.dataset.simGuard) {
+    benchEl.dataset.simGuard = '1';
+    benchEl.addEventListener('change', () => {
+      const cfg = (_simData || {}).config || {};
+      if ((cfg.benchmark || '000300') === benchEl.value) return;
+      if (!window.confirm('切换基准后，超额收益将从新基准重新起算，历史基准不参与；组合自身指标不受影响。确定切换？')) {
+        benchEl.value = cfg.benchmark || '000300';
+      }
+    });
+  }
+  // 脏状态跟踪：配置区任何用户编辑（input/change）都标记未保存
+  const cfgBody = document.getElementById('sim-config-body');
+  if (cfgBody && !cfgBody.dataset.simDirty) {
+    cfgBody.dataset.simDirty = '1';
+    cfgBody.addEventListener('input', _markDirty, true);
+    cfgBody.addEventListener('change', _markDirty, true);
+  }
+}
+_bindConfigGuards();
+
+// 有未保存修改时离开页面前提醒（_cfgDirty 仅会在 sim.html 的配置区编辑后为真）
+window.addEventListener('beforeunload', (e) => {
+  if (_cfgDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 export function onSimResize() {
   if (_equityChart) { try { _equityChart.resize(); } catch (e) {} }

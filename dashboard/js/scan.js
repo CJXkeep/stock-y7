@@ -296,7 +296,8 @@ export function _scanTableHtml(results) {
       <td class="scan-combined" style="color:#ff9800">${r.combined_score}</td>
       <td style="font-size:12px;color:#aaa">${r.position_advice ? r.position_advice.split('—')[0].trim() : '-'}</td>
       <td style="color:${(r.risk_reward||0) >= 2 ? '#00b35c' : (r.risk_reward||0) >= 1 ? '#ffc107' : '#ff2d2d'}">${r.risk_reward || '-'}</td>
-      <td><button class="scan-analyze-btn" data-act="analyzeFromScan" data-code="${escHtml(r.symbol)}">分析</button></td>
+      <td><button class="scan-analyze-btn" data-act="analyzeFromScan" data-code="${escHtml(r.symbol)}">分析</button>
+          <button class="scan-analyze-btn" data-act="candAdd" data-code="${escHtml(r.symbol)}" data-name="${escHtml(r.name)}" data-source="scan" title="加入候选池">候选</button></td>
     </tr>`;
   });
   html += '</tbody></table></div>';

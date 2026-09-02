@@ -29,12 +29,17 @@ from backtest.sim_account import (
     Decision,
     load_config, save_config, load_state, save_state, reset_account,
     execute_buy, execute_sell, append_equity, load_trades, load_equity,
-    portfolio_summary, compute_metrics,
+    portfolio_summary, compute_metrics, _norm_benchmark,
     today_str, market_now, limit_down_price,
     REASON_SIGNAL, REASON_STOP, REASON_TARGET, REASON_MAX_HOLD, REASON_MANUAL,
 )
-from server.sim_strategy import get_universe, get_adapter, build_context, SourceThrottledError
-from data.kline_fetcher import fetch_quote, in_trading_session as _market_trading_session
+from server.sim_strategy import (
+    get_universe, get_adapter, build_context, SourceThrottledError, list_strategies,
+)
+from data.kline_fetcher import (
+    fetch_quote, fetch_index_kline,
+    in_trading_session as _market_trading_session,
+)
 from server.kline_sync import SYNC_AT as _KLINE_SYNC_AT
 from server import task_store
 
@@ -42,6 +47,9 @@ log = logging.getLogger("trend_app")
 
 SIM_TASK_SCHEMA = "v6.sim.task.v1"
 _SIM_KIND = "sim"
+
+#: 基准指数展示名（v8 基准对比；代码归一化在账户内核 _norm_benchmark）
+_BENCHMARK_NAMES = {"000300": "沪深300", "000905": "中证500"}
 
 # ---------------------------------------------------------------- 任务状态（task_store）
 
@@ -173,7 +181,7 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
 
         _check_positions(state, cfg, ctx, now, adapter, stats)
         _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
-        summary = _snapshot_equity(state, now)
+        summary = _snapshot_equity(state, now, cfg=cfg)
         save_state(state)
 
         rounds = get_sim_state().get("rounds", 0) + 1
@@ -384,10 +392,40 @@ def _track_pending(state: dict, deci: Decision) -> str:
     return ""
 
 
-def _snapshot_equity(state: dict, now: datetime.datetime) -> dict:
-    """净值快照（append-only，每周期一行）；用实时价估值。"""
+def _fetch_benchmark(code: str):
+    """取基准指数最新收盘价（净值快照写入用，v8）。
+
+    ``fetch_index_kline`` 末根 close；取数失败 / 返回为空一律返回 ``None``——
+    调用方写 ``benchmark=null`` 并跳过该日超额计算，不中断巡检。
+    模块级函数：测试 monkeypatch 本函数注入假值，不触网。
+
+    注意 count=10：数据层对 <10 根的返回有「视为脏数据丢弃」护栏，
+    ``count=1`` 恒为空（实拉冒烟发现）；取 10 根的末根 close 即最新收盘
+    （盘中末根含当日实时 bar），磁盘缓存 TTL 300s 不影响与净值同日对齐。
+    """
+    try:
+        klines = fetch_index_kline(str(code), count=10)
+        if klines:
+            close = float(getattr(klines[-1], "close", 0) or 0)
+            if close > 0:
+                return close
+    except Exception as exc:
+        log.debug("获取基准指数 %s 收盘失败（该日跳过超额计算）: %s", code, exc)
+    return None
+
+
+def _snapshot_equity(state: dict, now: datetime.datetime, cfg: dict = None,
+                     sim_dir_override: str = None) -> dict:
+    """净值快照（append-only，每周期一行）；用实时价估值，并写入当日基准（v8）。
+
+    基准行 schema：``benchmark``（当日基准收盘，与净值同日对齐；缺失记 null）+
+    ``benchmark_code``（归一化后的基准代码）。超额计算只取与当前配置一致的代码行。
+    ``sim_dir_override`` 供测试隔离真实 ``data/sim/``。
+    """
+    cfg = cfg or {}
     price_map = _live_prices(state)
     summary = portfolio_summary(state, price_map, now)
+    code = _norm_benchmark(cfg.get("benchmark"))
     append_equity({
         "date": today_str(now),
         "ts": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -395,7 +433,9 @@ def _snapshot_equity(state: dict, now: datetime.datetime) -> dict:
         "cash": summary["cash"],
         "market_value": summary["market_value"],
         "positions": summary["position_count"],
-    })
+        "benchmark": _fetch_benchmark(code),
+        "benchmark_code": code,
+    }, sim_dir_override)
     return summary
 
 
@@ -429,24 +469,66 @@ def start_watcher() -> None:
 
 # ---------------------------------------------------------------- API handlers
 
+def _estimated_next_run(cfg: dict = None, now: datetime.datetime = None) -> tuple:
+    """读取时计算下一次巡检时间（不写盘、无状态漂移，单进程部署约束内，v8）。
+
+    返回 ``(next_run_at, reason)``：已启用且处于交易时段时基于
+    ``_last_cycle_ts[0] + interval_min×60`` 给出时刻（已到期视为即将执行，
+    watcher 下个轮询即触发）；未启用 / 非交易时段返回 ``(None, 原因)``。
+    """
+    cfg = cfg or load_config()
+    now = now or market_now()
+    if not cfg.get("enabled"):
+        return None, "未启用自动交易"
+    if not _market_trading_session():
+        return None, "非A股交易时段"
+    interval = max(1, int(cfg.get("interval_min", 15) or 15)) * 60
+    ts = _last_cycle_ts[0] + interval
+    if ts <= time.time():
+        ts = time.time()          # 已到期：即将执行
+    next_dt = now + datetime.timedelta(seconds=max(0.0, ts - time.time()))
+    return next_dt.strftime("%Y-%m-%d %H:%M:%S"), ""
+
+
 def handle_sim_get(params: dict) -> dict:
-    """GET /api/sim：配置 + 账户 + 持仓 + 流水 + 净值 + 指标 + 状态。"""
+    """GET /api/sim：配置 + 账户 + 持仓 + 流水 + 净值 + 指标 + 状态 + 基准/策略信息（v8）。"""
     _ensure_sim_state_loaded()
     cfg = load_config()
     state = load_state()
     summary = portfolio_summary(state, _live_prices(state))
     trades = list(reversed(load_trades(journal_config.SIM_TRADE_LOG_LIMIT)))
     equity = load_equity(journal_config.SIM_EQUITY_LIMIT)
-    metrics = compute_metrics(equity, state.get("initial_capital"))
+    benchmark_code = _norm_benchmark(cfg.get("benchmark"))
+    metrics = compute_metrics(equity, state.get("initial_capital"), benchmark_code)
     run_state = get_sim_state()
     adapter = get_adapter(cfg)
     # 返回前按当前策略 schema 裁剪 strategy_params：孤儿键（迁移残留/换策略遗留）不外露
     cfg["strategy_params"] = getattr(adapter, "params", cfg.get("strategy_params") or {})
+    next_run_at, next_run_reason = _estimated_next_run(cfg)
+    # 基准最新值：最近一条与当前基准一致且有效的快照行（读取时聚合，零状态迁移）
+    benchmark_latest = None
+    for row in reversed(equity):
+        if (str(row.get("benchmark_code") or "").strip() == benchmark_code
+                and row.get("benchmark") is not None):
+            try:
+                benchmark_latest = float(row["benchmark"])
+                break
+            except (TypeError, ValueError):
+                continue
     return {
         "ok": True,
         "config": cfg,
         "strategy_schema": adapter.params_schema(),
         "strategy_params": cfg["strategy_params"],
+        "strategy_options": list_strategies(),
+        "benchmark_info": {
+            "code": benchmark_code,
+            "name": _BENCHMARK_NAMES.get(benchmark_code, benchmark_code),
+            "latest": benchmark_latest,
+            "coverage_days": int(metrics.get("excess_coverage_days") or 0),
+            "idle_days": int(metrics.get("excess_idle_days") or 0),
+            "idle_ratio": metrics.get("excess_idle_ratio"),
+        },
         "account": {
             "cash": summary["cash"],
             "equity": summary["equity"],
@@ -476,6 +558,8 @@ def handle_sim_get(params: dict) -> dict:
             "last_error": run_state.get("last_error"),
             "screen_deferred": run_state.get("screen_deferred", ""),
             "source_throttled": bool(run_state.get("source_throttled", False)),
+            "next_run_at": next_run_at,
+            "next_run_reason": next_run_reason,
         },
     }
 
@@ -497,7 +581,7 @@ def handle_sim_post(body: dict) -> dict:
                 "config": {k: saved.get(k) for k in (
                     "enabled", "universe", "scan_limit", "interval_min",
                     "screening_interval_min", "max_positions",
-                    "per_trade_pct", "strategy",
+                    "per_trade_pct", "strategy", "benchmark",
                     "auto_sell", "stop_loss_enabled", "take_profit_enabled",
                     "max_hold_days", "initial_capital",
                     "strategy_params")}}

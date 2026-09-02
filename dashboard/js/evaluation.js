@@ -520,6 +520,8 @@ function _renderPicked(data) {
 function _listHtml(data) {
   const results = (data && data.results) || [];
   let html = '<div class="eval-card"><div class="eval-card-title">评估结果目录</div>';
+  html += '<div class="eval-notice-line">评估上游：候选验证结果产生建议单，矫正执行改动核心池。'
+    + '<button class="cand-next-btn" data-act="openArchiveSeg" data-seg="candidates">去候选池 →</button></div>';
   html += _noticeHtml(data && data.notice);
   if (!results.length) {
     html += '<div class="eval-empty">暂无评估结果。先在 CLI 生成：<br>'

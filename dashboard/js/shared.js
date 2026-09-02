@@ -35,3 +35,21 @@ export const S = {
   _flowMode: 'realtime',  // realtime | daily
   _lastQuote: null,       // {code, q, ts} 当前股 2s quote，供自选批量复用
 };
+
+// ==================== 纯 DOM 工具（v8：sim 大页与看板模块图解耦） ====================
+// escHtml/showToastMsg 原在 ui.js；ui.js 顶层 import 了看板全部重 DOM 模块
+// （main/watchlist/scan/...），无搜索框等看板 DOM 的页面（sim.html）加载即抛错。
+// 纯工具下沉到本模块（零依赖），ui.js re-export 保持既有引用方兼容。
+
+export function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+export function showToastMsg(msg) {
+  const c = document.getElementById('toast-container'); if (!c) return;
+  const d = document.createElement('div');
+  d.className = 'toast msg-toast'; d.textContent = msg;
+  c.appendChild(d);
+  setTimeout(() => { d.classList.add('removing'); setTimeout(() => d.remove(), 350); }, 2200);
+}
