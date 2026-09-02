@@ -104,10 +104,12 @@
         </label>
         <label>信号执行
           <select id="sim-signal-mode">
-            <option value="close_nextday">收盘定档·次日执行</option>
-            <option value="intraday">盘中实时（旧）</option>
+            <option value="auto">跟随策略</option>
+            <option value="close_nextday">强制收盘定档·次日执行</option>
+            <option value="intraday">强制盘中实时</option>
           </select>
         </label>
+        <span class="sim-hint">默认跟随当前策略声明（「趋势策略 v5」= 收盘定档·次日执行）；显式强制仅高级用途</span>
       </div>
       <div class="sim-cfg-row">
         <span class="sim-cfg-label">策略参数 <span class="sim-hint">由当前策略声明，随策略自动变化</span></span>
@@ -117,6 +119,25 @@
         <label class="notify-switch"><input type="checkbox" id="sim-auto_sell"> 自动卖出</label>
         <label class="notify-switch"><input type="checkbox" id="sim-stop_loss_enabled"> 自动止损</label>
         <label class="notify-switch"><input type="checkbox" id="sim-take_profit_enabled"> 自动止盈</label>
+      </div>
+      <div class="sim-cfg-row">
+        <span class="sim-cfg-label">钉钉推送 <span class="sim-hint">模拟实际成交（买入/卖出/止损/止盈等）实时推送到钉钉；需启用并配置钉钉应用机器人 OpenAPI 参数</span></span>
+      </div>
+      <div class="sim-cfg-row">
+        <label class="notify-switch"><input type="checkbox" id="sim-notify-enabled"> 启用模拟操作推送</label>
+      </div>
+      <div class="sim-cfg-row">
+        <label>AppKey<input type="text" id="sim-notify-app-key" placeholder="应用 Client ID" style="width:220px"></label>
+        <label>AppSecret<input type="text" id="sim-notify-app-secret" placeholder="应用 Client Secret" style="width:220px"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <label>robotCode<input type="text" id="sim-notify-robot-code" placeholder="企业内部应用=AppKey" style="width:220px"></label>
+        <label>openConversationId<input type="text" id="sim-notify-conversation-id" placeholder="目标群会话 id" style="width:300px"></label>
+      </div>
+      <div class="sim-cfg-row">
+        <label class="notify-switch"><input type="checkbox" id="sim-notify-buy"> 买入</label>
+        <label class="notify-switch"><input type="checkbox" id="sim-notify-sell"> 卖出</label>
+        <span class="sim-hint">推送操作类型（买卖各推其实际成交；同笔已推送不重复发）</span>
       </div>
       <div class="settings-row">
         <button class="settings-btn" onclick="saveSimConfig()">保存配置</button>

@@ -872,6 +872,9 @@ def main():
     _kick_journal_backfill(min_interval_sec=0.0)
     # 启动钉钉推送 watcher（内部按配置判断启用与否，未配置时静默待机）
     start_watcher()
+    # 启动钉钉 Stream 长连接（已配置 AppKey/Secret 时；群里 @机器人 自动回填 openConversationId）
+    from server.dingtalk_stream import start_stream as start_dingtalk_stream
+    start_dingtalk_stream()
     # 启动K线收盘同步服务（kline-store：交易日15:30增量同步，启动时落后先追赶）
     start_sync_service()
     # 启动月度滚动评估服务（I9.1：每交易日15:45自检，当月未跑且交易日才触发）

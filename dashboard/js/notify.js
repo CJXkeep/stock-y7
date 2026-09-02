@@ -8,7 +8,7 @@ function _statusText(data) {
   const st = data.state || {};
   const bits = [];
   bits.push(data.enabled ? '已启用' : '未启用');
-  if (!data.configured && data.enabled) bits.push('⚠ 未配置有效 webhook');
+  if (!data.configured && data.enabled) bits.push('⚠ 未配置完整钉钉参数');
   const statusMap = {
     running: '巡检中', waiting_market: '等待开盘', error: '异常',
     idle: '', busy: '巡检中',
@@ -27,13 +27,19 @@ function _statusText(data) {
 function _fillForm(data) {
   const enabled = document.getElementById('notify-enabled');
   const interval = document.getElementById('notify-interval');
-  const webhook = document.getElementById('notify-webhook');
-  const secret = document.getElementById('notify-secret');
   if (enabled) enabled.checked = !!data.enabled;
   if (interval) interval.value = String(data.interval_min || 5);
-  // 脱敏回显：仅当输入框为空时填入掩码提示，避免覆盖用户正在编辑的内容
-  if (webhook && !webhook.value && data.webhook_masked) webhook.placeholder = data.webhook_masked;
-  if (secret && !secret.value && data.has_secret) secret.placeholder = '已保存（留空保持不变，输入则覆盖）';
+  // OpenAPI 四要素回显（app_secret 不回显明文，仅提示已保存）
+  const appKey = document.getElementById('notify-app-key');
+  const robotCode = document.getElementById('notify-robot-code');
+  const convId = document.getElementById('notify-conversation-id');
+  const appSecret = document.getElementById('notify-app-secret');
+  if (appKey && !appKey.value) appKey.value = data.app_key || '';
+  if (robotCode && !robotCode.value) robotCode.value = data.robot_code || '';
+  if (convId && !convId.value) convId.value = data.open_conversation_id || '';
+  if (appSecret && !appSecret.value && data.has_app_secret) {
+    appSecret.placeholder = '已保存（留空保持不变，输入则覆盖）';
+  }
 
   // ---- push 配置：级别 / 范围 / 阈值 ----
   const push = data.push || {};
@@ -104,8 +110,10 @@ function _readForm() {
 
   return {
     enabled: !!(document.getElementById('notify-enabled') || {}).checked,
-    webhook: (document.getElementById('notify-webhook') || {}).value || '',
-    secret: (document.getElementById('notify-secret') || {}).value || '',
+    app_key: (document.getElementById('notify-app-key') || {}).value || '',
+    app_secret: (document.getElementById('notify-app-secret') || {}).value || '',
+    robot_code: (document.getElementById('notify-robot-code') || {}).value || '',
+    open_conversation_id: (document.getElementById('notify-conversation-id') || {}).value || '',
     interval_min: parseInt((document.getElementById('notify-interval') || {}).value || '5', 10),
     push: {
       levels,
@@ -126,9 +134,8 @@ export async function saveNotifySettings() {
     const data = await resp.json();
     if (data.ok) {
       showToastMsg('推送配置已保存');
-      // 保存成功后清空输入框，避免明文 webhook 长时间留在 DOM
-      const w = document.getElementById('notify-webhook'), s = document.getElementById('notify-secret');
-      if (w) w.value = '';
+      // 保存成功后清空敏感输入框，避免明文 secret 长时间留在 DOM
+      const s = document.getElementById('notify-app-secret');
       if (s) s.value = '';
     } else {
       showToastMsg(data.error || '保存失败');
@@ -146,7 +153,7 @@ export async function testNotify() {
     const resp = await fetchWithTimeout(`${API}/api/notify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'test', webhook: form.webhook, secret: form.secret }),
+      body: JSON.stringify({ action: 'test', ...form }),
     });
     const data = await resp.json();
     showToastMsg(data.ok ? '✅ 测试消息已发送，请查看钉钉' : `❌ ${data.error || '发送失败'}`);

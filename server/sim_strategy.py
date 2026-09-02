@@ -215,6 +215,10 @@ class StrategyAdapter:
     id = "base"
     label = None
 
+    #: 信号执行模式声明（策略属性）：close_nextday=收盘定档·次日执行 / intraday=盘中实时。
+    #: 服务层默认跟随本声明执行节奏，配置可显式覆盖（auto=跟随）。
+    signal_mode = "close_nextday"
+
     def params_schema(self) -> dict:
         raise NotImplementedError
 
@@ -246,6 +250,8 @@ class QushiV5Adapter(StrategyAdapter):
 
     id = "qushi_v5"
     label = "趋势策略 v5"
+    # 日线趋势：信号以收盘确认口径为准 → 收盘定档、次日执行（见设计稿 §11）
+    signal_mode = "close_nextday"
 
     #: 初筛连续行情源失败提前终止阈值（SIM_SCREEN_ABORT_THRESHOLD 可覆盖）
     abort_threshold = max(1, int(os.environ.get("SIM_SCREEN_ABORT_THRESHOLD", "20")))
@@ -482,7 +488,8 @@ def list_strategies() -> list:
     """
     out = []
     for cid, cls in _ADAPTER_REGISTRY.items():
-        item = {"id": cid, "label": str(getattr(cls, "label", None) or cid)}
+        item = {"id": cid, "label": str(getattr(cls, "label", None) or cid),
+                "signal_mode": str(getattr(cls, "signal_mode", "close_nextday"))}
         try:
             try:
                 adapter = cls(params={})

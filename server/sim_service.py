@@ -43,6 +43,7 @@ from data.kline_fetcher import (
 from server.kline_sync import SYNC_AT as _KLINE_SYNC_AT
 from server.rolling_eval_service import _is_trading_day_today as _rolling_trading_day_today
 from server import task_store
+from server import sim_notify
 
 log = logging.getLogger("trend_app")
 
@@ -156,6 +157,18 @@ def _is_trading_day(now_dt: datetime.datetime) -> bool:
         return bool(_rolling_trading_day_today(now_dt))
     except Exception:
         return False
+
+
+def _effective_signal_mode(cfg: dict, adapter) -> str:
+    """生效信号执行模式：配置显式覆盖（close_nextday/intraday）优先，否则跟随策略声明。
+
+    auto/缺省/非法值一律跟随适配器（StrategyAdapter.signal_mode）；
+    执行节奏是策略属性，账户层配置仅作强制覆盖（高级用途）。
+    """
+    override = str((cfg or {}).get("signal_mode", "auto") or "auto").strip().lower()
+    if override in _SIGNAL_MODES and override != "auto":
+        return override
+    return str(getattr(adapter, "signal_mode", "close_nextday") or "close_nextday")
 
 
 def _close_screen_due(now: datetime.datetime, state: dict) -> bool:
@@ -276,6 +289,7 @@ def _execute_buy_queue(state: dict, cfg: dict, adapter, stats: dict,
             continue
         if err == "" and trade:
             stats["bought"] = stats.get("bought", 0) + 1
+            stats.setdefault("trades", []).append(trade)
         # 成功 / already_holding / bad_price / bad_side：条目作废
     state["buy_queue"] = kept
 
@@ -303,9 +317,10 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
             _set_state(status="idle", last_error="")
             _sim_save_state()
             return {"status": "idle", "reason": "未启用"}
-        mode = str(cfg.get("signal_mode", "close_nextday") or "close_nextday")
+        adapter = get_adapter(cfg)
+        mode = _effective_signal_mode(cfg, adapter)
         in_session = _market_trading_session()
-        stats = {"bought": 0, "sold": 0, "unfilled": 0, "skipped": []}
+        stats = {"bought": 0, "sold": 0, "unfilled": 0, "skipped": [], "trades": []}
 
         # 收盘定档（close_nextday）：非交易时段且到点 → 完整日K收盘口径 → 次日清单
         #（15:05 起触发，排在 K 线同步 15:30 / 滚动评估 15:45 之前，错峰；当日幂等）
@@ -318,7 +333,6 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
                 _sim_save_state()
                 return {"status": "waiting_market", "reason": reason}
             _set_state(status="running")
-            adapter = get_adapter(cfg)
             fallback_alert = ""
             if cfg.get("strategy") and adapter.id != str(cfg.get("strategy")).strip().lower():
                 fallback_alert = f"未知策略 {cfg.get('strategy')}，已回退 {adapter.id}"
@@ -347,7 +361,6 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
 
         _set_state(status="running")
         ctx = build_context()
-        adapter = get_adapter(cfg)
         fallback_alert = ""
         if cfg.get("strategy") and adapter.id != str(cfg.get("strategy")).strip().lower():
             fallback_alert = f"未知策略 {cfg.get('strategy')}，已回退 {adapter.id}"
@@ -359,6 +372,9 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
             _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
         summary = _snapshot_equity(state, now, cfg=cfg)
         save_state(state)
+
+        # 模拟操作 → 钉钉推送（可选、失败不阻塞、已推送去重）
+        sim_notify.push_sim_trades(stats.get("trades", []), cfg)
 
         rounds = get_sim_state().get("rounds", 0) + 1
         _set_state(
@@ -439,6 +455,7 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
                                            pre_close=quote.pre_close, now=now, force=True)
                 if err2 == "" and trade:
                     stats["sold"] += 1
+                    stats.setdefault("trades", []).append(trade)
                     _pop_sell_queue(state, symbol)
                     pos = None                # 已平仓
                 else:
@@ -448,6 +465,7 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             continue
         if err == "" and trade:
             stats["sold"] += 1
+            stats.setdefault("trades", []).append(trade)
             _pop_sell_queue(state, symbol)
 
 
@@ -560,6 +578,7 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             continue
         if err == "" and trade:
             stats["bought"] += 1
+            stats.setdefault("trades", []).append(trade)
 
     state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -708,6 +727,7 @@ def handle_sim_get(params: dict) -> dict:
     return {
         "ok": True,
         "config": cfg,
+        "signal_mode": _effective_signal_mode(cfg, adapter),
         "strategy_schema": adapter.params_schema(),
         "strategy_params": cfg["strategy_params"],
         "strategy_options": list_strategies(),
@@ -771,6 +791,12 @@ def handle_sim_post(body: dict) -> dict:
                       or journal_config.SIM_STRATEGY).strip().lower()
         body = {**body, "strategy_params": _normalize_strategy_params(
             _target, _current.get("strategy_params"), body.get("strategy_params"))}
+        # notify.app_secret 不回显明文：表单留空 = 沿用已存值（避免误清空）
+        _notify = body.get("notify") if isinstance(body.get("notify"), dict) else {}
+        if not str(_notify.get("app_secret") or "").strip():
+            _cur_notify = _current.get("notify") if isinstance(_current.get("notify"), dict) else {}
+            body = {**body, "notify": {**_notify,
+                    "app_secret": str(_cur_notify.get("app_secret") or "").strip()}}
         saved = save_config(body)
         return {"ok": True, "message": "已保存",
                 "config": {k: saved.get(k) for k in (
@@ -779,7 +805,7 @@ def handle_sim_post(body: dict) -> dict:
                     "per_trade_pct", "strategy", "benchmark", "signal_mode",
                     "auto_sell", "stop_loss_enabled", "take_profit_enabled",
                     "max_hold_days", "initial_capital",
-                    "strategy_params")}}
+                    "strategy_params", "notify")}}
     if action == "run_once":
         force = bool(body.get("force", False))
         threading.Thread(target=run_cycle,
@@ -842,6 +868,8 @@ def _manual_buy(body: dict) -> dict:
         if err:
             return {"ok": False, "error": _explain(err)}
         save_state(state)
+        # 模拟操作 → 钉钉推送（可选、失败不阻塞、已推送去重）
+        sim_notify.push_sim_trades([trade], cfg)
         return {"ok": True, "message": "已买入", "trade": trade}
     finally:
         _cycle_lock.release()
@@ -871,6 +899,8 @@ def _manual_sell(body: dict) -> dict:
         if err:
             return {"ok": False, "error": _explain(err)}
         save_state(state)
+        # 模拟操作 → 钉钉推送（可选、失败不阻塞、已推送去重）
+        sim_notify.push_sim_trades([trade], cfg)
         return {"ok": True, "message": "已卖出", "trade": trade}
     finally:
         _cycle_lock.release()

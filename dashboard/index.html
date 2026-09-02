@@ -268,10 +268,16 @@
           <option value="30">每 30 分钟</option>
         </select>
       </div>
-      <input type="text" id="notify-webhook" class="notify-input" autocomplete="off" spellcheck="false"
-             placeholder="粘贴钉钉机器人 webhook（https://oapi.dingtalk.com/robot/send?access_token=…）">
-      <input type="text" id="notify-secret" class="notify-input" autocomplete="off" spellcheck="false"
-             placeholder="加签密钥 SEC…（机器人安全设置选「自定义关键词」可留空）">
+      <div class="notify-row">
+        <input type="text" id="notify-app-key" class="notify-input" autocomplete="off" spellcheck="false"
+               placeholder="AppKey（开发者后台 → 应用凭证）" style="flex:1;min-width:150px">
+        <input type="text" id="notify-robot-code" class="notify-input" autocomplete="off" spellcheck="false"
+               placeholder="robotCode（企业内部应用=AppKey）" style="flex:1;min-width:150px">
+      </div>
+      <input type="text" id="notify-app-secret" class="notify-input" autocomplete="off" spellcheck="false"
+             placeholder="AppSecret（应用凭证；留空保持不变）">
+      <input type="text" id="notify-conversation-id" class="notify-input" autocomplete="off" spellcheck="false"
+             placeholder="openConversationId（群会话 id，在群里 @机器人 一次可从后台日志复制）">
       <div class="settings-sub-label">推送级别（勾选才推送）</div>
       <div class="notify-row" id="notify-level-list">
         <label class="notify-switch"><input type="checkbox" id="notify-level-strong_buy" value="strong_buy"> 强烈买入</label>
@@ -292,7 +298,7 @@
         <button class="settings-btn" onclick="runNotifyOnce()">立即巡检</button>
       </div>
       <div class="settings-hint" id="notify-status">加载中…</div>
-      <div class="settings-hint">仅推送自选股的买入类信号（级别/范围/阈值可在此配置过滤）；同股同类 10 个交易日内只推首条。获取方式：钉钉群 → 群设置 → 智能群助手 → 添加「自定义」机器人。</div>
+      <div class="settings-hint">仅推送自选股的买入类信号（级别/范围/阈值可在此配置过滤）；同股同类 10 个交易日内只推首条。开通：钉钉开放平台 → 创建企业内部应用 → 添加「机器人」能力（Stream 模式）并发布 → 权限管理申请「企业内机器人发送消息」→ 把机器人拉进群。保存本配置后服务会自动建立 Stream 连接，在群里 <b>@机器人</b> 一下，openConversationId 会自动获取并回填，无需手动复制。</div>
     </div>
   </div>
 </div>

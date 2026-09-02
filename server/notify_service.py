@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """钉钉推送服务（notify-dingtalk）：自选股买入信号主动推送。
 
+发送通道（v3）：钉钉新版企业内部应用机器人 OpenAPI——AppKey/AppSecret 换
+accessToken（7200s 有效期，缓存复用）后调用群消息接口。旧版自定义机器人
+webhook 已被官方宣布下线，本项目全面迁移，不再支持 webhook 直发。
+
 口径（v2，推送可配置）：
 - 推送范围：默认 ``data/watchlist.json`` 全部自选股，支持分组许可
   （push.scope.enabled_groups，空=全开）与单只否决（push.scope.disabled_symbols）；
@@ -20,18 +24,14 @@
 """
 from __future__ import annotations
 
-import base64
 import copy
 import datetime
-import hashlib
-import hmac
 import json
 import logging
 import os
 import sys
 import threading
 import time
-import urllib.parse
 import concurrent.futures
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -60,10 +60,15 @@ from data.kline_fetcher import fetch_kline, fetch_quote, fetch_fund_flow, in_tra
 
 log = logging.getLogger("trend_app")
 
-NOTIFY_SCHEMA = "v5.notify.v1"
+NOTIFY_SCHEMA = "v5.notify.v2"
 NOTIFY_STATE_SCHEMA = "v5.notify.state.v1"
 _NOTIFY_KIND = "notify"    # I9.0：统一任务状态 kind（落盘 data/tasks/notify.json）
-DINGTALK_HOST = "oapi.dingtalk.com"
+
+# 发送通道：钉钉新版企业内部应用机器人 OpenAPI。旧版自定义机器人 webhook 已被
+# 官方宣布下线，本项目全面迁移（robotCode 对企业内部应用机器人 = AppKey）。
+OPENAPI_TOKEN_URL = "https://api.dingtalk.com/v1.0/oauth2/accessToken"
+OPENAPI_GROUP_SEND_URL = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
+OPENAPI_TTL_SEC = 6600     # accessToken 官方有效期 7200s，提前 10 分钟过期避免临界失效
 
 NOTIFY_MAX_WORKERS = int(os.environ.get("NOTIFY_MAX_WORKERS", "8"))
 NOTIFY_TIMEOUT = float(os.environ.get("NOTIFY_TIMEOUT", "10"))
@@ -87,8 +92,10 @@ def default_notify_config() -> dict:
         "version": 1,
         "updated_at": _utc_now(),
         "enabled": False,
-        "webhook": "",
-        "secret": "",
+        "app_key": "",                 # 应用 Client ID（AppKey）
+        "app_secret": "",              # 应用 Client Secret（AppSecret）
+        "robot_code": "",              # 机器人 robotCode（企业内部应用 = AppKey，可留空则回退 AppKey）
+        "open_conversation_id": "",    # 目标群会话 id
         "interval_min": 5,
         "push": default_push_config(),
     }
@@ -206,16 +213,9 @@ def _normalize_push(raw, current: dict = None) -> dict:
     return out
 
 
-def is_dingtalk_webhook(url: str) -> bool:
-    """钉钉自定义机器人 webhook 形如 https://oapi.dingtalk.com/robot/send?access_token=..."""
-    text = str(url or "").strip()
-    if not text.startswith("https://"):
-        return False
-    try:
-        parsed = urllib.parse.urlparse(text)
-    except ValueError:
-        return False
-    return parsed.netloc == DINGTALK_HOST and parsed.path.endswith("/robot/send")
+def _norm_text(raw) -> str:
+    """通用文本归一化：字符串化、去空白。"""
+    return str(raw if raw is not None else "").strip()
 
 
 def normalize_config(data: dict, current: dict = None) -> dict:
@@ -226,8 +226,10 @@ def normalize_config(data: dict, current: dict = None) -> dict:
         out["updated_at"] = current.get("updated_at") or out["updated_at"]
     if isinstance(data, dict):
         out["enabled"] = bool(data.get("enabled", False))
-        out["webhook"] = str(data.get("webhook", "") or "").strip()
-        out["secret"] = str(data.get("secret", "") or "").strip()
+        out["app_key"] = _norm_text(data.get("app_key"))
+        out["app_secret"] = _norm_text(data.get("app_secret"))
+        out["robot_code"] = _norm_text(data.get("robot_code"))
+        out["open_conversation_id"] = _norm_text(data.get("open_conversation_id"))
         raw_interval = data.get("interval_min", 5)
         try:
             out["interval_min"] = max(1, min(int(raw_interval), 60))
@@ -269,63 +271,124 @@ def save_notify_config(data: dict, path: str = None) -> dict:
     return out
 
 
-def mask_webhook(url: str) -> str:
-    """脱敏展示：保留原始 URL 结构，token 只露首尾各 4 位。
-
-    用原串替换而非重组 query，避免 urlencode 把脱敏星号转义成 %2A。
-    """
-    text = str(url or "").strip()
+def mask_secret(text: str) -> str:
+    """脱敏展示：只露首尾各 2 位，中间星号；空值返回空串。"""
+    text = str(text or "").strip()
     if not text:
         return ""
-    try:
-        parsed = urllib.parse.urlparse(text)
-        query = urllib.parse.parse_qs(parsed.query or "")
-    except ValueError:
-        return "***"
-    token_values = query.get("access_token") or []
-    if token_values:
-        token = token_values[0]
-        shown = token[:4] + "****" + token[-4:] if len(token) > 12 else "****"
-        return text.replace(token, shown)
-    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}***"
+    if len(text) <= 6:
+        return "****"
+    return text[:2] + "****" + text[-2:]
 
 
-# ---------------------------------------------------------------- 钉钉客户端
+def is_push_configured(cfg: dict) -> bool:
+    """新版 OpenAPI 四要素是否齐全（app_key/app_secret/robot_code/open_conversation_id）。"""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    if not str(cfg.get("app_key") or "").strip():
+        return False
+    if not str(cfg.get("app_secret") or "").strip():
+        return False
+    if not str(cfg.get("robot_code") or "").strip():
+        return False
+    return bool(str(cfg.get("open_conversation_id") or "").strip())
 
-def signed_url(webhook: str, secret: str, timestamp_ms: int = None) -> str:
-    """加签安全设置的机器人：timestamp+secret HMAC-SHA256 后追加到 URL。
 
-    未配置 secret 时原样返回（安全设置选「自定义关键词」或「IP 白名单」）。
+# ---------------------------------------------------------------- 钉钉客户端（新版企业内部应用机器人 OpenAPI）
+# 旧版自定义机器人 webhook（oapi.dingtalk.com/robot/send?access_token=…）已被官方
+# 宣布下线，全面迁移到 OpenAPI：AppKey/AppSecret 换 accessToken（7200s，需缓存，
+# 频繁获取会被限流）→ 调群消息接口（需要「企业内机器人发送消息权限」且机器人已入群）。
+
+_openapi_token_cache = {}           # app_key -> (token, expire_ts)
+_openapi_token_lock = threading.Lock()
+
+
+def fetch_access_token(app_key: str, app_secret: str, timeout: float = None) -> dict:
+    """获取/缓存企业内部应用 accessToken；永不抛异常，返回 {ok, token?/error?}。
+
+    缓存按 app_key 维度，提前 OPENAPI_TTL_SEC 过期；token 失效（回调报错）时
+    由 send 端调用 invalidate_access_token 强制刷新。
     """
-    if not secret:
-        return webhook
-    ts = str(timestamp_ms if timestamp_ms is not None else round(time.time() * 1000))
-    string_to_sign = f"{ts}\n{secret}"
-    digest = hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"),
-                      digestmod=hashlib.sha256).digest()
-    sign = urllib.parse.quote_plus(base64.b64encode(digest))
-    sep = "&" if "?" in webhook else "?"
-    return f"{webhook}{sep}timestamp={ts}&sign={sign}"
-
-
-def send_dingtalk_markdown(webhook: str, secret: str, title: str, text: str,
-                           timeout: float = None) -> dict:
-    """发送 markdown 消息；永不抛异常，返回 {ok, errcode?, errmsg?/error?}。"""
-    if not is_dingtalk_webhook(webhook):
-        return {"ok": False, "error": "webhook 不是合法的钉钉机器人地址"}
-    url = signed_url(webhook, secret)
-    payload = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
+    app_key = str(app_key or "").strip()
+    app_secret = str(app_secret or "").strip()
+    if not app_key or not app_secret:
+        return {"ok": False, "error": "缺少 AppKey/AppSecret"}
+    with _openapi_token_lock:
+        cached = _openapi_token_cache.get(app_key)
+        if cached and cached[1] > time.time():
+            return {"ok": True, "token": cached[0]}
     try:
-        resp = requests.post(url, json=payload,
+        resp = requests.post(OPENAPI_TOKEN_URL, json={"appKey": app_key, "appSecret": app_secret},
                              timeout=(timeout if timeout is not None else NOTIFY_TIMEOUT))
         data = resp.json()
     except Exception as exc:
-        return {"ok": False, "error": f"请求异常: {exc}"}
-    if isinstance(data, dict) and data.get("errcode") == 0:
-        return {"ok": True, "errcode": 0, "errmsg": str(data.get("errmsg", ""))}
-    errmsg = str(data.get("errmsg", "")) if isinstance(data, dict) else repr(data)
-    return {"ok": False, "error": f"钉钉返回错误: {errmsg}",
-            "errcode": data.get("errcode") if isinstance(data, dict) else None}
+        return {"ok": False, "error": f"获取 accessToken 异常: {exc}"}
+    token = data.get("accessToken") if isinstance(data, dict) else None
+    if not token:
+        # 新版 API 错误体形如 {"code":"...","message":"..."}
+        msg = data.get("message") if isinstance(data, dict) else repr(data)
+        return {"ok": False, "error": f"获取 accessToken 失败: {msg}"}
+    with _openapi_token_lock:
+        _openapi_token_cache[app_key] = (token, time.time() + OPENAPI_TTL_SEC)
+    return {"ok": True, "token": token}
+
+
+def invalidate_access_token(app_key: str) -> None:
+    """强制失效缓存 token（发送报 token 无效时下轮强制刷新）。"""
+    with _openapi_token_lock:
+        _openapi_token_cache.pop(str(app_key or "").strip(), None)
+
+
+def send_dingtalk_group_markdown(app_key: str, app_secret: str, robot_code: str,
+                                 open_conversation_id: str, title: str, text: str,
+                                 timeout: float = None) -> dict:
+    """通过新版机器人发送 markdown 群消息；永不抛异常，返回 {ok, error?/code?}。
+
+    robot_code 为空时回退 app_key（企业内部应用机器人二者相等）。
+    token 无效（code=InvalidAuthentication）时强制刷新重试一次。
+    """
+    app_key = str(app_key or "").strip()
+    app_secret = str(app_secret or "").strip()
+    robot_code = str(robot_code or "").strip() or app_key
+    open_conversation_id = str(open_conversation_id or "").strip()
+    if not (app_key and app_secret and robot_code and open_conversation_id):
+        return {"ok": False, "error": "钉钉 OpenAPI 配置不完整（AppKey/AppSecret/robotCode/openConversationId）"}
+    headers_base = {"Content-Type": "application/json"}
+    payload = {
+        "msgKey": "sampleMarkdown",
+        "openConversationId": open_conversation_id,
+        "robotCode": robot_code,
+        "msgParam": json.dumps({"title": title, "text": text}, ensure_ascii=False),
+    }
+    for attempt in (1, 2):
+        token_res = fetch_access_token(app_key, app_secret, timeout=timeout)
+        if not token_res.get("ok"):
+            return {"ok": False, "error": token_res.get("error", "获取 accessToken 失败")}
+        headers = dict(headers_base)
+        headers["x-acs-dingtalk-access-token"] = token_res["token"]
+        try:
+            resp = requests.post(OPENAPI_GROUP_SEND_URL, json=payload, headers=headers,
+                                 timeout=(timeout if timeout is not None else NOTIFY_TIMEOUT))
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": f"请求异常: {exc}"}
+        if isinstance(data, dict) and not data.get("code") and not data.get("message"):
+            return {"ok": True}
+        code = str(data.get("code") or "") if isinstance(data, dict) else ""
+        msg = str(data.get("message") or "") if isinstance(data, dict) else repr(data)
+        # token 过期/无效：强制刷新后重试一次
+        if attempt == 1 and ("InvalidAuthentication" in code or "accessToken" in msg.lower()):
+            invalidate_access_token(app_key)
+            continue
+        return {"ok": False, "error": f"钉钉返回错误: [{code or 'unknown'}] {msg}", "code": code}
+    return {"ok": False, "error": "发送失败（token 重试后仍未成功）"}
+
+
+def send_push_message(cfg: dict, title: str, text: str, timeout: float = None) -> dict:
+    """统一发送入口：从配置取四要素发送；永不抛异常。"""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return send_dingtalk_group_markdown(
+        cfg.get("app_key", ""), cfg.get("app_secret", ""), cfg.get("robot_code", ""),
+        cfg.get("open_conversation_id", ""), title, text, timeout=timeout)
 
 
 # ---------------------------------------------------------------- 消息组装
@@ -585,7 +648,7 @@ def run_watch_cycle(cfg: dict = None, force: bool = False,
     """执行一轮自选巡检：分析→落档→推送新买侧信号。永不抛异常。
 
     force=True 跳过交易时段检查（测试/手动验证用）。
-    sender 可注入以便离线测试；默认 send_dingtalk_markdown。
+    sender 可注入以便离线测试；签名 ``(cfg, title, text)``，默认 send_push_message。
     同一时刻只允许一轮巡检：并发触发直接返回 busy。
     """
     _ensure_notify_state_loaded()  # 模块首次直接使用前先回填持久化状态
@@ -601,16 +664,16 @@ def run_watch_cycle(cfg: dict = None, force: bool = False,
 def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
                             journal_dir: str = None, sender=None) -> dict:
     cfg = cfg or load_notify_config()
-    sender = sender or send_dingtalk_markdown
+    sender = sender or send_push_message
     try:
         if not cfg.get("enabled"):
             _set_state(status="idle", last_error="")
             _notify_save_state()
             return {"status": "idle", "reason": "未启用"}
-        if not is_dingtalk_webhook(cfg.get("webhook", "")):
-            _set_state(status="error", last_error="未配置有效的钉钉 webhook")
+        if not is_push_configured(cfg):
+            _set_state(status="error", last_error="未配置完整的钉钉 OpenAPI 参数（AppKey/AppSecret/robotCode/openConversationId）")
             _notify_save_state()
-            return {"status": "error", "reason": "未配置有效的钉钉 webhook"}
+            return {"status": "error", "reason": "未配置完整的钉钉 OpenAPI 参数"}
         if not force and not _in_watch_session():
             _set_state(status="waiting_market", last_error="")
             _notify_save_state()
@@ -693,8 +756,8 @@ def _run_watch_cycle_locked(cfg: dict = None, force: bool = False,
         if pushable:
             entries = [{"record": r, **entry_map.get(exact_key(r), {})} for r in pushable]
             title, text = build_signal_message(entries)
-            # .get 兜底：run_watch_cycle 允许调用方传入部分字段的 cfg（如测试/临时覆盖）
-            send_result = sender(cfg.get("webhook", ""), cfg.get("secret", ""), title, text)
+            # sender 统一签名 (cfg, title, text)：注入时便于离线测试
+            send_result = sender(cfg, title, text)
             if send_result.get("ok"):
                 pushed = len(pushable)
 
@@ -730,7 +793,7 @@ def _watcher_loop(poll_sec: float = 15.0) -> None:
         try:
             cfg = load_notify_config()
             interval = max(1, int(cfg.get("interval_min", 5))) * 60
-            active = bool(cfg.get("enabled")) and is_dingtalk_webhook(cfg.get("webhook", ""))
+            active = bool(cfg.get("enabled")) and is_push_configured(cfg)
             if active:
                 wait = interval - (time.time() - _last_cycle_ts[0])
                 if wait <= 0:
@@ -767,7 +830,7 @@ def _watchlist_scope_options() -> tuple:
 
 
 def handle_notify_get(params: dict) -> dict:
-    """GET /api/notify：配置摘要 + 运行状态。webhook 脱敏返回。"""
+    """GET /api/notify：配置摘要 + 运行状态。app_secret 脱敏（has_app_secret 标志）。"""
     _ensure_notify_state_loaded()  # 首次 GET 回填上次运行状态
     cfg = load_notify_config()
     state = get_state()
@@ -775,15 +838,17 @@ def handle_notify_get(params: dict) -> dict:
     return {
         "ok": True,
         "enabled": bool(cfg.get("enabled")),
-        "configured": is_dingtalk_webhook(cfg.get("webhook", "")),
-        "has_secret": bool(cfg.get("secret")),
+        "configured": is_push_configured(cfg),
+        "app_key": str(cfg.get("app_key") or ""),
+        "robot_code": str(cfg.get("robot_code") or ""),
+        "open_conversation_id": str(cfg.get("open_conversation_id") or ""),
+        "has_app_secret": bool(cfg.get("app_secret")),
         "interval_min": cfg.get("interval_min", 5),
         "scope": "watchlist",
         "watchlist_count": len(watchlist_codes()),
         "push": cfg.get("push"),
         "watchlist_groups": groups,
         "watchlist_stocks": stocks,
-        "webhook_masked": mask_webhook(cfg.get("webhook", "")),
         "state": state,
     }
 
@@ -795,37 +860,51 @@ def handle_notify_post(body: dict) -> dict:
 
     if action == "save":
         def _keep_or(value, fallback):
-            """留空=保持不变（前端回显的是脱敏值，清空输入框不应清掉已存配置）。"""
+            """留空=保持不变（app_secret 不回显明文，清空输入框不应清掉已存配置）。"""
             text = str(value if value is not None else "").strip()
             return text or fallback
 
         updates = {
             "enabled": body.get("enabled", cfg.get("enabled")),
-            "webhook": _keep_or(body.get("webhook"), cfg.get("webhook", "")),
-            "secret": _keep_or(body.get("secret"), cfg.get("secret", "")),
+            "app_key": _keep_or(body.get("app_key"), cfg.get("app_key", "")),
+            "app_secret": _keep_or(body.get("app_secret"), cfg.get("app_secret", "")),
+            "robot_code": _keep_or(body.get("robot_code"), cfg.get("robot_code", "")),
+            "open_conversation_id": _keep_or(body.get("open_conversation_id"),
+                                             cfg.get("open_conversation_id", "")),
             "interval_min": body.get("interval_min", cfg.get("interval_min")),
             "push": body.get("push") if isinstance(body.get("push"), dict) else cfg.get("push"),
         }
-        webhook = str(updates["webhook"] or "").strip()
-        if webhook and not is_dingtalk_webhook(webhook):
-            return {"ok": False, "error": "webhook 必须是 https://oapi.dingtalk.com/robot/send?access_token=... 形式"}
+        if not is_push_configured(updates):
+            return {"ok": False, "error": "请完整填写 AppKey / AppSecret / robotCode / openConversationId"}
         saved = save_notify_config(updates)
+        # 保存后尝试拉起 Stream 长连接（已配置凭证时；幂等，已启动则跳过）
+        try:
+            from server.dingtalk_stream import start_stream
+            start_stream()
+        except Exception as exc:
+            log.warning("钉钉 Stream 启动失败（不影响配置保存）: %s", exc)
         return {"ok": True, "message": "已保存", "config": {
             "enabled": saved.get("enabled"),
-            "configured": is_dingtalk_webhook(saved.get("webhook", "")),
-            "has_secret": bool(saved.get("secret")),
+            "configured": is_push_configured(saved),
+            "app_key": str(saved.get("app_key") or ""),
+            "robot_code": str(saved.get("robot_code") or ""),
+            "open_conversation_id": str(saved.get("open_conversation_id") or ""),
+            "has_app_secret": bool(saved.get("app_secret")),
             "interval_min": saved.get("interval_min"),
             "push": saved.get("push"),
-            "webhook_masked": mask_webhook(saved.get("webhook", "")),
         }}
 
     if action == "test":
-        webhook = str(body.get("webhook", "") or "").strip() or cfg.get("webhook", "")
-        secret = str(body.get("secret", "") or "").strip() or cfg.get("secret", "")
-        if not webhook:
-            return {"ok": False, "error": "请先填写钉钉机器人 webhook"}
+        # 用表单值覆盖已存配置做连通性测试（app_secret 留空沿用已存）
+        merged = dict(cfg)
+        for key in ("app_key", "robot_code", "open_conversation_id", "app_secret"):
+            value = str(body.get(key) or "").strip()
+            if value:
+                merged[key] = value
+        if not is_push_configured(merged):
+            return {"ok": False, "error": "请先完整填写 AppKey / AppSecret / robotCode / openConversationId"}
         title, text = build_test_message()
-        result = send_dingtalk_markdown(webhook, secret, title, text)
+        result = send_push_message(merged, title, text)
         return {"ok": bool(result.get("ok")), **{k: v for k, v in result.items() if k != "ok"}}
 
     if action == "run_once":

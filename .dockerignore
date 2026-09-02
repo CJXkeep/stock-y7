@@ -9,6 +9,7 @@ logs
 .worktrees
 .env
 .env.*
+.backups
 
 # 部署/接入敏感文档（不入镜像）
 server-connect-guide-for-new-device.md
@@ -18,8 +19,21 @@ REMOTE_DEBUG.md
 # 许可证（机器绑定，敏感，不入镜像）
 data/license.dat
 
-# 运行数据（由卷持久化，不入镜像）
+# 运行数据（由卷持久化，不入镜像）—— 保留 data/*.py 数据包代码模块
 data/journal
 data/pool.json
 data/results
 data/digest
+data/kline
+data/cache
+data/snapshots
+data/scan
+data/evaluation
+data/tasks
+data/decisions
+data/sim
+data/watchlist.json
+data/candidates.json
+data/notify.json
+data/*.jsonl
+data/*.db

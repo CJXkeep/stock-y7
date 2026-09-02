@@ -246,6 +246,49 @@ def _norm_benchmark(raw) -> str:
     return item if item in _BENCHMARK_CODES else _BENCHMARK_DEFAULT
 
 
+# ---- 模拟操作推送（sim-notify）：默认关闭，buy/sell 全推 ----
+
+def default_notify_block() -> dict:
+    """模拟操作推送配置默认块（sim-notify）：默认关闭、OpenAPI 参数为空、buy/sell 全推。"""
+    return {
+        "enabled": False,
+        "app_key": "",               # 应用 Client ID（AppKey）
+        "app_secret": "",            # 应用 Client Secret（AppSecret）
+        "robot_code": "",            # 机器人 robotCode（企业内部应用 = AppKey）
+        "open_conversation_id": "",  # 目标群会话 id
+        "ops": ["buy", "sell"],
+    }
+
+
+def _norm_notify(raw, cur: dict = None) -> dict:
+    """归一化模拟操作推送配置块（enabled/app_key/app_secret/robot_code/open_conversation_id/ops）。
+
+    - 未提供的字段沿用 current（部分保存不重置）；
+    - ops 只保留 buy/sell 合法值、去重保序；显式空列表 =不推任何类型（合法意图），缺失/非列表回退默认 ["buy","sell"]。
+    """
+    cur = cur if isinstance(cur, dict) else {}
+    out = default_notify_block()
+    merged = dict(cur)
+    if isinstance(raw, dict):
+        merged.update(raw)
+    if "enabled" in merged:
+        out["enabled"] = bool(merged.get("enabled"))
+    out["app_key"] = str(merged.get("app_key") or "").strip()
+    out["app_secret"] = str(merged.get("app_secret") or "").strip()
+    out["robot_code"] = str(merged.get("robot_code") or "").strip()
+    out["open_conversation_id"] = str(merged.get("open_conversation_id") or "").strip()
+    raw_ops = merged.get("ops")
+    if isinstance(raw_ops, list):
+        seen, ops = set(), []
+        for item in raw_ops:
+            v = str(item).strip().lower()
+            if v in ("buy", "sell") and v not in seen:
+                seen.add(v)
+                ops.append(v)
+        out["ops"] = ops
+    return out
+
+
 def default_config() -> dict:
     """v7 默认配置：账户/引擎参数 + 空的 strategy_params（由 adapter 填充默认值）。"""
     return {
@@ -268,6 +311,7 @@ def default_config() -> dict:
         "take_profit_enabled": True,
         "max_hold_days": int(config.SIM_MAX_HOLD_DAYS),
         "strategy_params": {},
+        "notify": default_notify_block(),
     }
 
 
@@ -307,11 +351,15 @@ def _norm_universe(raw) -> str:
     return item if item in ("scan", "watchlist", "pool") else config.SIM_UNIVERSE
 
 
-_SIGNAL_MODES = ("close_nextday", "intraday")
+_SIGNAL_MODES = ("auto", "close_nextday", "intraday")
 
 
 def _norm_signal_mode(raw) -> str:
-    """信号执行模式：收盘定档次日执行 / 盘中实时选股；非法值回退默认。"""
+    """信号执行模式：auto=跟随策略适配器声明 / close_nextday / intraday；非法值回退默认。
+
+    正常使用无需配置此键：执行节奏由当前策略自描述（StrategyAdapter.signal_mode），
+    显式配置仅作为强制覆盖（高级用途）。
+    """
     item = str(raw or "").strip().lower()
     return item if item in _SIGNAL_MODES else config.SIM_SIGNAL_MODE
 
@@ -388,6 +436,9 @@ def normalize_config(data: dict, current: dict = None) -> dict:
     if "max_hold_days" in data:
         out["max_hold_days"] = _norm_int(data.get("max_hold_days"),
                                          config.SIM_MAX_HOLD_DAYS, 0, 1000)
+    # 模拟操作推送（sim-notify）：enabled/app_key/app_secret/robot_code/open_conversation_id/ops
+    if "notify" in data or "notify" in cur:
+        out["notify"] = _norm_notify(data.get("notify"), cur.get("notify"))
     # strategy_params：键级子合并（对后端不透明；adapter 负责键内归一化）
     base_params = cur.get("strategy_params") if isinstance(cur.get("strategy_params"), dict) else {}
     if isinstance(data.get("strategy_params"), dict):

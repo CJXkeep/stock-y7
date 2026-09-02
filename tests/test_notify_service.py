@@ -3,8 +3,8 @@
 
 覆盖：
 - 配置存取：规范化、版本递增、损坏回退默认值；
-- webhook 校验与脱敏；
-- 加签 URL 与钉钉发送客户端（注入假 requests.post，不发真实网络请求）；
+- OpenAPI 配置完整性与 app_secret 脱敏；
+- 新版钉钉发送客户端（注入假 requests.post：token 获取/缓存/失效重试，不发真实网络请求）；
 - select_pushable：精确键去重 + 10 交易日窗口去重的推送选择纯函数；
 - 消息组装格式；
 - run_watch_cycle 端到端（注入分析/发送假件 + 临时 journal 目录）；
@@ -12,15 +12,11 @@
 - app.py 路由接线。
 仅使用 Python 标准库 + 注入假件，不访问网络。
 """
-import base64
-import hashlib
-import hmac
 import os
 import shutil
 import sys
 import tempfile
 import unittest
-import urllib.parse
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,7 +41,18 @@ def _restore_notify_state(saved) -> None:
     task_store.TASK_PATHS["notify"], task_store.OLD_PATHS["notify"] = saved
     task_store.reset_for_tests("notify")
 
-WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=abcdef1234567890abcdef"
+APP_KEY = "ding0123456789abcdef"
+APP_SECRET = "sec-test-0123456789abcdef"
+ROBOT_CODE = APP_KEY
+OPEN_CONV_ID = "cidXXXXXXXX0000AAAA===="
+
+
+def _openapi_cfg(**overrides):
+    """新版 OpenAPI 四要素测试配置（run_watch_cycle 直接传 cfg 用）。"""
+    cfg = {"enabled": True, "app_key": APP_KEY, "app_secret": APP_SECRET,
+           "robot_code": ROBOT_CODE, "open_conversation_id": OPEN_CONV_ID}
+    cfg.update(overrides)
+    return cfg
 
 
 def _make_record(symbol="600000", signal_type="buy", trigger_date="2025-06-06",
@@ -73,20 +80,21 @@ class ConfigStoreTest(unittest.TestCase):
 
     def test_missing_returns_default(self):
         cfg = ns.load_notify_config(self.path)
-        assert cfg["enabled"] is False and cfg["webhook"] == ""
+        assert cfg["enabled"] is False and cfg["app_key"] == ""
         assert cfg["interval_min"] == 5
 
     def test_save_normalizes_and_bumps_version(self):
         saved = ns.save_notify_config({
-            "enabled": "yes", "webhook": "  " + WEBHOOK + "  ",
-            "secret": "SECxxx", "interval_min": "999",
+            "enabled": "yes", "app_key": "  " + APP_KEY + "  ",
+            "app_secret": APP_SECRET, "robot_code": "  ", "interval_min": "999",
         }, self.path)
         assert saved["enabled"] is True          # bool 化
-        assert saved["webhook"] == WEBHOOK       # 去空白
+        assert saved["app_key"] == APP_KEY       # 去空白
+        assert saved["robot_code"] == ""         # 空串归一化
         assert saved["interval_min"] == 60       # 夹取上限
         again = ns.load_notify_config(self.path)
         assert again["version"] == saved["version"]
-        assert again["webhook"] == WEBHOOK
+        assert again["app_key"] == APP_KEY
 
     def test_corrupt_file_falls_back_to_default(self):
         with open(self.path, "w", encoding="utf-8") as fh:
@@ -111,7 +119,7 @@ class PushConfigTest(unittest.TestCase):
         assert push["thresholds"] == {"min_score": 0, "min_pct_change": None}
 
     def test_missing_push_returns_defaults(self):
-        saved = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK}, self.path)
+        saved = ns.save_notify_config(_openapi_cfg(), self.path)
         assert saved["push"]["levels"] == list(ns.journal_config.BUY_SIDE_TYPES)
         assert saved["push"]["scope"]["enabled_groups"] == []
         assert saved["push"]["thresholds"]["min_score"] == 0
@@ -143,45 +151,29 @@ class PushConfigTest(unittest.TestCase):
         assert bad["push"]["thresholds"]["min_pct_change"] is None
 
     def test_partial_save_preserves_push(self):
-        first = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK, "push": {
+        first = ns.save_notify_config({**_openapi_cfg(), "push": {
             "levels": ["strong_buy"], "scope": {"enabled_groups": ["g1"]},
             "thresholds": {"min_score": 80, "min_pct_change": 1.5},
         }}, self.path)
-        second = ns.save_notify_config({"enabled": True, "webhook": WEBHOOK, "interval_min": 10}, self.path)
+        second = ns.save_notify_config({**_openapi_cfg(), "interval_min": 10}, self.path)
         assert second["push"] == first["push"]
         assert second["version"] == first["version"] + 1
 
 
-class WebhookValidateTest(unittest.TestCase):
-    def test_valid_dingtalk_webhook(self):
-        assert ns.is_dingtalk_webhook(WEBHOOK) is True
-        assert ns.is_dingtalk_webhook("http://oapi.dingtalk.com/robot/send?access_token=x") is False
-        assert ns.is_dingtalk_webhook("https://evil.com/robot/send?access_token=x") is False
-        assert ns.is_dingtalk_webhook("") is False
+class OpenApiConfigTest(unittest.TestCase):
+    def test_is_push_configured_complete_only(self):
+        assert ns.is_push_configured(_openapi_cfg()) is True
+        for missing in ("app_key", "app_secret", "robot_code", "open_conversation_id"):
+            assert ns.is_push_configured(_openapi_cfg(**{missing: ""})) is False
+        assert ns.is_push_configured({}) is False
+        assert ns.is_push_configured(None) is False
 
-    def test_mask_webhook_keeps_head_and_tail(self):
-        masked = ns.mask_webhook(WEBHOOK)
-        assert masked.startswith("https://oapi.dingtalk.com/robot/send?access_token=abcd")
-        assert "****" in masked and masked.endswith("cdef")
-        assert "abcdef1234567890abcdef" not in masked  # 完整 token 不泄露
-
-
-class SignedUrlTest(unittest.TestCase):
-    def test_no_secret_returns_original(self):
-        assert ns.signed_url(WEBHOOK, "") == WEBHOOK
-
-    def test_signed_url_structure(self):
-        url = ns.signed_url(WEBHOOK, "SECcret", timestamp_ms=1700000000000)
-        assert url.startswith(WEBHOOK + "&timestamp=1700000000000&sign=")
-        # 独立重算期望签名（与实现同一钉钉算法，交叉验证拼接顺序/编码正确）。
-        # parse_qs 返回解码后的值：base64 的 + / = 由 %2B/%2F/%3D 还原，可直接比较。
-        sts = "1700000000000\nSECcret"
-        expected_b64 = base64.b64encode(
-            hmac.new(b"SECcret", sts.encode("utf-8"), hashlib.sha256).digest()
-        ).decode("ascii")
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-        assert query["sign"] == [expected_b64]
-        assert query["timestamp"] == ["1700000000000"]
+    def test_mask_secret(self):
+        masked = ns.mask_secret(APP_SECRET)
+        assert masked.startswith("se") and masked.endswith("ef") and "****" in masked
+        assert APP_SECRET not in masked
+        assert ns.mask_secret("") == ""
+        assert ns.mask_secret("abc") == "****"
 
 
 class _FakeResponse:
@@ -192,49 +184,126 @@ class _FakeResponse:
         return self._payload
 
 
-class SendMarkdownTest(unittest.TestCase):
-    def test_ok_when_errcode_zero(self):
-        calls = []
+class OpenApiSendTest(unittest.TestCase):
+    def setUp(self):
+        ns._openapi_token_cache.clear()
+        self.calls = []
+        self.token_calls = 0
+        self.send_results = []      # 依次注入发送接口的返回体
+        self.send_payloads = []
 
-        def fake_post(url, json=None, timeout=None):
-            calls.append({"url": url, "json": json})
-            return _FakeResponse({"errcode": 0, "errmsg": "ok"})
+    def tearDown(self):
+        ns._openapi_token_cache.clear()
 
-        orig = ns.requests.post
+    def _install(self, token_error=None):
+        outer = self
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            outer.calls.append({"url": url, "json": json, "headers": headers})
+            if "oauth2/accessToken" in url:
+                outer.token_calls += 1
+                if token_error:
+                    return _FakeResponse(token_error)
+                return _FakeResponse({"accessToken": "tok123", "expireIn": 7200})
+            outer.send_payloads.append({"json": json, "headers": headers})
+            result = outer.send_results.pop(0) if outer.send_results else {}
+            return _FakeResponse(result)
+
+        self._orig = ns.requests.post
         ns.requests.post = fake_post
-        try:
-            result = ns.send_dingtalk_markdown(WEBHOOK, "", "标题", "正文")
-        finally:
-            ns.requests.post = orig
-        assert result["ok"] is True
-        assert calls[0]["json"]["msgtype"] == "markdown"
-        assert calls[0]["json"]["markdown"]["title"] == "标题"
 
-    def test_errcode_nonzero_is_not_ok(self):
-        orig = ns.requests.post
-        ns.requests.post = lambda url, json=None, timeout=None: _FakeResponse(
-            {"errcode": 310000, "errmsg": "sign not match"})
+    def _restore(self):
+        ns.requests.post = self._orig
+
+    def test_ok_send_two_phase(self):
+        self._install()
         try:
-            result = ns.send_dingtalk_markdown(WEBHOOK, "", "t", "x")
+            result = ns.send_dingtalk_group_markdown(
+                APP_KEY, APP_SECRET, ROBOT_CODE, OPEN_CONV_ID, "标题", "正文")
         finally:
-            ns.requests.post = orig
-        assert result["ok"] is False and "310000" in str(result.get("errcode"))
+            self._restore()
+        assert result["ok"] is True
+        # 第一跳取 token，第二跳发消息且带访问凭证头
+        assert "oauth2/accessToken" in self.calls[0]["url"]
+        assert self.calls[0]["json"]["appKey"] == APP_KEY
+        assert self.send_payloads[0]["headers"]["x-acs-dingtalk-access-token"] == "tok123"
+        body = self.send_payloads[0]["json"]
+        assert body["msgKey"] == "sampleMarkdown"
+        assert body["robotCode"] == ROBOT_CODE
+        assert body["openConversationId"] == OPEN_CONV_ID
+        assert "标题" in body["msgParam"]
+
+    def test_token_cached_across_sends(self):
+        self._install()
+        try:
+            ns.send_dingtalk_group_markdown(APP_KEY, APP_SECRET, "", OPEN_CONV_ID, "t", "x")
+            ns.send_dingtalk_group_markdown(APP_KEY, APP_SECRET, "", OPEN_CONV_ID, "t", "x")
+        finally:
+            self._restore()
+        assert self.token_calls == 1          # 第二次发送命中缓存
+        # robot_code 缺省回退 app_key
+        assert self.send_payloads[1]["json"]["robotCode"] == APP_KEY
+
+    def test_invalid_token_refreshed_and_retried(self):
+        self._install()
+        self.send_results = [{"code": "InvalidAuthentication", "message": "token expired"}, {}]
+        try:
+            result = ns.send_dingtalk_group_markdown(
+                APP_KEY, APP_SECRET, ROBOT_CODE, OPEN_CONV_ID, "t", "x")
+        finally:
+            self._restore()
+        assert result["ok"] is True
+        assert self.token_calls == 2          # 首次 + 失效后强制刷新
+
+    def test_api_error_returned_not_ok(self):
+        self._install()
+        self.send_results = [{"code": "Forbidden.AccessDenied", "message": "no permission"}]
+        try:
+            result = ns.send_dingtalk_group_markdown(
+                APP_KEY, APP_SECRET, ROBOT_CODE, OPEN_CONV_ID, "t", "x")
+        finally:
+            self._restore()
+        assert result["ok"] is False
+        assert "no permission" in result["error"]
+
+    def test_token_fetch_failure_reported(self):
+        self._install(token_error={"code": "InvalidAppKey", "message": "bad appkey"})
+        try:
+            result = ns.send_dingtalk_group_markdown(
+                APP_KEY, APP_SECRET, ROBOT_CODE, OPEN_CONV_ID, "t", "x")
+        finally:
+            self._restore()
+        assert result["ok"] is False and "bad appkey" in result["error"]
+
+    def test_incomplete_config_rejected_before_request(self):
+        self._install()
+        try:
+            result = ns.send_dingtalk_group_markdown(APP_KEY, "", "", "", "t", "x")
+        finally:
+            self._restore()
+        assert result["ok"] is False and self.calls == []
 
     def test_exception_never_raises(self):
-        def boom(url, json=None, timeout=None):
+        def boom(url, json=None, headers=None, timeout=None):
             raise ConnectionError("network down")
 
         orig = ns.requests.post
         ns.requests.post = boom
         try:
-            result = ns.send_dingtalk_markdown(WEBHOOK, "", "t", "x")
+            result = ns.send_dingtalk_group_markdown(
+                APP_KEY, APP_SECRET, ROBOT_CODE, OPEN_CONV_ID, "t", "x")
         finally:
             ns.requests.post = orig
         assert result["ok"] is False and "network down" in result["error"]
 
-    def test_invalid_webhook_rejected_before_request(self):
-        result = ns.send_dingtalk_markdown("https://evil.com/x", "", "t", "x")
-        assert result["ok"] is False
+    def test_send_push_message_reads_cfg(self):
+        self._install()
+        try:
+            result = ns.send_push_message(_openapi_cfg(), "标题", "正文")
+        finally:
+            self._restore()
+        assert result["ok"] is True
+        assert self.send_payloads[0]["headers"]["x-acs-dingtalk-access-token"] == "tok123"
 
 
 class SelectPushableTest(unittest.TestCase):
@@ -418,9 +487,10 @@ class RunWatchCycleTest(unittest.TestCase):
         out = ns.run_watch_cycle({"enabled": False}, force=True)
         assert out["status"] == "idle"
 
-    def test_bad_webhook_errors(self):
-        out = ns.run_watch_cycle({"enabled": True, "webhook": "https://x.com/"}, force=True)
+    def test_incomplete_openapi_config_errors(self):
+        out = ns.run_watch_cycle({"enabled": True, "app_key": APP_KEY}, force=True)
         assert out["status"] == "error"
+        assert "OpenAPI" in out["reason"]
 
     def test_end_to_end_push_once_then_dedupe(self):
         bars = [_FakeBar(f"2025-06-{d:02d}") for d in range(1, 7)]
@@ -429,7 +499,7 @@ class RunWatchCycleTest(unittest.TestCase):
                     "klines": bars, "quote": _FakeQuote(), "flows": []}
         sent = []
 
-        def fake_sender(webhook, secret, title, text):
+        def fake_sender(cfg, title, text):
             sent.append({"title": title, "text": text})
             return {"ok": True}
 
@@ -437,12 +507,10 @@ class RunWatchCycleTest(unittest.TestCase):
         ns._analyze_one = lambda symbol, idx, breadth: analysis
         ns.watchlist_codes = lambda watchlist_dir=None: ["600000"]
         try:
-            first = ns.run_watch_cycle({"enabled": True, "webhook": WEBHOOK,
-                                        "secret": ""},
+            first = ns.run_watch_cycle(_openapi_cfg(),
                                        force=True, journal_dir=self.journal_dir,
                                        sender=fake_sender)
-            second = ns.run_watch_cycle({"enabled": True, "webhook": WEBHOOK,
-                                         "secret": ""},
+            second = ns.run_watch_cycle(_openapi_cfg(),
                                         force=True, journal_dir=self.journal_dir,
                                         sender=fake_sender)
         finally:
@@ -464,17 +532,17 @@ class RunWatchCycleTest(unittest.TestCase):
                     "signal_data": {"action": "买入", "score": 66},
                     "klines": bars, "quote": _FakeQuote(), "flows": []}
 
-        def failing_sender(webhook, secret, title, text):
+        def failing_sender(cfg, title, text):
             return {"ok": False, "error": "超时"}
 
         orig_analyze, orig_codes = ns._analyze_one, ns.watchlist_codes
         ns._analyze_one = lambda symbol, idx, breadth: analysis
         ns.watchlist_codes = lambda watchlist_dir=None: ["600000"]
         try:
-            r1 = ns.run_watch_cycle({"enabled": True, "webhook": WEBHOOK},
+            r1 = ns.run_watch_cycle(_openapi_cfg(),
                                     force=True, journal_dir=self.journal_dir,
                                     sender=failing_sender)
-            r2 = ns.run_watch_cycle({"enabled": True, "webhook": WEBHOOK},
+            r2 = ns.run_watch_cycle(_openapi_cfg(),
                                     force=True, journal_dir=self.journal_dir,
                                     sender=failing_sender)
         finally:
@@ -497,34 +565,50 @@ class ApiHandlerTest(unittest.TestCase):
         _restore_notify_state(self._saved_notify_state)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_get_summary_masks_webhook(self):
-        ns.save_notify_config({"enabled": True, "webhook": WEBHOOK, "secret": "S"},
-                              self.tmp + "/notify.json")
+    def test_get_summary_masks_app_secret(self):
+        ns.handle_notify_post({"action": "save", "enabled": True,
+                               "app_key": APP_KEY, "app_secret": APP_SECRET,
+                               "robot_code": ROBOT_CODE,
+                               "open_conversation_id": OPEN_CONV_ID})
         summary = ns.handle_notify_get({})
         assert summary["ok"] is True and summary["enabled"] is True
-        assert summary["configured"] is True and summary["has_secret"] is True
-        assert "abcdef1234567890abcdef" not in summary["webhook_masked"]
+        assert summary["configured"] is True and summary["has_app_secret"] is True
+        assert summary["app_key"] == APP_KEY
+        assert APP_SECRET not in str(summary)   # app_secret 不回显明文
 
-    def test_post_save_rejects_foreign_host(self):
-        out = ns.handle_notify_post({"action": "save",
-                                     "webhook": "https://evil.com/robot/send"})
-        assert out["ok"] is False and "webhook" in out["error"]
+    def test_post_save_rejects_incomplete(self):
+        out = ns.handle_notify_post({"action": "save", "app_key": APP_KEY})
+        assert out["ok"] is False and "完整" in out["error"]
 
     def test_post_save_accepts_valid(self):
         out = ns.handle_notify_post({"action": "save", "enabled": True,
-                                     "webhook": WEBHOOK, "interval_min": 3})
+                                     "app_key": APP_KEY, "app_secret": APP_SECRET,
+                                     "robot_code": ROBOT_CODE,
+                                     "open_conversation_id": OPEN_CONV_ID,
+                                     "interval_min": 3})
         assert out["ok"] is True and out["config"]["interval_min"] == 3
+        assert out["config"]["has_app_secret"] is True
+
+    def test_post_save_keeps_secret_when_blank(self):
+        ns.handle_notify_post({"action": "save", "app_key": APP_KEY,
+                               "app_secret": APP_SECRET, "robot_code": ROBOT_CODE,
+                               "open_conversation_id": OPEN_CONV_ID})
+        out = ns.handle_notify_post({"action": "save", "app_key": APP_KEY,
+                                     "app_secret": "", "robot_code": ROBOT_CODE,
+                                     "open_conversation_id": OPEN_CONV_ID,
+                                     "interval_min": 7})
+        assert out["ok"] is True
+        assert ns.load_notify_config()["app_secret"] == APP_SECRET  # 留空沿用
 
     def test_get_returns_push_and_watchlist_options(self):
-        ns.save_notify_config({"enabled": True, "webhook": WEBHOOK},
-                              self.tmp + "/notify.json")
+        ns.save_notify_config(_openapi_cfg(enabled=True), self.tmp + "/notify.json")
         summary = ns.handle_notify_get({})
         assert summary["push"]["levels"] == list(ns.journal_config.BUY_SIDE_TYPES)
         assert isinstance(summary["watchlist_groups"], list)
         assert isinstance(summary["watchlist_stocks"], list)
 
     def test_post_save_persists_push(self):
-        out = ns.handle_notify_post({"action": "save", "enabled": True, "webhook": WEBHOOK,
+        out = ns.handle_notify_post({"action": "save", **_openapi_cfg(),
                                      "push": {
                                          "levels": ["strong_buy"],
                                          "scope": {"enabled_groups": ["g1"],
@@ -538,10 +622,10 @@ class ApiHandlerTest(unittest.TestCase):
         assert ns.load_notify_config()["push"]["levels"] == ["strong_buy"]
 
     def test_post_save_keeps_push_when_omitted(self):
-        ns.handle_notify_post({"action": "save", "enabled": True, "webhook": WEBHOOK,
+        ns.handle_notify_post({"action": "save", **_openapi_cfg(),
                                "push": {"levels": ["cautious_buy"]}})
-        out = ns.handle_notify_post({"action": "save", "enabled": True,
-                                     "webhook": WEBHOOK, "interval_min": 10})
+        out = ns.handle_notify_post({"action": "save", **_openapi_cfg(),
+                                     "interval_min": 10})
         assert out["ok"] is True
         assert out["config"]["push"]["levels"] == ["cautious_buy"]
 

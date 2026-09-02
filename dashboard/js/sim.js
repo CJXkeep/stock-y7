@@ -327,11 +327,35 @@ function _renderConfig(data) {
   set('sim-per-trade', cfg.per_trade_pct);
   set('sim-max-hold', cfg.max_hold_days);
   set('sim-benchmark', cfg.benchmark || '000300');
-  set('sim-signal-mode', cfg.signal_mode || 'close_nextday');
+  set('sim-signal-mode', cfg.signal_mode || 'auto');
+  // 信号执行模式：默认跟随策略声明（data.signal_mode 为生效值），下拉首项动态标注
+  const smSel = document.getElementById('sim-signal-mode');
+  if (smSel) {
+    const eff = data.signal_mode || 'close_nextday';
+    const first = smSel.querySelector('option[value="auto"]');
+    if (first) first.textContent = '跟随策略（当前：' + (eff === 'intraday' ? '盘中实时' : '收盘定档·次日执行') + '）';
+  }
   _renderStrategyOptions(data);
   ['auto_sell', 'stop_loss_enabled', 'take_profit_enabled'].forEach((k) => {
     const el = document.getElementById('sim-' + k);
     if (el) el.checked = !!cfg[k];
+  });
+  // 钉钉推送（sim-notify）：enabled/app_key/app_secret/robot_code/open_conversation_id/ops
+  const nt = cfg.notify || {};
+  const ntEn = document.getElementById('sim-notify-enabled');
+  if (ntEn) ntEn.checked = !!nt.enabled;
+  const ntAppKey = document.getElementById('sim-notify-app-key');
+  if (ntAppKey && !ntAppKey.value) ntAppKey.value = nt.app_key || '';
+  const ntSecret = document.getElementById('sim-notify-app-secret');
+  if (ntSecret && !ntSecret.value && nt.app_secret) ntSecret.placeholder = '已保存（留空保持不变）';
+  const ntRobot = document.getElementById('sim-notify-robot-code');
+  if (ntRobot && !ntRobot.value) ntRobot.value = nt.robot_code || '';
+  const ntConv = document.getElementById('sim-notify-conversation-id');
+  if (ntConv && !ntConv.value) ntConv.value = nt.open_conversation_id || '';
+  const ntOps = Array.isArray(nt.ops) ? nt.ops : ['buy', 'sell'];
+  ['buy', 'sell'].forEach((op) => {
+    const el = document.getElementById('sim-notify-' + op);
+    if (el) el.checked = (ntOps.indexOf(op) >= 0);
   });
   _renderStrategyParams(data);
 }
@@ -399,7 +423,7 @@ function _renderStateLine(data) {
   if (s.last_equity) bits.push('净值 ' + _fmtMoney(s.last_equity));
   if (s.rounds) bits.push('累计 ' + s.rounds + ' 轮');
   const plans = data.queues || {};
-  if ((cfg.signal_mode || 'close_nextday') !== 'intraday') {
+  if ((data.signal_mode || 'close_nextday') !== 'intraday') {
     if ((plans.buys || []).length) bits.push('明日买单 ' + plans.buys.length);
     if ((plans.sells || []).length) bits.push('明日卖单 ' + plans.sells.length);
   }
@@ -468,10 +492,20 @@ function _readConfigForm() {
     // 策略与基准（v8）：策略下拉由注册表枚举驱动；基准属账户/引擎参数
     strategy: val('sim-strategy') || 'qushi_v5',
     benchmark: val('sim-benchmark') || '000300',
-    signal_mode: val('sim-signal-mode') || 'close_nextday',
+    signal_mode: val('sim-signal-mode') || 'auto',
     auto_sell: !!((document.getElementById('sim-auto_sell') || {}).checked),
     stop_loss_enabled: !!((document.getElementById('sim-stop_loss_enabled') || {}).checked),
     take_profit_enabled: !!((document.getElementById('sim-take_profit_enabled') || {}).checked),
+    // 钉钉推送（sim-notify）：enabled/app_key/app_secret/robot_code/open_conversation_id/ops
+    notify: {
+      enabled: !!((document.getElementById('sim-notify-enabled') || {}).checked),
+      app_key: (document.getElementById('sim-notify-app-key') || {}).value || '',
+      app_secret: (document.getElementById('sim-notify-app-secret') || {}).value || '',
+      robot_code: (document.getElementById('sim-notify-robot-code') || {}).value || '',
+      open_conversation_id: (document.getElementById('sim-notify-conversation-id') || {}).value || '',
+      ops: ['buy', 'sell'].filter((op) =>
+        !!((document.getElementById('sim-notify-' + op) || {}).checked)),
+    },
     // 策略参数由 schema 驱动动态读取（v7 解耦）
     strategy_params: _readStrategyParams(),
   };

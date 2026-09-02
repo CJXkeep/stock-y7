@@ -106,6 +106,6 @@ SIM_TRADE_LOG_LIMIT = 500        # /api/sim 返回的成交流水条数上限
 SIM_EQUITY_LIMIT = 2000          # 净值快照返回条数上限
 SIM_MAX_WORKERS = int(os.environ.get("SIM_MAX_WORKERS", "12"))  # 选股并发
 SIM_METRICS_MIN_SAMPLES = 20     # 组合级指标最小净值样本点数（低于则标注样本不足）
-SIM_SIGNAL_MODE = "close_nextday"  # close_nextday(收盘定档·次日执行) | intraday(盘中实时选股，旧行为)
+SIM_SIGNAL_MODE = "auto"  # auto(跟随策略声明) | close_nextday(收盘定档·次日执行) | intraday(盘中实时)
 SIM_CLOSE_SCREEN_AT = "15:05"      # 收盘定档最早触发时刻（HH:MM；到点且当日为交易日才触发）
 SIM_QUEUE_STALE_DAYS = 10          # 买入清单条目有效期（自然日；超过则丢弃）

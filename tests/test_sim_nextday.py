@@ -28,16 +28,34 @@ YEST = "2026-09-01"
 # ---------------------------------------------------------------- 配置/状态 schema
 
 def test_config_signal_mode_normalize():
-    """默认 close_nextday；intraday 合法；非法值回退默认（无破坏迁移）。"""
+    """默认 auto（跟随策略）；intraday 合法；非法值回退默认（无破坏迁移）。"""
     cfg = sa.default_config()
-    assert cfg["signal_mode"] == "close_nextday"
+    assert cfg["signal_mode"] == "auto"
     out = sa.normalize_config({"signal_mode": "intraday"})
     assert out["signal_mode"] == "intraday"
-    out = sa.normalize_config({"signal_mode": "junk"})
+    out = sa.normalize_config({"signal_mode": "close_nextday"})
     assert out["signal_mode"] == "close_nextday"
+    out = sa.normalize_config({"signal_mode": "junk"})
+    assert out["signal_mode"] == "auto"
     # 未传信号模式：沿用默认（部分保存语义）
     out = sa.normalize_config({"enabled": True}, current=sa.default_config())
-    assert out["signal_mode"] == "close_nextday"
+    assert out["signal_mode"] == "auto"
+
+
+def test_effective_signal_mode_follows_adapter():
+    """生效模式：配置显式覆盖优先；auto/缺省跟随适配器声明（intraday 策略自动切盘中）。"""
+    class _CN:
+        signal_mode = "close_nextday"
+
+    class _ID:
+        signal_mode = "intraday"
+
+    assert svc._effective_signal_mode({}, _CN()) == "close_nextday"
+    assert svc._effective_signal_mode({}, _ID()) == "intraday"
+    assert svc._effective_signal_mode({"signal_mode": "auto"}, _ID()) == "intraday"   # 跟随
+    assert svc._effective_signal_mode({"signal_mode": "junk"}, _CN()) == "close_nextday"  # 非法跟随
+    assert svc._effective_signal_mode({"signal_mode": "intraday"}, _CN()) == "intraday"   # 显式覆盖
+    assert svc._effective_signal_mode({"signal_mode": "close_nextday"}, _ID()) == "close_nextday"
 
 
 def test_state_queue_defaults_and_carry():
@@ -82,6 +100,7 @@ class _DummyAdapter:
     """测试适配器：screen 返回给定决策；evaluate 对持仓给卖出。"""
 
     id = "dummy"
+    signal_mode = "close_nextday"
 
     def __init__(self, decisions=None, sell_side=True):
         self.decisions = decisions or []
@@ -312,9 +331,8 @@ def test_check_positions_t1_keeps_queue():
 
 def test_run_cycle_close_screen_routing():
     """非交易时段且到点 → 收盘定档；交易时段 close_nextday → 队列执行（不重新选股）。"""
-    cfg = sa.default_config()
+    cfg = sa.default_config()   # signal_mode=auto：跟随策略声明（不做显式覆盖）
     cfg["enabled"] = True
-    cfg["signal_mode"] = "close_nextday"
     fake_state = sa.default_state()
     calls = {"screen": 0, "pos": 0, "queue": 0, "maybe": 0}
 
@@ -330,7 +348,7 @@ def test_run_cycle_close_screen_routing():
         svc.load_config = lambda path=None: cfg
         svc._market_trading_session = lambda: False
         svc._close_screen_due = lambda now, state: True
-        svc.get_adapter = lambda cfg: _DummyAdapter()
+        svc.get_adapter = lambda cfg: _DummyAdapter()   # 策略声明 close_nextday（默认跟随）
         svc.build_context = lambda: {}
         svc._snapshot_equity = lambda state, now, cfg=None: {"equity": 100000.0}
         svc.get_sim_state = lambda: {"rounds": 5}
@@ -355,8 +373,10 @@ def test_run_cycle_close_screen_routing():
         assert out.get("status") == "done"
         assert calls["pos"] == 1 and calls["queue"] == 1 and calls["maybe"] == 0
 
-        # intraday：保持旧行为（盘中实时选股）
-        cfg["signal_mode"] = "intraday"
+        # 策略声明 intraday（配置 auto 跟随策略）：保持旧行为（盘中实时选股）
+        class _IntradayAdapter(_DummyAdapter):
+            signal_mode = "intraday"
+        svc.get_adapter = lambda cfg: _IntradayAdapter()
         out = svc.run_cycle(cfg, force=False)
         assert calls["maybe"] == 1 and calls["queue"] == 1
     finally:

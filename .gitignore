@@ -17,6 +17,8 @@ data/digest/
 data/scan/
 data/evaluation/
 data/notify_state.json
+data/notify.json
+data/tasks/
 data/decisions/
 data/cache/
 data/kline/
@@ -26,8 +28,13 @@ data/sim/
 # 工作区与日志
 .worktrees/
 logs/
+*.log
 .fulltest-run.log
 .fulltest-run.pid
+
+# 便携依赖的本地脚本与构建产物
+libs/bin/
+libs/*.dist-info/
 
 # 本地部署凭据（不入库）
 .env
