@@ -57,7 +57,9 @@ function _listHtml(cands) {
   html += '<div class="eval-row eval-ops-btns">'
     + '<button data-act="candAdd">添加候选</button>'
     + '<button data-act="candImportScan">从最近扫描导入</button>'
-    + '<button data-act="candValidateStart">候选验证（无前视重放 + 门槛）</button>'
+    + (items.length
+      ? '<button data-act="candValidateStart">候选验证（无前视重放 + 门槛）</button>'
+      : '<button data-act="candValidateStart" disabled title="候选池为空，先添加候选或从扫描导入">候选验证（无前视重放 + 门槛）</button>')
     + '</div>';
   html += '<div id="cand-validate-status"></div>';
   if (!items.length) {

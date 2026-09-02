@@ -129,10 +129,17 @@ function _renderTrades(data) {
     el.innerHTML = '<div class="sim-empty">暂无成交记录。</div>';
     return;
   }
-  el.innerHTML = `<table class="sim-table">
+  // 账户重置（reason=reset）是 append-only 审计记录，不是真实成交——单独分区展示，避免误导
+  const real = trades.filter((t) => t.reason !== 'reset');
+  const resetAudit = trades.filter((t) => t.reason === 'reset');
+  let html = '';
+  if (!real.length) {
+    html += '<div class="sim-empty">暂无成交记录。账户重置产生的强制平仓记录见下方「重置审计」，不计入收益。</div>';
+  } else {
+    html += `<table class="sim-table">
     <thead><tr><th>时间</th><th>方向</th><th>标的</th><th>价格</th><th>数量</th><th>费用</th><th>盈亏</th><th>原因</th><th>策略</th></tr></thead>
     <tbody>
-    ${trades.map((t) => {
+    ${real.map((t) => {
       const isBuy = t.side === 'buy';
       return `<tr>
         <td class="sim-sub">${escHtml(t.date || '')} ${escHtml((t.ts || '').slice(11, 16))}</td>
@@ -147,6 +154,21 @@ function _renderTrades(data) {
       </tr>`;
     }).join('')}
     </tbody></table>`;
+  }
+  if (resetAudit.length) {
+    html += '<div class="eval-notice-line">以下 ${resetAudit.length} 条为「账户重置」审计记录'
+      + '（重置时强制平仓清算写账，仅留痕，不计入账户收益与交易次数）。</div>'
+      + '<table class="sim-table"><thead><tr><th>时间</th><th>标的</th><th>价格</th><th>数量</th><th>备注</th></tr></thead><tbody>'
+      + resetAudit.map((t) => `<tr>
+        <td class="sim-sub">${escHtml(t.date || '')} ${escHtml((t.ts || '').slice(11, 16))}</td>
+        <td><a class="sim-jump" href="/?symbol=${escHtml(t.symbol)}" title="回看板分析该股">${escHtml(t.name || t.symbol)}<span class="code">${escHtml(t.symbol)}</span></a></td>
+        <td>${t.price == null ? '—' : Number(t.price).toFixed(2)}</td>
+        <td>${t.shares}</td>
+        <td class="sim-sub"><span class="sim-tag">重置</span>${t.note === 'forced' ? '<span class="sim-tag">强平</span>' : ''}</td>
+      </tr>`).join('')
+      + '</tbody></table>';
+  }
+  el.innerHTML = html;
 }
 
 // ---------------------------------------------------------------- 净值曲线

@@ -440,7 +440,10 @@ DELEGATED_ACTIONS.onboardSkip = () => onboardFinish();
 (function onboardInit() {
   let done = false;
   try { done = localStorage.getItem(ONBOARD_KEY) === '1'; } catch (e) {}
-  if (!done) setTimeout(onboardShow, 600);
+  // 深链直达（/?symbol=）时跳过首访三步引导，避免浮层盖住刚加载的个股分析
+  let deepLink = false;
+  try { deepLink = !!new URLSearchParams(location.search).get('symbol'); } catch (e) {}
+  if (!done && !deepLink) setTimeout(onboardShow, 600);
 })();
 
 
