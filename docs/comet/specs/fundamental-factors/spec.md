@@ -7,8 +7,8 @@
 新增 `backtest/factors.py`：
 
 - 抓取：对给定 symbol 列表逐个请求东财 `/api/qt/stock/get`（复用 `data.kline_fetcher._get_json_eastmoney`/`QUOTE_HOSTS`/`symbol_to_secid`），fields=`f43`(现价),`f116`(总市值),`f117`(流通市值),`f164`(PE-TTM),`f167`(PB),`f187`(分红率%),`f58`(名称)。
-- 派生：股息率 `div_yield = div_ratio / pe_ttm * 100`（需 div_ratio 与 pe_ttm 均有效且 pe_ttm>0）；ROE `roe = pb / pe_ttm * 100`（需 pb>0 且 pe_ttm>0）。披露标注 `derive_from`（"f187/f164"、"f167/f164"）。
-- 合成（仅披露）：`composite_score(factors) -> dict`：单因子 winsorize(5%,95%) → 行业+市值中性化（x=log(market_cap)+行业哑变量的一元 OLS 残差，纯手写标准库求解）→ zscore → 等权合成 → 返回 {score, factors_z, n}；样本 <3 或行业数据缺时直接退化为「等权 zscore（不中性化）」并在 `method` 标注；仍缺则返回 None（披露 `factor_score_error`）。
+- 派生：股息率 `div_yield = div_ratio / pe_ttm`（f187 分红率为**百分数值**口径，37.88=37.88%，除以 PE-TTM 即得股息率 %；需 div_ratio 与 pe_ttm 均有效且 pe_ttm>0）；ROE `roe = pb / pe_ttm * 100`（需 pb>0 且 pe_ttm>0）。披露标注 `derive_from`（"f187/f164"、"f167/f164"）。
+- 合成（仅披露）：`composite_score(factors) -> dict`：单因子 winsorize(5%,95%) → 行业+市值中性化（x=log(market_cap)+行业哑变量的一元 OLS 残差，纯手写标准库求解）→ zscore → 等权合成 → 返回 {score, factors_z, n, method}（score=每股等权合成分、factors_z=每股各维 z 值表）；行业数据缺或中性化奇异（共线）时该维退化为「等权 zscore（不中性化）」并在 `method` 标注；样本 <3 或有效维度 <2 则返回 None（披露 `factor_score_error`）。
 
 ## 2. 抓取接口
 
