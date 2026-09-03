@@ -219,9 +219,16 @@ def test_composite_score_manually_checked():
     # raw pe_z 依次（winsorize 后 -8.3 / -10 / -12 / -18.8 对应 003/001/002/004）
     result = fac.composite_score(factors1)
     assert result is not None
-    zs = result["factors_z"]
-    assert set(zs) == set(factors1)
-    assert zs["600003"] > zs["600001"] > zs["600002"] > zs["600004"], zs
+    assert set(result) >= {"score", "factors_z", "n"}
+    scores = result["score"]
+    assert set(scores) == set(factors1)
+    assert scores["600003"] > scores["600001"] > scores["600002"] > scores["600004"], scores
+    # factors_z = 每股各维 z 表（dict-of-dict，dim→z）；每股维度一致
+    fz = result["factors_z"]
+    assert set(fz) == set(factors1)
+    dims = set(next(iter(fz.values())))
+    assert all(set(v) == dims for v in fz.values())
+    assert result["n"] == len(factors1)
 
 
 # ---------------------------------------------------------------- CLI 渲染
@@ -236,7 +243,7 @@ def test_format_advise_cli_disclosure_lines():
                   "rule": "I9.4-screen-pass",
                   "evidence": {"factor": {"pe_ttm": 7.72, "pb": 0.73,
                                 "div_yield": 4.9, "roe": 9.5},
-                                 "factor_score": {"z": 0.42, "method": "w", "n": 5},
+                                 "factor_score": {"score": 0.42, "method": "w", "n": 5},
                                  "industry_momentum": {"mean": 1.23, "n": 2,
                                                         "rank": 1, "window": 60,
                                                         "basis": "pool-excess-r60"},

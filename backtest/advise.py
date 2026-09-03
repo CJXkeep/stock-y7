@@ -175,7 +175,7 @@ def _attach_disclosures(plans, snapshot_id="", results_root=None, disclosure=Tru
     """给建议单 evidence 附加 A 因子与 B 行业动量（披露零影响；失败降级，不抛异常）。
 
     - A 因子：fetch_fundamentals（当前时点快照）→ factor（含 source/fetched_at/derive_from）；
-      合成披露分 factor_score（composite_score 的该股 z 与口径）；抓取失败 → factor_error；
+      合成披露分 factor_score（composite_score 的该股 score 与口径）；抓取失败 → factor_error；
     - B 行业动量：池内（候选+核心）按行业聚合 60 日超额 → industry/industry_momentum
       （含 mean/n/rank/window/basis）或 industry_momentum_note（行业样本不足）。
     """
@@ -226,9 +226,9 @@ def _attach_disclosures(plans, snapshot_id="", results_root=None, disclosure=Tru
         fac = factors.get(symbol)
         if fac:
             evidence["factor"] = fac
-            if comp and symbol in comp.get("factors_z", {}):
+            if comp and symbol in comp.get("score", {}):
                 evidence["factor_score"] = {
-                    "z": comp["factors_z"][symbol],
+                    "score": comp["score"][symbol],
                     "method": comp.get("method", ""),
                     "n": comp.get("n", 0),
                 }
@@ -303,7 +303,7 @@ def format_advise_cli(result: dict) -> str:
                 if fac.get(key) is not None:
                     bits.append("%s %s" % (label, fac[key]))
             if ev.get("factor_score") is not None:
-                bits.append("合成分 %s" % ev["factor_score"].get("z", ""))
+                bits.append("合成分 %s" % ev["factor_score"].get("score", ""))
             head += " | " + "；".join(bits)
         elif ev.get("factor_error"):
             head += " | 因子缺失"

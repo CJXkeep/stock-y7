@@ -241,12 +241,12 @@ def _neutralize_z(values, cap_logs, industries, valid):
 
 
 def composite_score(factors, industries=None):
-    """等权合成披露分。返回 {factors_z, n, method} 或 None。
+    """等权合成披露分。返回 {score, factors_z, n, method} 或 None。
 
     - 有效样本：pe_ttm>0 且（div_yield、roe、pb 至少一维有值）；
     - 维度：pe_ttm（取负：低估→高分）、div_yield（高好）、roe（高好）、pb（取负）；
-    - 每维 winsorize(5%,95%) → 中性化（行业哑变量 + log(市值)；样本<3/奇异退化）→ zscore
-      → 等权均值 = 该股合成分（factors_z）；
+    - 每维 winsorize(5%,95%) → 中性化（行业哑变量 + log(市值)；样本<3/奇异退化）→ zscore；
+    - ``score``：每股等权均值合成分；``factors_z``：每股各维 z 值（披露用）；
     - n<3 或有效维度 <2 → None（披露 factor_score_error）。
     """
     factors = factors or {}
@@ -294,11 +294,17 @@ def composite_score(factors, industries=None):
     common = sorted(set(z_syms[list(z_syms)[0]]).intersection(*[set(v) for v in z_syms.values()]))
     if len(common) < 3:
         return None
-    factors_z = {}
+    per_factor, score = {}, {}
     for s in common:
-        parts = [z_vals[k][z_syms[k].index(s)] for k in z_syms]
-        factors_z[s] = round(sum(parts) / len(parts), 4)
+        row, parts = {}, []
+        for k in z_syms:
+            z = z_vals[k][z_syms[k].index(s)]
+            row[k] = round(z, 4)
+            parts.append(z)
+        per_factor[s] = row
+        score[s] = round(sum(parts) / len(parts), 4)
     method = ("winsorize+neutralize(industry,size)+zscore+equal-weight"
               if len(set((industries or {}).get(s, "") for s in common)) > 1
               else "winsorize+zscore+equal-weight")
-    return {"factors_z": factors_z, "n": len(common), "method": method}
+    return {"score": score, "factors_z": per_factor,
+            "n": len(common), "method": method}
