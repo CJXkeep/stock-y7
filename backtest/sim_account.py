@@ -59,6 +59,11 @@ REASON_TARGET = "target"      # 触止盈
 REASON_MAX_HOLD = "max_hold"  # 超过最长持有交易日
 REASON_MANUAL = "manual"      # 手动卖出
 REASON_RESET = "reset"        # 账户重置清仓
+# 外源参考动态退出规则（2026-09 融合，docs/策略融合-外源参考-2026-09.md；由适配层 exit_check 产出）
+REASON_LIMIT_OPEN = "limit_open"          # 昨收涨停 + 今日开板（115/104 参考）
+REASON_MA20_BREAK = "ma20_break"          # 现价跌破日线 MA20（107 参考）
+REASON_VOLUME_SPIKE = "volume_spike"      # 当日量 > 倍数 × 均量且未涨停（022 参考）
+REASON_PEAK_DRAWDOWN = "peak_drawdown"    # 买入以来最高高点回撤超阈值（078 参考）
 
 _LOCK = threading.RLock()   # 状态读写锁（watcher 线程与 HTTP 线程共用）
 
@@ -655,6 +660,7 @@ def _is_limit_down(price: float, symbol: str, name: str, pre_close: float,
 def execute_buy(state: dict, deci: Decision, *, budget: float = None,
                 now: datetime.datetime = None,
                 threshold: float = None, reason: str = "signal",
+                note: str = "",
                 sim_dir_override: str = None) -> tuple:
     """买入成交：成功原地更新 state 并返回 ``(trade, "")``；失败返回 ``(None, 原因)``。
 
@@ -730,7 +736,7 @@ def execute_buy(state: dict, deci: Decision, *, budget: float = None,
             "trigger_date": deci.trigger_date,
             "hold_days": None,
             "cash_after": state["cash"],
-            "note": "",
+            "note": note or "",
         }
         append_trade(trade, sim_dir_override)
         return trade, ""

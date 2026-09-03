@@ -153,10 +153,109 @@ def _advise_pool_remove(snapshot_id: str, results_root: str, pool_items: list) -
     return plans, watch, "出池建议 %d 条，观察 %d 只" % (len(plans), len(watch))
 
 
+# ---------------------------------------------------------------- 披露附注（策略融合第二阶段 A/B）
+
+def _pool_lookup_items():
+    """池内条目（候选池 + 核心池；行业名来源）；读取失败降级为空列表。"""
+    items = []
+    try:
+        from backtest import candidates as _cands
+        items += (_cands.load().get("items") or [])
+    except Exception:
+        pass
+    try:
+        from backtest import pool as _pool
+        items += (_pool.load().get("items") or [])
+    except Exception:
+        pass
+    return items
+
+
+def _attach_disclosures(plans, snapshot_id="", results_root=None, disclosure=True):
+    """给建议单 evidence 附加 A 因子与 B 行业动量（披露零影响；失败降级，不抛异常）。
+
+    - A 因子：fetch_fundamentals（当前时点快照）→ factor（含 source/fetched_at/derive_from）；
+      合成披露分 factor_score（composite_score 的该股 z 与口径）；抓取失败 → factor_error；
+    - B 行业动量：池内（候选+核心）按行业聚合 60 日超额 → industry/industry_momentum
+      （含 mean/n/rank/window/basis）或 industry_momentum_note（行业样本不足）。
+    """
+    if not disclosure or not plans:
+        return
+    seen, symbols = set(), []
+    for p2 in plans:
+        s = str(p2.get("payload", {}).get("symbol", "") or "")
+        if s and s not in seen:
+            seen.add(s)
+            symbols.append(s)
+    if not symbols:
+        return
+    items = _pool_lookup_items()
+    lookup, industries = {}, {}
+    try:
+        from backtest.industry_momentum import industry_lookup
+        lookup = industry_lookup(items)
+        industries = {s: v["industry"] for s, v in lookup.items()}
+    except Exception:
+        pass
+    # A 因子
+    factors, comp = {}, None
+    try:
+        from backtest.factors import fetch_fundamentals, composite_score
+        factors = fetch_fundamentals(symbols)
+        comp = composite_score(factors, industries)
+    except Exception:
+        factors, comp = {}, None
+    # B 行业动量（回测行级 r60_excess；无 results.csv → 空 rows）
+    rows = []
+    try:
+        from backtest.review import load_result_rows
+        rows = load_result_rows(snapshot_id, results_root)
+    except Exception:
+        pass
+    momentum = {}
+    try:
+        from backtest.industry_momentum import pool_industry_momentum
+        momentum = pool_industry_momentum(items, rows)
+    except Exception:
+        pass
+    for plan in plans:
+        symbol = str(plan.get("payload", {}).get("symbol", "") or "")
+        if not symbol:
+            continue
+        evidence = plan.setdefault("evidence", {})
+        fac = factors.get(symbol)
+        if fac:
+            evidence["factor"] = fac
+            if comp and symbol in comp.get("factors_z", {}):
+                evidence["factor_score"] = {
+                    "z": comp["factors_z"][symbol],
+                    "method": comp.get("method", ""),
+                    "n": comp.get("n", 0),
+                }
+        else:
+            evidence["factor_error"] = "因子抓取失败或无数据"
+        ind = (lookup.get(symbol) or {}).get("industry", "")
+        if not ind:
+            continue
+        evidence["industry"] = ind
+        meta = momentum.get(ind)
+        if meta:
+            evidence["industry_momentum"] = dict(
+                meta, window=config.INDUSTRY_MOM_WINDOW, basis="pool-excess-r60")
+        else:
+            evidence["industry_momentum_note"] = (
+                "行业样本不足（n<%d，池内口径）" % config.INDUSTRY_MOM_MIN_SYMBOLS)
+
+
 # ---------------------------------------------------------------- 主流程
 
-def run_advise(snapshot_id: str, root: str = None, plans_root: str = None) -> dict:
-    """生成建议草稿并落盘 data/decisions/plans/，返回 {plans, watchlist, notes}。"""
+def run_advise(snapshot_id: str, root: str = None, plans_root: str = None,
+               disclosure: bool = True) -> dict:
+    """生成建议草稿并落盘 data/decisions/plans/，返回 {plans, watchlist, notes}。
+
+    disclosure=True（默认）：建议单 evidence 附加 A 因子 / B 行业动量披露
+    （当前时点快照，披露零影响；失败降级）。测试/离线环境可传 False 跳过抓取。
+    """
     from backtest import pool as stock_pool
     snapshot_id = str(snapshot_id or "").strip()
     if not snapshot_id:
@@ -170,6 +269,9 @@ def run_advise(snapshot_id: str, root: str = None, plans_root: str = None) -> di
     add_plans, note1 = _advise_pool_add(snapshot_id, results_root, pool_symbols)
     remove_plans, watch, note2 = _advise_pool_remove(
         snapshot_id, results_root, pool.get("items", []))
+
+    _attach_disclosures(add_plans + remove_plans, snapshot_id, results_root,
+                         disclosure=disclosure)
 
     plans = []
     for plan in add_plans + remove_plans:
@@ -188,9 +290,33 @@ def run_advise(snapshot_id: str, root: str = None, plans_root: str = None) -> di
 def format_advise_cli(result: dict) -> str:
     lines = ["snapshot=%s：%s" % (result["snapshot_id"], "；".join(result["notes"]))]
     for p in result["plans"]:
-        lines.append("%s %s %s (%s)" % (
+        head = "%s %s %s (%s)" % (
             p["plan_id"], p["action"], p["payload"].get("symbol"),
-            p.get("rule", "")))
+            p.get("rule", ""))
+        ev = p.get("evidence", {}) or {}
+        fac = ev.get("factor") or {}
+        # A 因子摘要（披露行；缺失标注）
+        if fac:
+            bits = []
+            for key, label in (("pe_ttm", "PE"), ("pb", "PB"),
+                               ("div_yield", "股息"), ("roe", "ROE")):
+                if fac.get(key) is not None:
+                    bits.append("%s %s" % (label, fac[key]))
+            if ev.get("factor_score") is not None:
+                bits.append("合成分 %s" % ev["factor_score"].get("z", ""))
+            head += " | " + "；".join(bits)
+        elif ev.get("factor_error"):
+            head += " | 因子缺失"
+        # B 行业动量（池内·60日超额）
+        ind = ev.get("industry_momentum")
+        if ind:
+            head += " | 行业动量·池内60日超额：%s %s%%(n=%s, rank=%s)" % (
+                ev.get("industry", ""), ind.get("mean"), ind.get("n"), ind.get("rank"))
+        elif ev.get("industry_momentum_note"):
+            head += " | 行业动量：%s" % ev["industry_momentum_note"]
+        elif ev.get("industry"):
+            head += " | 行业：%s" % ev["industry"]
+        lines.append(head)
     for w in result["watchlist"]:
         lines.append("观察 %s %s" % (w["symbol"], w["status"]))
     return "\n".join(lines)

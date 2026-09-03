@@ -1,0 +1,743 @@
+schema: comet.native.v4
+name: phase2-strategy-fusion
+language: zh-CN
+phase: verify
+status: active
+state_version: 4
+brief: brief.md
+spec_changes:
+  - capability: fundamental-factors
+    operation: create
+    source: specs/fundamental-factors/spec.md
+  - capability: industry-momentum
+    operation: create
+    source: specs/industry-momentum/spec.md
+  - capability: sim-queue-semantics
+    operation: create
+    source: specs/sim-queue-semantics/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: verify-ready
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: await-verifier-result
+acceptance:
+  - id: A1
+    source: brief.md
+    text: '**A1** 因子抓取与派生：`fetch_fundamentals(["601398","600519"])` 返回
+      pe_ttm/pb/market_cap/float_cap/div_ratio 直读字段 +
+      div_yield（=div_ratio÷pe_ttm×100）/roe（=pb÷pe_ttm×100）派生字段；pe_ttm≤0 或缺失 →
+      派生字段 None（除零保护）；单股全字段失败 → 该股不在返回中；全失败 → 返回空 dict，绝不抛异常。golden 校验：601398
+      div_yield≈4.9±0.3、roe≈9.4±0.4；600519 roe≈32.4±0.8（mock 实测样本）。'
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: '**A2** 候选池兼容：旧 `data/candidates.json`（无 factor 字段）load
+      正常；`add(extra={"factor": ...})` 注入后 save/load round-trip 保留 factor；schema
+      仍为 `v5.candidates.v1`（版本号不升）。'
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: "**A3** 建议单披露：`run_advise` 生成的 pool_add 建议 evidence 含 `factor`（含
+      fetched_at/source）；因子抓取失败时 evidence 含
+      `factor_error`（非空字符串）且建议照常生成；无因子数据时建议的 action/payload/gate/n 与有因子时完全一致（仅
+      evidence 多键）。"
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: "**A4** 口径隔离：screen 验证 PASS 判定、信号引擎输出、stats 统计均不读取 factor 字段（代码审查 +
+      测试断言：screen.py/signal_engine 无 factor 输入路径；建议器 evidence.factor 不影响 correct
+      执行）。"
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: "**A5** 行业动量聚合：`pool_industry_momentum(items, rows)` 对同行业 ≥2 只输出
+      {industry: {mean, n, symbols, rank}}；行业为空/单只 → 该行业不入结果；无任何有效数据 → 空 dict。"
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: "**A6** 建议单行业披露：pool_add/pool_remove 建议 evidence 含
+      `industry_momentum`（行业名、mean、n、rank、口径标注「池内·60日超额」）；行业不足 → evidence 含
+      `industry_momentum_note`（如「行业样本不足」）；不影响建议生成。"
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: "**A7** 配置参数：config 新增
+      `INDUSTRY_MOM_WINDOW=60`/`INDUSTRY_MOM_MIN_SYMBOLS=2`/`INDUSTRY_MOM_TOP=3\
+      `；建议单 CLI 输出（format_advise_cli）含行业动量行。"
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: '**A8** 排队配置：config 新增
+      `SIM_QUEUE_MODE="off"`（off|volume）、`SIM_QUEUE_VOL_BOOST=1.5`、`SIM_QUEUE_VOL_PERIOD=5`；默认
+      off。'
+    result: pending
+    reason: null
+  - id: A9
+    source: brief.md
+    text: '**A9** queue_check 语义：volume 模式当日累计量 > boost×前 VOL_PERIOD 日均量 →
+      None（通过）；不足 → "queue_pending"；off 模式恒 None；日K/量数据缺失 →
+      None（通过，不阻塞——与涨停判定无昨收时不做拦截同理）。'
+    result: pending
+    reason: null
+  - id: A10
+    source: brief.md
+    text: '**A10** 顺延集成：queue_pending 走 `_track_pending` 同计数路径，超过
+      EXIT_POSTPONE_LIMIT 记 unfilled 并放弃；state 可见 pending 计数；trades 流水 note 标注
+      "queue-deferred"（若有成交/强制成交记录）；无成交的顺延不写流水但 stats 披露。'
+    result: pending
+    reason: null
+  - id: A11
+    source: brief.md
+    text: "**A11** 零影响回归：`python run_all_tests.py` 全绿（含 4 个 phase-1 新测试文件）；新增
+      `tests/test_factors.py`/`tests/test_industry_momentum.py`/`tests/test_sim\
+      _queue.py` 全离线通过。"
+    result: pending
+    reason: null
+  - id: A12
+    source: brief.md
+    text: "**A12** 文档留痕：README
+      使用说明、`docs/版本路线图.md`（v6.4）、`docs/策略融合-第二阶段设计-2026-09.md`（实测结论与口径修正标注）同步更新\
+      。"
+    result: pending
+    reason: null
+  - id: A13
+    source: specs/fundamental-factors/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A1–A4。
+    result: pending
+    reason: null
+  - id: A14
+    source: specs/fundamental-factors/spec.md
+    text: 新增 `backtest/factors.py`：
+    result: pending
+    reason: null
+  - id: A15
+    source: specs/fundamental-factors/spec.md
+    text: 抓取：对给定 symbol 列表逐个请求东财 `/api/qt/stock/get`（复用
+      `data.kline_fetcher._get_json_eastmoney`/`QUOTE_HOSTS`/`symbol_to_secid`），fields=`f43`(现价),`f116`(总市值),`f117`(流通市值),`f164`(PE-TTM),`f167`(PB),`f187`(分红率%),`f58`(名称)。
+    result: pending
+    reason: null
+  - id: A16
+    source: specs/fundamental-factors/spec.md
+    text: 派生：股息率 `div_yield = div_ratio / pe_ttm * 100`（需 div_ratio 与 pe_ttm 均有效且
+      pe_ttm>0）；ROE `roe = pb / pe_ttm * 100`（需 pb>0 且 pe_ttm>0）。披露标注
+      `derive_from`（"f187/f164"、"f167/f164"）。
+    result: pending
+    reason: null
+  - id: A17
+    source: specs/fundamental-factors/spec.md
+    text: 合成（仅披露）：`composite_score(factors) -> dict`：单因子 winsorize(5%,95%) →
+      行业+市值中性化（x=log(market_cap)+行业哑变量的一元 OLS 残差，纯手写标准库求解）→ zscore → 等权合成 → 返回
+      {score, factors_z, n}；样本 <3 或行业数据缺时直接退化为「等权 zscore（不中性化）」并在 `method`
+      标注；仍缺则返回 None（披露 `factor_score_error`）。
+    result: pending
+    reason: null
+  - id: A18
+    source: specs/fundamental-factors/spec.md
+    text: 输入：symbol 列表（str，6 位）；自动去重、过滤非法（非 6 位数字）；
+    result: pending
+    reason: null
+  - id: A19
+    source: specs/fundamental-factors/spec.md
+    text: 单股全部直读字段无效/请求失败 → 该股不出现在返回；
+    result: pending
+    reason: null
+  - id: A20
+    source: specs/fundamental-factors/spec.md
+    text: 单股部分字段无效 → 有效字段照常返回，无效字段 omitted（不写 None 占位）；派生字段防除零（pe_ttm 缺失/<=0 → 无
+      div_yield/roe）；
+    result: pending
+    reason: null
+  - id: A21
+    source: specs/fundamental-factors/spec.md
+    text: 内部对每只请求：失败重试以 `_get_json_eastmoney` 的既有 host 池+退避为准；逐只 2
+      秒正缓存（`_cache_get(quote 同款)`)与 60s 负缓存（`_neg_mark(quote 同款)`）；
+    result: pending
+    reason: null
+  - id: A22
+    source: specs/fundamental-factors/spec.md
+    text: "`fetch=...` 参数用于测试注入（默认使用真实 `_get_json_eastmoney`；注入函数返回「东财 data 字典」以离线
+      mock）；"
+    result: pending
+    reason: null
+  - id: A23
+    source: specs/fundamental-factors/spec.md
+    text: 任意异常绝不上抛：外层 try/except 全捕获，单股失败即跳过。
+    result: pending
+    reason: null
+  - id: A24
+    source: specs/fundamental-factors/spec.md
+    text: "`candidates.load()` 的 item 提取增加可选键：`factor`（dict 时保留，非 dict/缺省忽略）；"
+    result: pending
+    reason: null
+  - id: A25
+    source: specs/fundamental-factors/spec.md
+    text: '`candidates.add(..., extra={"factor": {...}})` 已有 extra 机制注入（`k not in
+      item and v is not None` 已满足）；'
+    result: pending
+    reason: null
+  - id: A26
+    source: specs/fundamental-factors/spec.md
+    text: schema 字符串不变：`v5.candidates.v1`；
+    result: pending
+    reason: null
+  - id: A27
+    source: specs/fundamental-factors/spec.md
+    text: 核心池 `pool.py` 零改动（不持久化 factor）；
+    result: pending
+    reason: null
+  - id: A28
+    source: specs/fundamental-factors/spec.md
+    text: "`GET /api/candidates` 返回透传（后端不加字段过滤；若 API 层有白名单字段需要补 factor——以 tests
+      断言为准）。"
+    result: pending
+    reason: null
+  - id: A29
+    source: specs/fundamental-factors/spec.md
+    text: "`run_advise`（`backtest/advise.py`）生成 pool_add 建议时，对建议涉及的 symbol 调用
+      `fetch_fundamentals`（候选池内建议单产生时现抓；失败降级）；"
+    result: pending
+    reason: null
+  - id: A30
+    source: specs/fundamental-factors/spec.md
+    text: pool_add 建议 evidence 追加键：
+    result: pending
+    reason: null
+  - id: A31
+    source: specs/fundamental-factors/spec.md
+    text: "`factor`：`{pe_ttm, pb, market_cap, float_cap, div_yield, roe, div_ratio,
+      name, source, fetched_at, derive_from}`（全 disclosure 快照，缺失键省略）；"
+    result: pending
+    reason: null
+  - id: A32
+    source: specs/fundamental-factors/spec.md
+    text: "`factor_score`：composite_score 结果 `{score, method, n}` 或省略；"
+    result: pending
+    reason: null
+  - id: A33
+    source: specs/fundamental-factors/spec.md
+    text: 失败时：`factor_error`（非空字符串），`factor`/`factor_score` 省略；
+    result: pending
+    reason: null
+  - id: A34
+    source: specs/fundamental-factors/spec.md
+    text: 建议的 action/payload/gate/n 等其余字段绝不因因子而变化（有/无因子两条路径除 evidence
+      多键外逐字段一致）——测试断言；
+    result: pending
+    reason: null
+  - id: A35
+    source: specs/fundamental-factors/spec.md
+    text: "`format_advise_cli` 输出增加一行因子摘要（如 `PE 7.7/PB 0.73/股息 4.9%/ROE 9.5%`，缺失标注
+      `因子缺失`）。"
+    result: pending
+    reason: null
+  - id: A36
+    source: specs/fundamental-factors/spec.md
+    text: "`screen.py`、`backtest/screen.py`、`analysis/signal_engine.py`、`backtest/s\
+      im_account.py` 均不 import `backtest.factors`，无 factor 输入路径（代码审查断言 + grep
+      测试）；"
+    result: pending
+    reason: null
+  - id: A37
+    source: specs/fundamental-factors/spec.md
+    text: factor 不进 `Decision`；不参与 SCREEN_GATE 判定；不参与任何买卖决策；
+    result: pending
+    reason: null
+  - id: A38
+    source: specs/fundamental-factors/spec.md
+    text: 不写 `screen.csv`（候选验证历史回放不加当前时点因子列）；
+    result: pending
+    reason: null
+  - id: A39
+    source: specs/fundamental-factors/spec.md
+    text: "`stats.py`/`review.py` 输出不受 factor 影响。"
+    result: pending
+    reason: null
+  - id: A40
+    source: specs/fundamental-factors/spec.md
+    text: "`tests/test_factors.py`（全离线，mock fetch 注入）："
+    result: pending
+    reason: null
+  - id: A41
+    source: specs/fundamental-factors/spec.md
+    text: 字段解析：mock 东财 data 字典（含 f43/f58/f116/f117/f164/f167/f187）→ 正确直读字段；某字段缺失 →
+      该键省略；
+    result: pending
+    reason: null
+  - id: A42
+    source: specs/fundamental-factors/spec.md
+    text: 派生：601398 样本（f164=7.72/f167=0.73/f187=37.88）→
+      div_yield≈4.91±0.3、roe≈9.46±0.4；600519 样本（f164=19.94/f167=6.46）→
+      roe≈32.4±0.8；
+    result: pending
+    reason: null
+  - id: A43
+    source: specs/fundamental-factors/spec.md
+    text: 除零：pe_ttm=0/缺失/负值 → 无派生键；pb<=0 → 无 roe；
+    result: pending
+    reason: null
+  - id: A44
+    source: specs/fundamental-factors/spec.md
+    text: 全失败（fetch 恒 None）→ 空 dict 不抛异常；单股失败 → 该股不在返回；
+    result: pending
+    reason: null
+  - id: A45
+    source: specs/fundamental-factors/spec.md
+    text: 候选池兼容：构造旧版 item 装载 + factor 注入 round-trip；schema 不变断言；
+    result: pending
+    reason: null
+  - id: A46
+    source: specs/fundamental-factors/spec.md
+    text: 建议单：同 screen.csv 有/无因子两路径 → action/payload/gate/n 相同、evidence 差异仅 factor
+      系键；factor_error 非断言。
+    result: pending
+    reason: null
+  - id: A47
+    source: specs/industry-momentum/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A5–A7。
+    result: pending
+    reason: null
+  - id: A48
+    source: specs/industry-momentum/spec.md
+    text: 新增 `backtest/industry_momentum.py`：池内（候选池+核心池）按行业聚合 60
+      日超额动量，仅用于建议单披露与排序参考；不进信号引擎、不进 SCREEN_GATE、不写池。
+    result: pending
+    reason: null
+  - id: A49
+    source: specs/industry-momentum/spec.md
+    text: 口径：**池内·60 日超额**——以回测重放行级 `r60_excess`（该股最近信号时点的 60 日超额收益
+      %）为基础，同行业各股最近值求均值；非「60 日涨跌幅」（设计稿口径修正，见 brief D6）。
+    result: pending
+    reason: null
+  - id: A50
+    source: specs/industry-momentum/spec.md
+    text: 零新数据源：行业名取 `item.industry`（候选池/核心池均有此字段，pool.py 有
+      fill_industry）；r60_excess 取 `results.csv`
+      行级数据（`backtest.review.load_result_rows`）。
+    result: pending
+    reason: null
+  - id: A51
+    source: specs/industry-momentum/spec.md
+    text: "`items`：候选池+核心池 item 列表（含 symbol/name/industry）；`rows`：`load_result_rows`
+      行列表（含 symbol/date/r60_excess）；"
+    result: pending
+    reason: null
+  - id: A52
+    source: specs/industry-momentum/spec.md
+    text: 对每只股票：取其 rows 中**最后一个** r60_excess 有效值（rows 按日期升序；该股无任何有效行 → 跳过）；
+    result: pending
+    reason: null
+  - id: A53
+    source: specs/industry-momentum/spec.md
+    text: 按 industry 分组：分组内 **n ≥ min_symbols(2)** 才出结果；industry 为空的股票归入 `""`
+      组不产出（其行业名缺失不聚合）；
+    result: pending
+    reason: null
+  - id: A54
+    source: specs/industry-momentum/spec.md
+    text: "`mean` = 组内各股 r60_excess 均值（round 4）；`rank` = 按 mean 降序的组内排名（1
+      起）、同值并列；`symbols` = 组内股票列表（含 name）；"
+    result: pending
+    reason: null
+  - id: A55
+    source: specs/industry-momentum/spec.md
+    text: 无任何有效数据 → 返回空 dict；非 dict/非法输入 → 空 dict（不抛异常）。
+    result: pending
+    reason: null
+  - id: A56
+    source: specs/industry-momentum/spec.md
+    text: "`run_advise` 中：pool_add / pool_remove 建议生成时，对**该建议所属股票所在行业**附加："
+    result: pending
+    reason: null
+  - id: A57
+    source: specs/industry-momentum/spec.md
+    text: evidence 追加键：
+    result: pending
+    reason: null
+  - id: A58
+    source: specs/industry-momentum/spec.md
+    text: "`industry`：行业名（无则省略）；"
+    result: pending
+    reason: null
+  - id: A59
+    source: specs/industry-momentum/spec.md
+    text: '`industry_momentum`：`{mean, n, symbols, rank, window: 60, basis:
+      "pool-excess-r60"}`（该行业组存在时）；'
+    result: pending
+    reason: null
+  - id: A60
+    source: specs/industry-momentum/spec.md
+    text: '`industry_momentum_note`：`"行业样本不足（n<2，池内口径）"`（组不存在且股票带了 industry
+      名时）；行业名缺失 → 无该组键也无 note；'
+    result: pending
+    reason: null
+  - id: A61
+    source: specs/industry-momentum/spec.md
+    text: 建议的 action/payload/gate/n 不因行业动量而变化（披露零影响）；
+    result: pending
+    reason: null
+  - id: A62
+    source: specs/industry-momentum/spec.md
+    text: "`format_advise_cli` 增加一行：`行业动量·池内60日超额：<行业>
+      <mean>%（n=<n>，rank=<rank>）`；无数据显示 `行业动量：无（样本不足）`。"
+    result: pending
+    reason: null
+  - id: A63
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_WINDOW = 60`（r60_excess 的观察窗口固定 60 日——字段本身即 60 日超额）；"
+    result: pending
+    reason: null
+  - id: A64
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_MIN_SYMBOLS = 2`（同行业最少股票数，池内口径）；"
+    result: pending
+    reason: null
+  - id: A65
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_TOP = 3`（CLI/建议单仅标注排名 Top3 的行业；披露排序参考，不设门槛）。"
+    result: pending
+    reason: null
+  - id: A66
+    source: specs/industry-momentum/spec.md
+    text: 行业动量只作披露与排序参考；不进信号引擎、不进 SCREEN_GATE、不写候选池/核心池/params_override；
+    result: pending
+    reason: null
+  - id: A67
+    source: specs/industry-momentum/spec.md
+    text: 池内口径自洽：跨池行业比较失真，所有披露 UI/CLI 均带「池内口径」标注；
+    result: pending
+    reason: null
+  - id: A68
+    source: specs/industry-momentum/spec.md
+    text: 无行业数据/无回测数据时，建议生成照常（披露缺失即可）。
+    result: pending
+    reason: null
+  - id: A69
+    source: specs/industry-momentum/spec.md
+    text: "`tests/test_industry_momentum.py`（全离线）："
+    result: pending
+    reason: null
+  - id: A70
+    source: specs/industry-momentum/spec.md
+    text: 聚合：构造 3 行业（A 行业 3 只、B 行业 2 只、C 行业 1 只）→ A/B 出现在结果、C 不在；mean/rank 正确（手算复核）；
+    result: pending
+    reason: null
+  - id: A71
+    source: specs/industry-momentum/spec.md
+    text: 边界：行业名空串 / 无 rows / rows 无 r60_excess / items 空 → 空 dict 不抛异常；
+    result: pending
+    reason: null
+  - id: A72
+    source: specs/industry-momentum/spec.md
+    text: 建议单：mock `load_result_rows` + items → pool_add plan evidence 含
+      `industry_momentum` 与 rank；n<2 → `industry_momentum_note`；无行业 → 无键；
+    result: pending
+    reason: null
+  - id: A73
+    source: specs/industry-momentum/spec.md
+    text: CLI 渲染：format_advise_cli 含行业动量行、缺失时降级文案；
+    result: pending
+    reason: null
+  - id: A74
+    source: specs/industry-momentum/spec.md
+    text: config 默认值断言（INDUSTRY_MOM_WINDOW=60 / MIN_SYMBOLS=2 / TOP=3）。
+    result: pending
+    reason: null
+  - id: A75
+    source: specs/sim-queue-semantics/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A8–A11。
+    result: pending
+    reason: null
+  - id: A76
+    source: specs/sim-queue-semantics/spec.md
+    text: v6 模拟账户「涨停不追」已是真实口径（`limit_up_deferred` 顺延）；本轮按 119
+      参考语义补排队维度，但**无订单簿不虚构**：以成交量为代理，队列不足时顺延而非虚构成交。
+    result: pending
+    reason: null
+  - id: A77
+    source: specs/sim-queue-semantics/spec.md
+    text: 判定位置：**策略适配层**（`QushiV5Adapter.queue_check(deci)`），与 phase-1 `exit_check`
+      同模式；
+    result: pending
+    reason: null
+  - id: A78
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延复用既有 `_track_pending` 机制（pending_buys 计数 +
+      `EXIT_POSTPONE_LIMIT`），队列不足与涨停同路径计数（`kind` 区分）；
+    result: pending
+    reason: null
+  - id: A79
+    source: specs/sim-queue-semantics/spec.md
+    text: 默认 `SIM_QUEUE_MODE="off"` → 行为与现状完全一致（零影响）；
+    result: pending
+    reason: null
+  - id: A80
+    source: specs/sim-queue-semantics/spec.md
+    text: '账户内核 `sim_account.py` 仅允许一处最小向后兼容扩展：`execute_buy` 增加可选 `note: str = ""`
+      参数（默认空，现有全部调用零变化），用于流水 `trade.note` 标注；其余零改动、`Decision` 契约不变。'
+    result: pending
+    reason: null
+  - id: A81
+    source: specs/sim-queue-semantics/spec.md
+    text: '`SIM_QUEUE_MODE = "off"`（`off` | `volume`；非法值回退 off）；'
+    result: pending
+    reason: null
+  - id: A82
+    source: specs/sim-queue-semantics/spec.md
+    text: "`SIM_QUEUE_VOL_BOOST = 1.5`（当日累计量达标倍数）；"
+    result: pending
+    reason: null
+  - id: A83
+    source: specs/sim-queue-semantics/spec.md
+    text: "`SIM_QUEUE_VOL_PERIOD = 5`（均量基准窗口日数，取前 N 日（不含当日）均量）；"
+    result: pending
+    reason: null
+  - id: A84
+    source: specs/sim-queue-semantics/spec.md
+    text: 与既有 `SIM_QUEUE_STALE_DAYS=10`（买入清单条目有效期）同名前缀但语义不同，config 注释区分。
+    result: pending
+    reason: null
+  - id: A85
+    source: specs/sim-queue-semantics/spec.md
+    text: 判定：
+    result: pending
+    reason: null
+  - id: A86
+    source: specs/sim-queue-semantics/spec.md
+    text: '`SIM_QUEUE_MODE == "off"` → 恒 None（零影响）；'
+    result: pending
+    reason: null
+  - id: A87
+    source: specs/sim-queue-semantics/spec.md
+    text: 当日累计成交量 `vol_today`：`fetch_quote(symbol).volume`（单位与 Kline.volume 同为手）；
+    result: pending
+    reason: null
+  - id: A88
+    source: specs/sim-queue-semantics/spec.md
+    text: 前 `SIM_QUEUE_VOL_PERIOD` 日均量 `vol_avg`：`fetch_kline(symbol,
+      count=VOL_PERIOD+1)`，取除末根外 VOL_PERIOD 根的量均值（走既有日频 K 线缓存，避免重复请求）；
+    result: pending
+    reason: null
+  - id: A89
+    source: specs/sim-queue-semantics/spec.md
+    text: '`vol_today > SIM_QUEUE_VOL_BOOST * vol_avg` → None；否则 → "queue_pending"；'
+    result: pending
+    reason: null
+  - id: A90
+    source: specs/sim-queue-semantics/spec.md
+    text: "**数据缺失降级**：quote 或日K缺失/为空/均量为 0 → 返回
+      None（通过，不阻塞交易——与「涨停判定无昨收时不做拦截」同理；不披露）。"
+    result: pending
+    reason: null
+  - id: A91
+    source: specs/sim-queue-semantics/spec.md
+    text: "`_run_cycle_locked` 买入循环内、`execute_buy` 调用前插入："
+    result: pending
+    reason: null
+  - id: A92
+    source: specs/sim-queue-semantics/spec.md
+    text: '`_track_pending(state, deci, kind="limit_up")` 现有调用补默认 kind
+      参数；`pending_buys[symbol]` 记录 `{"count", "trigger_date", "level", "name",
+      "kind"}`；同 trigger_date 计数加一、kind 以最新触发为准；'
+    result: pending
+    reason: null
+  - id: A93
+    source: specs/sim-queue-semantics/spec.md
+    text: '**成交 note 标注**：`queue_pending` 路径进入顺延后，若后续循环该 deci 通过 queue_check
+      并成功成交（`execute_buy` 返回 trade），且 `pending_buys[deci.symbol].kind ==
+      "queue"`（同 trigger_date）→ 以 `execute_buy(..., note="queue-deferred")`
+      成交，流水 note 标注；成交后不清除 pending 条目（沿用 limit_up 现状）；'
+    result: pending
+    reason: null
+  - id: A94
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延期间不写 trades.jsonl（无成交不写流水——与 limit_up_deferred 现状一致）；unfilled 在
+      `stats`（`unfilled`/`queue_unfilled`）与 task state 披露；
+    result: pending
+    reason: null
+  - id: A95
+    source: specs/sim-queue-semantics/spec.md
+    text: queue 判定失败仅在 `qerr == "queue_pending"` 时走顺延；`qerr is None`（含数据缺失）直接进入
+      `execute_buy`；
+    result: pending
+    reason: null
+  - id: A96
+    source: specs/sim-queue-semantics/spec.md
+    text: 卖出侧不做排队（跌停顺延已是既有语义）。
+    result: pending
+    reason: null
+  - id: A97
+    source: specs/sim-queue-semantics/spec.md
+    text: "`Decision` 契约不变；`sim_account.py` 除 `execute_buy` 可选 note 参数外零改动（不 import
+      策略层、不新增撮合逻辑、不读 queue 字段）；"
+    result: pending
+    reason: null
+  - id: A98
+    source: specs/sim-queue-semantics/spec.md
+    text: "`stats.simulate_signal` 历史口径不变（不含排队语义）；"
+    result: pending
+    reason: null
+  - id: A99
+    source: specs/sim-queue-semantics/spec.md
+    text: queue 语义只影响模拟账户买入成交路径；
+    result: pending
+    reason: null
+  - id: A100
+    source: specs/sim-queue-semantics/spec.md
+    text: 绩效透视不隐藏 queue 记录（标注+披露，不做剔除）；
+    result: pending
+    reason: null
+  - id: A101
+    source: specs/sim-queue-semantics/spec.md
+    text: 单进程部署、配置原子写、预承诺参数进 config 等既有纪律保持。
+    result: pending
+    reason: null
+  - id: A102
+    source: specs/sim-queue-semantics/spec.md
+    text: "`tests/test_sim_queue.py`（全离线）："
+    result: pending
+    reason: null
+  - id: A103
+    source: specs/sim-queue-semantics/spec.md
+    text: config 默认值断言（SIM_QUEUE_MODE=off / BOOST=1.5 / PERIOD=5；非法值回退 off）；
+    result: pending
+    reason: null
+  - id: A104
+    source: specs/sim-queue-semantics/spec.md
+    text: queue_check 判定矩阵：off 恒 None；volume 且量达标 → None；量不足 →
+      "queue_pending"；均量=0/缺K线/缺quote → None；
+    result: pending
+    reason: null
+  - id: A105
+    source: specs/sim-queue-semantics/spec.md
+    text: 服务层：mock adapter.queue_check 返回 "queue_pending" → pending
+      计数（kind=queue）、不成交；连续触发 > EXIT_POSTPONE_LIMIT → unfilled 且 stats/state 可见
+      queue_unfilled；
+    result: pending
+    reason: null
+  - id: A106
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延后成交：先 queue_pending 再通过 → 成交成功且 trade.note="queue-deferred"（kind=queue
+      时）；kind=limit_up 的顺延成交 note 为空（不误标）；
+    result: pending
+    reason: null
+  - id: A107
+    source: specs/sim-queue-semantics/spec.md
+    text: off 模式零变化：复用现有 test_sim_* 全套回归（不改断言，直接全绿）。
+    result: pending
+    reason: null
+builder_handoff:
+  candidate_id: f5477ec0-5961-4137-90b7-7887a1311635
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:33d360e9-8527-4eb9-838b-781aa40e7160
+  iteration: 1
+  summary:
+    text: 策略融合第二阶段 A/B/C 实现完成：A 基本面因子（backtest/factors.py 直读
+      f164/f167/f116/f117/f187 + 股息率/ROE 恒等式推导，候选池可选 factor 字段（schema 不升），建议单
+      evidence 披露 factor/factor_score/factor_error；不进
+      SCREEN_GATE/信号引擎/screen.csv/核心池，不做 PEG）；B
+      池内行业动量（backtest/industry_momentum.py，≥2 只按 r60_excess 聚合排名，建议单 evidence 披露
+      industry/industry_momentum/note，参数 INDUSTRY_MOM_* 进 config）；C
+      撮合排队（QushiV5Adapter.queue_check volume 代理，接入 _maybe_screen 与
+      _execute_buy_queue 两条买入路径，queue_pending 复用 _track_pending（kind 区分）顺延至
+      EXIT_POSTPONE_LIMIT 后 unfilled+披露，成交 note=queue-deferred；SIM_QUEUE_* 默认
+      off 零影响；账户内核仅 execute_buy 增加可选 note 参数）。文档：README v6.4 小节、版本路线图
+      V6.4、设计稿落地记录（实测结论与口径修正）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+  checks:
+    - name:
+        text: run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 63/63 全绿（含 3 个新测试文件；phase-1 的 4 个测试文件保持绿）
+        truncated: false
+    - name:
+        text: import-smoke
+        truncated: false
+      result: passed
+      note:
+        text: factors/industry_momentum/advise/sim_strategy/sim_service/candidates/sim_account
+          均可加载
+        truncated: false
+    - name:
+        text: live-smoke-fetch_fundamentals
+        truncated: false
+      result: passed
+      note:
+        text: 601398 股息4.91%/ROE9.46%、600519 股息2.55%/ROE32.4% 与市场常识一致（东财真实接口）
+        truncated: false
+    - name:
+        text: isolation-grep
+        truncated: false
+      result: passed
+      note:
+        text: screen.py/signal_engine.py/sim_account.py 零 factors import；SCREEN_GATE
+          与评分公式无 diff；候选池 schema 版本未变
+        truncated: false
+    - name:
+        text: offline-advise
+        truncated: false
+      result: passed
+      note:
+        text: test_advise.py 统一 disclosure=False，测试无网络依赖
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: A 因子披露仅在建议单 evidence 与 CLI：前端候选/建议单视图留待后续迭代
+      truncated: false
+    - text: B 级行业动量是池内自洽口径（跨池行业比较失真，披露已标注）
+      truncated: false
+    - text: C volume 代理默认 off；snapshot 排队/逐笔/吃单比例未做（数据不可得）
+      truncated: false
+    - text: A 因子合成（composite_score）仅披露该股 z 与口径，不设任何门槛
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-09-03T13:20:24.298Z
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-09-03T12:41:39.378Z

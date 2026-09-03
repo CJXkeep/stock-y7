@@ -106,6 +106,86 @@ def fit_trendline(points_idx: List[int], values: Sequence[float]) -> Optional[fl
     return slope
 
 
+def linfit_stats(xs: Sequence[float], ys: Sequence[float]):
+    """最小二乘线性拟合，返回 (slope, r2, intercept)；数据不足/纯垂直返回 None。
+
+    与 fit_trendline 互补：fit_trendline 只返回斜率；本函数同时给出
+    拟合优度 r2（外源参考机制「动量×R²」与 RSRS 门控共用）。
+    """
+    n = len(xs)
+    if n < 2 or len(ys) != n:
+        return None
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    sxx = sum((x - mean_x) ** 2 for x in xs)
+    if sxx == 0:
+        return None
+    sxy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    syy = sum((y - mean_y) ** 2 for y in ys)
+    slope = sxy / sxx
+    intercept = mean_y - slope * mean_x
+    r2 = (sxy * sxy) / (sxx * syy) if syy > 0 else 0.0
+    return slope, r2, intercept
+
+
+def zscore_last(values: Sequence[float]) -> Optional[float]:
+    """序列最后一个值的 zscore（总体标准差口径，n>=2）；无波动返回 None。"""
+    n = len(values)
+    if n < 2:
+        return None
+    mean = sum(values) / n
+    var = sum((v - mean) ** 2 for v in values) / n
+    sd = math.sqrt(var)
+    if sd == 0:
+        return None
+    return (values[-1] - mean) / sd
+
+
+def rsrs_score(highs: Sequence[float], lows: Sequence[float],
+               n: int = 18, m: int = 600) -> Optional[dict]:
+    """RSRS 择时得分（外源参考 084/101 参数集）。
+
+    对每根窗口做 OLS(low -> high) 回归取斜率（RSRS 原始定义：低点对高点回归），
+    对最近 m 个斜率取 zscore，再乘以最近一次回归的 r2：
+    score = zscore(斜率, m) × r2。
+
+    返回 {"score", "slope", "r2", "zscore", "n", "m", "samples"}；
+    数据不足（len < n + m）或拟合不可用时返回 None（调用方静默放行）。
+    """
+    n = int(n)
+    m = int(m)
+    if n < 2 or m < 2:
+        return None
+    highs = list(highs)
+    lows = list(lows)
+    if len(highs) != len(lows) or len(highs) < n + m:
+        return None
+    slopes = []
+    r2s = []
+    for i in range(len(highs) - n + 1):
+        fit = linfit_stats(lows[i:i + n], highs[i:i + n])
+        if fit is None:
+            continue
+        slopes.append(fit[0])
+        r2s.append(fit[1])
+    if len(slopes) < m:
+        return None
+    z = zscore_last(slopes[-m:])
+    if z is None:
+        return None
+    slope = slopes[-1]
+    r2 = r2s[-1]
+    return {
+        "score": round(z * r2, 6),
+        "slope": round(slope, 6),
+        "r2": round(r2, 6),
+        "zscore": round(z, 6),
+        "n": n,
+        "m": m,
+        "samples": len(slopes),
+    }
+
+
 def macd_series(closes: Sequence[float], fast: int = 12, slow: int = 26, signal: int = 9):
     """MACD 三线：DIF / DEA / BAR(柱)。返回 (dif, dea, bar)。"""
     if len(closes) < slow:

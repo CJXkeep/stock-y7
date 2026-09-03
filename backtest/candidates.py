@@ -70,7 +70,7 @@ def load(path: str = None) -> dict:
         source = str(item.get("source") or "manual")
         if source not in SOURCES:
             source = "manual"
-        items.append({
+        entry = {
             "symbol": str(item["symbol"]),
             "name": str(item.get("name", "")),
             "industry": str(item.get("industry", "")),
@@ -81,7 +81,11 @@ def load(path: str = None) -> dict:
             "note": str(item.get("note", "")),
             "status": status,
             "last_status_change_at": str(item.get("last_status_change_at", "")),
-        })
+        }
+        # 策略融合第二阶段 A：可选 factor（基本面因子披露快照；旧文件无此键，向后兼容）
+        if isinstance(item.get("factor"), dict):
+            entry["factor"] = item["factor"]
+        items.append(entry)
     cands["items"] = items
     return cands
 

@@ -102,7 +102,8 @@ def test_normalize_strategy_params_prunes_orphans():
     assert "level_scale" not in out                     # 孤儿键被裁剪
     assert "junk_key" not in out
     assert set(out.keys()) <= {"buy_levels", "min_score", "require_weekly",
-                               "scale_strong", "scale_normal", "scale_cautious"}
+                               "scale_strong", "scale_normal", "scale_cautious",
+                               "rsrs_gate", "rsrs_threshold", "rsrs_bear_action"}
 
 
 def test_normalize_strategy_params_clamps_values():
