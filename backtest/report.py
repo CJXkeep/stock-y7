@@ -155,11 +155,19 @@ def render_report(summary: dict, manifest: dict) -> str:
         lines.append("")
         lines.append("| 组 | n | r20 胜率/均值%% | r60 胜率/均值%% | r20超额 胜率/均值%% | r60超额 胜率/均值%% |")
         lines.append("|---|---|---|---|---|---|")
+        # intercepted 各项是 _summary() 扁平汇总（win_rate/avg_return 直接可读），
+        # 不走 cell()（cell 期望按 r%d 分键的 block，对扁平 dict 恒渲染 --，I10 渲染缺陷修复）
+        def _inter_cell(block):
+            b = block or {}
+            text = "%s / %s" % (_fmt(b.get("win_rate")), _fmt(b.get("avg_return")))
+            if b.get("insufficient_sample"):
+                text += " ⚠样本不足"
+            return text
+
         lines.append("| 被拦截信号 | %s | %s | %s | %s | %s |" % (
-            inter.get("n", 0), cell(inter.get("r20") or {}, 20),
-            cell(inter.get("r60") or {}, 60),
-            cell(inter.get("r20_excess") or {}, 20, "r%d_excess"),
-            cell(inter.get("r60_excess") or {}, 60, "r%d_excess")))
+            inter.get("n", 0),
+            _inter_cell(inter.get("r20")), _inter_cell(inter.get("r60")),
+            _inter_cell(inter.get("r20_excess")), _inter_cell(inter.get("r60_excess"))))
         lines.append("")
         lines.append("> 只披露不结论：被拦截信号若未被拦截会否更差，是策略门价值的最直接证据"
                      "（第一性原则 §5）；n<%d 标「⚠样本不足」不下结论。" % config.SAMPLE_MIN)

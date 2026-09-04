@@ -258,6 +258,10 @@ def test_report_dual_rendering_and_intercept_section():
     assert "最终口径" in md and "拦截分析" in md
     assert "policy=policy.v1.gate / hash 0123456789ab" in md
     assert "主判据=最终口径" in md
+    # 拦截分析数值必须实际渲染（历史上 cell() 误用扁平 summary 恒渲染 --）
+    after = md.split("拦截分析", 1)[1]
+    assert "| 被拦截信号 | 1 | 0.00 / -2.00 | 0.00 / -3.00 | 0.00 / -2.50 | 0.00 / -3.50 |" in after, \
+        "拦截分析应渲染被拦截信号的实际 forward return 数值"
 
 
 def _run_all():
