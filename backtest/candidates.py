@@ -10,6 +10,12 @@
 - 冷却窗口：promoted/rejected 后 CANDIDATE_COOLDOWN_DAYS（交易日）内再次加入
   被拒绝并提示剩余交易日（交易日计数用指数 000001 日K bar 日期序列，失败回退自然日粗算）；
 - 候选池与核心池物理分离：本模块绝不触碰 data/pool.json。
+- 容量口径：CANDIDATE_MAX_ITEMS 只数**活跃态**（watching/validated）；
+  parked/rejected/promoted 不占容量（留痕保留）。
+- 过期自动搁置（预承诺规则，拍板 2026-09-04）：watching 超过
+  CANDIDATE_WATCHING_EXPIRY_DAYS 个交易日未经 screen 验证通过/人工处理
+  → expire_watching() 自动置 parked（记录保留，可手动复活）；
+  扫描流程在吸收新候选前先执行本规则。
 """
 from __future__ import annotations
 
@@ -24,7 +30,14 @@ _log = logging.getLogger("backtest.candidates")
 
 CANDIDATE_SCHEMA = "v5.candidates.v1"
 STATUSES = ("watching", "validated", "parked", "promoted", "rejected")
+ACTIVE_STATUSES = ("watching", "validated")  # 占容量上限的状态
 SOURCES = ("scan", "manual")
+
+
+def _active_count(cands: dict) -> int:
+    """活跃态（watching/validated）条数——容量上限的 counting 口径。"""
+    return sum(1 for item in cands.get("items") or []
+               if item.get("status") in ACTIVE_STATUSES)
 
 
 def candidates_path(path: str = None) -> str:
@@ -199,8 +212,8 @@ def add(cands: dict, symbol: str, name: str = "", note: str = "",
                 item["first_score"] = first_score
             cands["version"] += 1
             return _commit(cands, path), True, "ok（重新激活）"
-    if len(cands["items"]) >= config.CANDIDATE_MAX_ITEMS:
-        return cands, False, "候选池已达上限 %d 只" % config.CANDIDATE_MAX_ITEMS
+    if _active_count(cands) >= config.CANDIDATE_MAX_ITEMS:
+        return cands, False, "候选池活跃条目已达上限 %d 只" % config.CANDIDATE_MAX_ITEMS
     item = {
         "symbol": symbol,
         "name": str(name or ""),
@@ -258,6 +271,38 @@ def set_status(cands: dict, symbol: str, status: str, path: str = None):
     return cands, False, "%s 不在候选池中" % symbol
 
 
+def expire_watching(cands: dict, path: str = None, expiry_days: int = None):
+    """watching 超期自动搁置（预承诺规则，拍板 2026-09-04）。
+
+    watching 超过 CANDIDATE_WATCHING_EXPIRY_DAYS 个交易日未经 screen 验证
+    通过（validated）或人工处理（手动改状态/注释即刷新 last_status_change_at）
+    → 置 parked；记录保留，可手动复活（add 重新激活 / set_status）。
+    last_status_change_at/added_at 缺失的旧数据视为已过期（宁搁置不无限占位）。
+    返回 (cands, expired_n)；有搁置才落盘一次且 version 恰好 +1。
+    """
+    expiry_days = (expiry_days if expiry_days is not None
+                   else config.CANDIDATE_WATCHING_EXPIRY_DAYS)
+    now = _utc_now()
+    expired = 0
+    for item in cands.get("items") or []:
+        if item.get("status") != "watching":
+            continue
+        start = str(item.get("last_status_change_at") or item.get("added_at") or "")
+        used = count_trading_days_between(start, now[:10]) if start else None
+        if used is None or used >= expiry_days:
+            item["status"] = "parked"
+            item["note"] = (str(item.get("note") or "") +
+                            ("；" if item.get("note") else "") +
+                            "watching超%d个交易日自动搁置（可手动复活）" % expiry_days).strip("；")
+            item["last_status_change_at"] = now
+            expired += 1
+    if expired:
+        cands["version"] += 1
+        cands["updated_at"] = now
+        _commit(cands, path)
+    return cands, expired
+
+
 def import_items(cands: dict, items, path: str = None, industry_fetch=None,
                  source: str = "manual"):
     """批量导入：逐条校验、幂等/冷却跳过、收满即止。
@@ -271,6 +316,7 @@ def import_items(cands: dict, items, path: str = None, industry_fetch=None,
     if not isinstance(items, list) or not items:
         return cands, False, "items 必须为非空数组", 0, 0
     existing = {item["symbol"] for item in cands["items"]}
+    active = _active_count(cands)
     added = skipped = capacity_blocked = 0
     new_items = []
     for raw in items:
@@ -284,7 +330,7 @@ def import_items(cands: dict, items, path: str = None, industry_fetch=None,
         if symbol in existing:
             skipped += 1
             continue
-        if len(existing) >= config.CANDIDATE_MAX_ITEMS:
+        if active >= config.CANDIDATE_MAX_ITEMS:
             capacity_blocked += 1
             skipped += 1
             continue
@@ -302,11 +348,12 @@ def import_items(cands: dict, items, path: str = None, industry_fetch=None,
             "last_status_change_at": now,
         })
         existing.add(symbol)
+        active += 1
         added += 1
     if added == 0:
         if capacity_blocked:
             return (cands, False,
-                    "候选池已达上限 %d 只，%d 只未加入" % (config.CANDIDATE_MAX_ITEMS,
+                    "候选池活跃条目已达上限 %d 只，%d 只未加入" % (config.CANDIDATE_MAX_ITEMS,
                                                      capacity_blocked),
                     0, skipped)
         return cands, False, "没有可导入的新条目（非法、已存在或超出上限）", 0, skipped

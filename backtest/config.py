@@ -51,7 +51,8 @@ JOURNAL_API_LIMIT = 500
 POOL_MAX_ITEMS = 60
 
 # ---- 候选池（I9.2 screener-candidates；改动须在决策日志留痕） ----
-CANDIDATE_MAX_ITEMS = 30         # 候选池容量上限（backtest/candidates.py 引用）
+CANDIDATE_MAX_ITEMS = 30         # 候选池容量上限（按活跃态 counting，backtest/candidates.py 引用）
+CANDIDATE_WATCHING_EXPIRY_DAYS = 20  # watching 自动 parked 的交易日窗口（预承诺规则，拍板 2026-09-04）
 CANDIDATE_COOLDOWN_DAYS = 20     # promoted/rejected 后再入池的冷却窗口（交易日）
 
 # ---- 候选验证（I9.3 candidate-validation；门槛预承诺，改动须留痕） ----

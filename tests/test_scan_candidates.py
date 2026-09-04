@@ -93,7 +93,85 @@ def test_import_invalid_source_rejected():
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
+def test_expire_watching_moves_aged_out():
+    d, path = _tmp()
+    orig = cands_mod.count_trading_days_between
+    cands_mod.count_trading_days_between = lambda a, b, dates=None: 25  # 已超 20
+    try:
+        cands = cands_mod.empty_candidates()
+        cands, ok, _ = cands_mod.add(cands, "600020", path=path)
+        cands, ok, _ = cands_mod.add(cands, "600021", path=path)
+        cands, ok, _ = cands_mod.set_status(cands, "600021", "validated", path=path)
+        cands, ok, _ = cands_mod.set_status(cands, "600020", "promoted", path=path)
+        cands, ok, _ = cands_mod.add(cands, "600022", path=path)  # watching 新条目
+        # promoted 不受影响；watching 超期 → parked
+        cands, expired = cands_mod.expire_watching(cands, path=path)
+        assert expired == 1, expired
+        item = next(i for i in cands["items"] if i["symbol"] == "600022")
+        assert item["status"] == "parked"
+        assert "自动搁置" in item["note"]
+        assert next(i for i in cands["items"] if i["symbol"] == "600020")["status"] == "promoted"
+        assert next(i for i in cands["items"] if i["symbol"] == "600021")["status"] == "validated"
+        # 幂等：再跑一次无变化、不写盘
+        before = cands["version"]
+        cands, expired2 = cands_mod.expire_watching(cands, path=path)
+        assert expired2 == 0 and cands["version"] == before
+    finally:
+        cands_mod.count_trading_days_between = orig
+        shutil.rmtree(d, ignore_errors=True)
+
+def test_expire_watching_within_window_untouched():
+    d, path = _tmp()
+    orig = cands_mod.count_trading_days_between
+    cands_mod.count_trading_days_between = lambda a, b, dates=None: 10  # 窗口内
+    try:
+        cands = cands_mod.empty_candidates()
+        cands, ok, _ = cands_mod.add(cands, "600030", path=path)
+        cands, expired = cands_mod.expire_watching(cands, path=path)
+        assert expired == 0
+        assert cands["items"][0]["status"] == "watching"
+    finally:
+        cands_mod.count_trading_days_between = orig
+        shutil.rmtree(d, ignore_errors=True)
+
+def test_expire_watching_missing_timestamp_parked():
+    d, path = _tmp()
+    try:
+        cands = cands_mod.empty_candidates()
+        cands, ok, _ = cands_mod.add(cands, "600031", path=path)
+        cands["items"][0].pop("last_status_change_at")
+        cands["items"][0].pop("added_at")
+        cands, expired = cands_mod.expire_watching(cands, path=path)
+        assert expired == 1
+        assert cands["items"][0]["status"] == "parked"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+def test_active_state_capacity_counting():
+    d, path = _tmp()
+    try:
+        cands = cands_mod.empty_candidates()
+        # 活跃态只算 watching/validated：塞满上限后把一半置 parked，应能继续加新
+        n = config.CANDIDATE_MAX_ITEMS
+        for i in range(n):
+            cands, ok, _ = cands_mod.add(cands, "%06d" % (600000 + i), path=path)
+            assert ok
+        cands, ok, msg = cands_mod.add(cands, "999990", path=path)
+        assert not ok and "上限" in msg
+        for i in range(n // 2):
+            cands, ok, _ = cands_mod.set_status(cands, "%06d" % (600000 + i), "parked", path=path)
+            assert ok
+        for i in range(n // 2):
+            cands, ok, msg = cands_mod.add(cands, "%06d" % (700000 + i), path=path)
+            assert ok, msg
+        assert cands_mod._active_count(cands) == n
+        assert len(cands["items"]) == n + n // 2  # parked 留痕保留
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def _run_all():
+
     import traceback
     tests = sorted(((n, f) for n, f in globals().items()
                     if n.startswith("test_") and callable(f)), key=lambda p: p[0])

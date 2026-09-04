@@ -19,6 +19,12 @@ if ROOT not in sys.path:
 # 保证 fetch_kline 走纯网络路径（run_all_tests 按子进程运行，环境变量不外泄）。
 os.environ["KLINE_STORE"] = "0"
 
+# 同时隔离第二层磁盘缓存（data/cache 与运行中的 app 共享，TTL 内会命中真实行情，
+# 绕过下方 monkeypatch 的网络层）——重定向到空临时目录，保持「只看 mock 网络层」语义。
+import tempfile
+import data.kline_fetcher as _kf_module
+_kf_module.DATA_CACHE_DIR = tempfile.mkdtemp(prefix="p0test_kline_cache_empty_")
+
 from data.kline_fetcher import Kline
 from analysis import breakout_module
 from analysis.breakout_module import BreakoutResult, _analyze_system

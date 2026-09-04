@@ -398,6 +398,15 @@ def _run_scan(max_stocks: int = 1000):
         dual_buy.sort(key=lambda x: x["combined_score"], reverse=True)
         results = dual_buy[:20]
 
+        # ---- 6.4 watching 过期自动搁置（预承诺规则，拍板 2026-09-04；先释放容量再吸收新候选）----
+        try:
+            from backtest import candidates as cands_mod
+            _c, _expired = cands_mod.expire_watching(cands_mod.load())
+            if _expired:
+                log.info("候选池 watching 过期自动搁置 %d 只", _expired)
+        except Exception as exc:
+            log.warning("候选池过期搁置失败（不影响扫描）: %s", exc)
+
         # ---- 6.5 扫描结果自动入候选池（拍板 2026-09-04；去重/冷却/上限由 candidates 层约束）----
         # 发现是全自动的，人工闸门只保留在候选→核心池（SCREEN_GATE 建议单拍板）。
         # SCAN_AUTO_CANDIDATE=0 可关闭；任何异常只记日志，绝不影响扫描结果本身。
