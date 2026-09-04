@@ -34,7 +34,7 @@
 
 ```bash
 python app.py                          # 启动服务 → http://127.0.0.1:8795（PORT/BIND_HOST 可覆盖）
-python run_all_tests.py                # 全量回归（57 个测试文件）
+python run_all_tests.py                # 全量回归（58 个测试文件）
 python run_all_tests.py --list         # 列出测试文件
 python run_all_tests.py --filter journal   # 只跑匹配文件名的测试
 
@@ -62,7 +62,7 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 | `backtest/` | 快照/无前视重放/统计/敏感性/评审/矫正（cli.py + `__main__.py`）；journal.py（信号档案）、pool.py（核心池）、candidates.py（I9.2 候选池）、screen.py（I9.3 候选验证）、advise.py（I9.4 建议）、**sim_account.py（v6 模拟账户账户内核：Decision 契约/撮合/记账/绩效）** |
 | `digest/` | 每日速递聚合 |
 | `dashboard/` | 前端看板（原生 ESM JS，无构建步骤）：index.html + js/ + vendor/，I9 新增 `js/candidates.js`（候选/建议/验证进度），v6 新增 `js/sim.js`（模拟账户分区） |
-| `tests/` | 回归测试（`run_all_tests.py` 统一跑，57 个文件） |
+| `tests/` | 回归测试（`run_all_tests.py` 统一跑，58 个文件） |
 | `docs/` | 设计文档与版本路线图（迭代稿按 `迭代_xx/` 归档；索引见 `docs/README.md`；`docs/comet/` 为 Comet 工作流归档） |
 | `libs/` | 第三方 vendored 库，一般不改 |
 
@@ -81,6 +81,7 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 ## I9 关键口径（改动前必读）
 
 - **候选池与核心池物理分离**：候选→核心池唯一通道是 `advise` 建议单 + 人工走 `/api/correct/execute`，**建议器零写池**；
+- **发现全自动**（2026-09-04 拍板）：扫描完成后 found（前20）+ 被策略门拦截的候选自动入候选池（`source=scan`，幂等去重、受 `CANDIDATE_MAX_ITEMS` 上限约束，`SCAN_AUTO_CANDIDATE=0` 可关）；人工闸门只保留在候选→核心池拍板；
 - **SCREEN_GATE**（`backtest/config.py`，预承诺）：n≥SAMPLE_MIN、r20/r60_excess>0、双超额胜率≥50%，作用于**买入侧合计**，样本不足永不 PASS，分档只披露不设门槛；
 - **逐股出池门槛**：`SCREEN_ADVICE_MIN_N=10`（T3 是组合级规则，逐股须另设样本门槛）；
 - **滚动评估幂等键=月份**：每交易日 15:45 自检，当月已跑即跳过；pool.version 只记录不作跳过条件；时间行为用注入时钟测试；
@@ -108,7 +109,7 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 
 `LOG_JSON=1`（结构化日志）、`AUTH_PASSWORD`（登录鉴权，配套 AUTH_MAX_FAILS/AUTH_BAN_SECONDS）、
 `KLINE_STORE=0`（关本地K线库）、`KLINE_SYNC_AT=15:30`、`KLINE_SYNC_ENABLED=0`、
-`SCAN_DAILY_MAX_WORKERS=20`、`SCAN_WEEKLY_MAX_WORKERS=15`、`NOTIFY_MAX_WORKERS=8`、
+`SCAN_DAILY_MAX_WORKERS=20`、`SCAN_WEEKLY_MAX_WORKERS=15`、`SCAN_AUTO_CANDIDATE=0`（关扫描结果自动入候选池）、`NOTIFY_MAX_WORKERS=8`、
 `ROLLING_EVAL_ENABLED=0`（关月度滚动评估调度）、`ROLLING_EVAL_AT`（默认 15:45）。完整清单见 README。
 
 ## 修改约定

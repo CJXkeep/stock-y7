@@ -1,0 +1,37 @@
+{
+  "schema": "v5.snapshot.v1",
+  "snapshot_id": "20260904T083648Z",
+  "created_at": "2026-09-04T08:36:49Z",
+  "pool_version": 1,
+  "source": "pool",
+  "config": {
+    "history_bars": 750,
+    "replay_window": 250,
+    "index_window": 60,
+    "horizons": [
+      5,
+      10,
+      20,
+      60
+    ]
+  },
+  "symbols": {},
+  "indexes": {
+    "_idx_000001": {
+      "bars": 400,
+      "start": "2025-01-13",
+      "end": "2026-09-04"
+    },
+    "_idx_000300": {
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04"
+    }
+  },
+  "usable_symbols": 0,
+  "total_symbols": 0,
+  "files": {
+    "bars_jsonl_sha256": "fac31bd65ee130dc7b9bee68fabae9b49edd43d047d27f142a1ffe341622a3db"
+  },
+  "config_hash": "137e4e0e4a21cf11"
+}

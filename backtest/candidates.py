@@ -258,12 +258,16 @@ def set_status(cands: dict, symbol: str, status: str, path: str = None):
     return cands, False, "%s 不在候选池中" % symbol
 
 
-def import_items(cands: dict, items, path: str = None, industry_fetch=None):
+def import_items(cands: dict, items, path: str = None, industry_fetch=None,
+                 source: str = "manual"):
     """批量导入：逐条校验、幂等/冷却跳过、收满即止。
 
     返回 (cands, ok, message, added, skipped)：added 为新入池条数；
     有新增才落盘一次且 version 恰好 +1；全部被拒不写盘。
+    source ∈ scan|manual（默认 manual；scan = 扫描结果自动入池，2026-09-04 拍板）。
     """
+    if source not in SOURCES:
+        return cands, False, "source 必须为 scan|manual", 0, 0
     if not isinstance(items, list) or not items:
         return cands, False, "items 必须为非空数组", 0, 0
     existing = {item["symbol"] for item in cands["items"]}
@@ -290,7 +294,7 @@ def import_items(cands: dict, items, path: str = None, industry_fetch=None):
             "name": str(raw.get("name") or ""),
             "industry": "",
             "added_at": now,
-            "source": "manual",
+            "source": source,
             "first_action": str(raw.get("first_action") or ""),
             "first_score": raw.get("first_score"),
             "note": str(raw.get("note") or ""),

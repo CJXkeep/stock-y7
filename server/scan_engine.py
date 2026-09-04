@@ -398,6 +398,42 @@ def _run_scan(max_stocks: int = 1000):
         dual_buy.sort(key=lambda x: x["combined_score"], reverse=True)
         results = dual_buy[:20]
 
+        # ---- 6.5 扫描结果自动入候选池（拍板 2026-09-04；去重/冷却/上限由 candidates 层约束）----
+        # 发现是全自动的，人工闸门只保留在候选→核心池（SCREEN_GATE 建议单拍板）。
+        # SCAN_AUTO_CANDIDATE=0 可关闭；任何异常只记日志，绝不影响扫描结果本身。
+        auto_candidates_added = 0
+        auto_candidates_skipped = 0
+        if os.environ.get("SCAN_AUTO_CANDIDATE", "1") != "0":
+            try:
+                from backtest import candidates as cands_mod
+                absorb = []
+                for r in results:
+                    absorb.append({
+                        "symbol": r.get("symbol", ""),
+                        "name": str(r.get("name") or ""),
+                        "first_action": str(r.get("daily_action") or r.get("action") or ""),
+                        "first_score": r.get("daily_score", r.get("score")),
+                        "note": "扫描自动入池",
+                    })
+                for b in blocked:
+                    # 被策略门拦截的候选也入池：拦截组本身是策略门价值的直接证据（I10 口径）
+                    absorb.append({
+                        "symbol": b.get("symbol", ""),
+                        "name": str(b.get("name") or ""),
+                        "first_action": str(b.get("original_action") or ""),
+                        "first_score": b.get("score"),
+                        "note": ("策略门拦截：" + str(b.get("veto_reason") or ""))[:200],
+                    })
+                cands, ok, msg, added, skipped = cands_mod.import_items(
+                    cands_mod.load(), absorb, industry_fetch=fetch_industry,
+                    source="scan")
+                auto_candidates_added = added
+                auto_candidates_skipped = skipped
+                if added:
+                    log.info("扫描自动入候选池: +%d（跳过 %d，%s）", added, skipped, msg)
+            except Exception as exc:
+                log.warning("扫描自动入候选池失败（不影响扫描结果）: %s", exc)
+
         elapsed = round(time.time() - _scan_state["start_time"], 1)
         with _scan_lock:
             _scan_state.update({
