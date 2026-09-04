@@ -292,6 +292,13 @@ function renderTradePlan(signal) {
   const pos = plan.position_size || signal.position_advice || '';
   const period = plan.holding_period || '';
   const notes = plan.notes || '';
+  // 目标价依据（路线图 #7）：区分结构化证据与经验估算，防止 +10% 被误读为阻力位
+  const TS_LABELS = {
+    pattern_target: '形态量度目标（头肩底/双底）',
+    box_resistance: '箱体上沿阻力',
+    heuristic_10pct: '经验估算（+10%，非结构位）',
+  };
+  const tsLabel = TS_LABELS[plan.target_source] || '--';
 
   // 动作区（v8 迭代）：看板 ↔ 候选池/模拟账户 互导；观察/卖出信号不提供模拟买入
   const sym = escHtml(S.currentSymbol || '');
@@ -321,7 +328,7 @@ function renderTradePlan(signal) {
     '<div class="plan-prices">' +
     '<div class="plan-price-box"><div class="plan-price-label">买入价 <span class="plan-tip">现价入手</span></div><div class="plan-price-val" style="color:#ff2d2d">' + entry.toFixed(2) + '</div></div>' +
     '<div class="plan-price-box"><div class="plan-price-label">止损价 <span class="plan-tip">跌到这里就卖</span></div><div class="plan-price-val" style="color:#00b35c">' + stop.toFixed(2) + '</div></div>' +
-    '<div class="plan-price-box"><div class="plan-price-label">目标价 <span class="plan-tip">涨到这里就卖</span></div><div class="plan-price-val" style="color:#ff9800">' + target.toFixed(2) + '</div></div>' +
+    '<div class="plan-price-box"><div class="plan-price-label">目标价 <span class="plan-tip">涨到这里就卖 · 依据：' + tsLabel + '</span></div><div class="plan-price-val" style="color:#ff9800">' + target.toFixed(2) + '</div></div>' +
     '</div>' +
     '<div class="plan-rr">' +
     '<span class="plan-rr-item">盈亏比 <b>' + (rr || signal.risk_reward || 0) + '</b> <span class="plan-tip">冒1元风险可赚' + (rr || signal.risk_reward || 0) + '元</span></span>' +
@@ -329,6 +336,7 @@ function renderTradePlan(signal) {
     '</div>' +
     '<div class="plan-row"><span class="plan-label">建议仓位 <span class="plan-tip">投多少钱</span></span><span class="plan-val" style="color:#ff9800">' + (pos || '') + '</span></div>' +
     '<div class="plan-row"><span class="plan-label">持有周期 <span class="plan-tip">大概持多久</span></span><span class="plan-val">' + period + '</span></div>' +
+    '<div class="plan-row"><span class="plan-label">目标依据 <span class="plan-tip">目标价来自哪种证据</span></span><span class="plan-val">' + escHtml(tsLabel) + '</span></div>' +
     (notes ? '<div class="plan-notes">' + notes + '</div>' : '') + actionsHtml;
 }
 
