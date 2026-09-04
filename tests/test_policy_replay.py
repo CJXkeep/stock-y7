@@ -217,7 +217,24 @@ def test_stats_legacy_isolation():
     assert "aggregate_final" not in summary and "intercepted" not in summary
 
 
+def test_row_carries_policy_version():
+    """I10 对账：stats 行须透传 signals 的 policy_version（CSV 列不得为空）。"""
+    from backtest.stats import attach_dual_caliber
+    rows_all = [{"symbol": "600519", "date": "2024-01-02", "action": "买入",
+                 "raw_action": "买入", "final_action": "买入",
+                 "veto_reason": "", "policy_version": "policy.v1.gate",
+                 "score": 70.0, "warmup": False, "deduped": False,
+                 "r20": 1.0, "r60": 2.0}]
+    rows = [dict(r) for r in rows_all]
+    summary = aggregate(rows)
+    attach_dual_caliber(summary, rows, rows_all)
+    assert summary["meta"]["policy_caliber"] == "dual"
+    # 行本身带 policy_version（write_results_csv 直接取行字段）
+    assert rows[0]["policy_version"] == "policy.v1.gate"
+
+
 def test_report_dual_rendering_and_intercept_section():
+
     summary = {
         "meta": {"snapshot_id": "S1", "policy_caliber": "dual",
                  "policy_version": "policy.v1.gate", "policy_hash": "0123456789ab",

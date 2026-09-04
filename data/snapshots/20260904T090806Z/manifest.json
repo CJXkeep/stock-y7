@@ -1,0 +1,267 @@
+{
+  "schema": "v5.snapshot.v1",
+  "snapshot_id": "20260904T090806Z",
+  "created_at": "2026-09-04T09:08:07Z",
+  "pool_version": 3,
+  "source": "screen",
+  "config": {
+    "history_bars": 750,
+    "replay_window": 250,
+    "index_window": 60,
+    "horizons": [
+      5,
+      10,
+      20,
+      60
+    ]
+  },
+  "symbols": {
+    "605577": {
+      "name": "龙版传媒",
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04",
+      "source": "eastmoney",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600059": {
+      "name": "古越龙山",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600388": {
+      "name": "紫金龙净",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "000876": {
+      "name": "新 希 望",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600795": {
+      "name": "国电电力",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "002100": {
+      "name": "天康生物",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "603162": {
+      "name": "海通发展",
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04",
+      "source": "eastmoney",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "688428": {
+      "name": "诺诚健华",
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04",
+      "source": "eastmoney",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "603067": {
+      "name": "振华股份",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600629": {
+      "name": "华建集团",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600657": {
+      "name": "信达地产",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600698": {
+      "name": "湖南天雁",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "000560": {
+      "name": "我爱我家",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "300498": {
+      "name": "温氏股份",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "002328": {
+      "name": "新朋股份",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "601086": {
+      "name": "国芳集团",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "603991": {
+      "name": "领先股份",
+      "bars": 750,
+      "start": "2023-07-21",
+      "end": "2026-09-04",
+      "source": "eastmoney",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600391": {
+      "name": "航发科技",
+      "bars": 641,
+      "start": "2024-01-12",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "603980": {
+      "name": "吉华集团",
+      "bars": 641,
+      "start": "2024-01-05",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    }
+  },
+  "indexes": {
+    "_idx_000001": {
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04"
+    },
+    "_idx_000300": {
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04"
+    }
+  },
+  "usable_symbols": 19,
+  "total_symbols": 19,
+  "files": {
+    "bars_jsonl_sha256": "95adebab2735040b6ce2470e8f6c14c465f58a3f5926a35ea398a17c8c66250a"
+  },
+  "config_hash": "137e4e0e4a21cf11",
+  "candidates_version": 3
+}

@@ -447,6 +447,7 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
             "raw_action": s.get("raw_action", s["action"]),
             "final_action": s.get("final_action", ""),
             "veto_reason": s.get("veto_reason", ""),
+            "policy_version": s.get("policy_version", ""),
             "score": s.get("score"), "warmup": bool(s.get("warmup")),
             "deduped": s["deduped"], **fwd,
         }

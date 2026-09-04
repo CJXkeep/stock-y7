@@ -1,7 +1,7 @@
 {
   "schema": "v5.candidates.v1",
-  "version": 3,
-  "updated_at": "2026-09-04T09:01:39Z",
+  "version": 22,
+  "updated_at": "2026-09-04T09:08:22Z",
   "items": [
     {
       "symbol": "605577",
@@ -12,8 +12,8 @@
       "first_action": "强烈买入",
       "first_score": 82,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "600059",
@@ -24,8 +24,8 @@
       "first_action": "强烈买入",
       "first_score": 81,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "600388",
@@ -36,8 +36,8 @@
       "first_action": "强烈买入",
       "first_score": 81,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "000876",
@@ -48,8 +48,8 @@
       "first_action": "强烈买入",
       "first_score": 80,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "600795",
@@ -60,8 +60,8 @@
       "first_action": "强烈买入",
       "first_score": 80,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "002100",
@@ -72,8 +72,8 @@
       "first_action": "强烈买入",
       "first_score": 79,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "600036",
@@ -96,8 +96,8 @@
       "first_action": "强烈买入",
       "first_score": 78,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:21Z"
     },
     {
       "symbol": "688428",
@@ -108,8 +108,8 @@
       "first_action": "强烈买入",
       "first_score": 78,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "603067",
@@ -120,8 +120,8 @@
       "first_action": "强烈买入",
       "first_score": 77,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "600629",
@@ -132,8 +132,8 @@
       "first_action": "强烈买入",
       "first_score": 77,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "600657",
@@ -144,8 +144,8 @@
       "first_action": "强烈买入",
       "first_score": 77,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "600698",
@@ -156,8 +156,8 @@
       "first_action": "强烈买入",
       "first_score": 77,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "000560",
@@ -168,8 +168,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "300498",
@@ -180,8 +180,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "002328",
@@ -192,8 +192,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "601086",
@@ -204,8 +204,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "603991",
@@ -216,8 +216,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "600391",
@@ -228,8 +228,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     },
     {
       "symbol": "603980",
@@ -240,8 +240,8 @@
       "first_action": "强烈买入",
       "first_score": 76,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:00:27Z"
+      "status": "validated",
+      "last_status_change_at": "2026-09-04T09:08:22Z"
     }
   ]
 }
