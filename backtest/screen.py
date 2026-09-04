@@ -3,7 +3,11 @@
 
 对候选池中 `status=watching` 的候选做**无前视**历史重放与统计，产出
 逐股四视界绝对/超额数据 + SCREEN_GATE 门槛判定，写入 `results/<id>/screen.md`
-与 `screen.csv`；验证成功后候选状态置为 `validated`。
+与 `screen.csv`；只有 PASS 才把候选置 `validated`，FAIL 保持 watching
+（拍板 2026-09-04：留在验证队列随样本积累自动重试）。
+
+状态迁移全部写审计留痕：`data/candidates_audit.jsonl`（append-only，
+schema v5.candidates-audit.v1：ts/symbol/from/to/actor/version）。
 
 口径（docs/迭代_i9_选股层/选股层与滚动评估设计.md §I9.3）：
 - 快照复用 build_snapshot（source="screen"），manifest 增 source/candidates_version；
@@ -95,6 +99,23 @@ def _watching_items(cands: dict, limit: int = None) -> list:
             if i.get("status") == "watching"][:max(1, int(limit))]
 
 
+def settle_candidate_statuses(cands: dict, results: list, path: str = None) -> dict:
+    """screen 结果回写候选状态（拍板 2026-09-04）。
+
+    只有 PASS 才 watching → validated；FAIL（尤其样本不足）**保持 watching**，
+    留在验证队列随样本积累自动重试；状态迁移写审计（actor=screen）。
+    """
+    from backtest import candidates as cands_mod
+    for r in results:
+        if not r.get("passed"):
+            continue
+        cands, ok, msg = cands_mod.set_status(cands, r["symbol"], "validated",
+                                              path=path, actor="screen")
+        if not ok:
+            _log.warning("候选状态回写失败 %s: %s", r["symbol"], msg)
+    return cands
+
+
 def run_screen(candidates_path: str = None, root: str = None, workers: int = 8,
                allow_stale: bool = False) -> dict:
     """候选历史验证主流程，返回 {snapshot_id, candidates, outputs}。"""
@@ -145,12 +166,7 @@ def run_screen(candidates_path: str = None, root: str = None, workers: int = 8,
             **gate,
         })
 
-    # 验证成功后候选状态 watching → validated（失败路径不落状态）
-    for r in results:
-        cands, ok, msg = cands_mod.set_status(cands, r["symbol"], "validated",
-                                              path=candidates_path)
-        if not ok:
-            _log.warning("候选状态回写失败 %s: %s", r["symbol"], msg)
+    cands = settle_candidate_statuses(cands, results, path=candidates_path)
 
     outputs = _write_outputs(sid, root, manifest, results,
                              elapsed=time.time() - started,

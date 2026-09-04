@@ -34,7 +34,7 @@
 
 ```bash
 python app.py                          # 启动服务 → http://127.0.0.1:8795（PORT/BIND_HOST 可覆盖）
-python run_all_tests.py                # 全量回归（58 个测试文件）
+python run_all_tests.py                # 全量回归（59 个测试文件）
 python run_all_tests.py --list         # 列出测试文件
 python run_all_tests.py --filter journal   # 只跑匹配文件名的测试
 
@@ -83,6 +83,8 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 - **候选池与核心池物理分离**：候选→核心池唯一通道是 `advise` 建议单 + 人工走 `/api/correct/execute`，**建议器零写池**；
 - **发现全自动**（2026-09-04 拍板）：扫描完成后 found（前20）+ 被策略门拦截的候选自动入候选池（`source=scan`，幂等去重、受 `CANDIDATE_MAX_ITEMS` 上限约束，`SCAN_AUTO_CANDIDATE=0` 可关）；人工闸门只保留在候选→核心池拍板；
 - **watching 过期自动搁置**（预承诺规则，拍板 2026-09-04）：watching 超过 `CANDIDATE_WATCHING_EXPIRY_DAYS=20` 个交易日未经 screen 通过/人工处理 → 扫描时自动置 parked（记录保留可复活）；容量上限**只数活跃态**（watching/validated），parked/rejected/promoted 不占 30 只；
+- **screen FAIL 保持 watching**（拍板 2026-09-04）：只有 PASS 才 watching→validated；FAIL（尤其样本不足）留在验证队列随样本积累自动重试；
+- **候选状态机审计**（拍板 2026-09-04）：每次状态迁移写 `data/candidates_audit.jsonl`（append-only：ts/symbol/from/to/actor/version），actor ∈ screen|api:status|correct:pool_add|expire_watching|revert-*；
 - **SCREEN_GATE**（`backtest/config.py`，预承诺）：n≥SAMPLE_MIN、r20/r60_excess>0、双超额胜率≥50%，作用于**买入侧合计**，样本不足永不 PASS，分档只披露不设门槛；
 - **逐股出池门槛**：`SCREEN_ADVICE_MIN_N=10`（T3 是组合级规则，逐股须另设样本门槛）；
 - **滚动评估幂等键=月份**：每交易日 15:45 自检，当月已跑即跳过；pool.version 只记录不作跳过条件；时间行为用注入时钟测试；

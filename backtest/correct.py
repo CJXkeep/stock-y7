@@ -344,7 +344,8 @@ def run_correct(plan_path: str, root: str = None, dry_run: bool = False,
             from backtest import candidates as _cands
             cands = _cands.load()
             _cands, ok, msg = _cands.set_status(
-                cands, str(plan["payload"]["symbol"]), "promoted")
+                cands, str(plan["payload"]["symbol"]), "promoted",
+                actor="correct:%s" % action)
             if not ok:
                 _log.warning("矫正执行成功但候选状态回写未生效（%s，可能不在候选池）: %s",
                              plan["payload"]["symbol"], msg)

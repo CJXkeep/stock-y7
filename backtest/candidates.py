@@ -29,6 +29,25 @@ from backtest import config
 _log = logging.getLogger("backtest.candidates")
 
 CANDIDATE_SCHEMA = "v5.candidates.v1"
+AUDIT_SCHEMA = "v5.candidates-audit.v1"
+
+
+def audit_path(path: str = None) -> str:
+    """审计文件路径：默认 data/candidates_audit.jsonl；传 path 时取同目录（测试隔离）。"""
+    if path:
+        return os.path.join(os.path.dirname(path), "candidates_audit.jsonl")
+    return os.path.join(config.ROOT, "data", "candidates_audit.jsonl")
+
+
+def _append_audit(records: list, path: str = None) -> None:
+    """状态变更审计留痕（append-only；失败仅告警不影响主流程）。"""
+    try:
+        with open(audit_path(path), "a", encoding="utf-8") as fh:
+            for rec in records:
+                rec["schema"] = AUDIT_SCHEMA
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        _log.warning("候选池审计写入失败（不影响主流程）: %s", exc)
 STATUSES = ("watching", "validated", "parked", "promoted", "rejected")
 ACTIVE_STATUSES = ("watching", "validated")  # 占容量上限的状态
 SOURCES = ("scan", "manual")
@@ -255,17 +274,28 @@ def set_note(cands: dict, symbol: str, note: str, path: str = None):
     return cands, False, "%s 不在候选池中" % symbol
 
 
-def set_status(cands: dict, symbol: str, status: str, path: str = None):
-    """更新状态（watching|validated|parked|promoted|rejected）；不存在/非法为拒绝。"""
+def set_status(cands: dict, symbol: str, status: str, path: str = None,
+               actor: str = ""):
+    """更新状态（watching|validated|parked|promoted|rejected）；不存在/非法为拒绝。
+
+    actor：变更来源标识（screen/api:status/correct/手动），写入审计留痕
+    data/candidates_audit.jsonl（append-only）——状态机的每次迁移可对账。
+    """
     symbol = str(symbol or "").strip()
     if status not in STATUSES:
         return cands, False, "status 必须为 %s" % "/".join(STATUSES)
     for item in cands["items"]:
         if item["symbol"] == symbol:
             if item.get("status") != status:
+                prev = item.get("status", "")
                 item["status"] = status
                 item["last_status_change_at"] = _utc_now()
                 cands["version"] += 1
+                _append_audit([{
+                    "ts": item["last_status_change_at"],
+                    "symbol": symbol, "from": prev, "to": status,
+                    "actor": str(actor or ""), "version": cands["version"],
+                }], audit_path(path) if path else None)
                 return _commit(cands, path), True, "ok"
             return cands, False, "状态未变化（%s）" % status
     return cands, False, "%s 不在候选池中" % symbol
@@ -284,21 +314,29 @@ def expire_watching(cands: dict, path: str = None, expiry_days: int = None):
                    else config.CANDIDATE_WATCHING_EXPIRY_DAYS)
     now = _utc_now()
     expired = 0
+    audit = []
     for item in cands.get("items") or []:
         if item.get("status") != "watching":
             continue
         start = str(item.get("last_status_change_at") or item.get("added_at") or "")
         used = count_trading_days_between(start, now[:10]) if start else None
         if used is None or used >= expiry_days:
+            prev = item.get("status", "")
             item["status"] = "parked"
             item["note"] = (str(item.get("note") or "") +
                             ("；" if item.get("note") else "") +
                             "watching超%d个交易日自动搁置（可手动复活）" % expiry_days).strip("；")
             item["last_status_change_at"] = now
+            audit.append({"ts": now, "symbol": item.get("symbol", ""),
+                          "from": prev, "to": "parked",
+                          "actor": "expire_watching", "version": 0})
             expired += 1
     if expired:
         cands["version"] += 1
         cands["updated_at"] = now
+        for rec in audit:
+            rec["version"] = cands["version"]
+        _append_audit(audit, path)
         _commit(cands, path)
     return cands, expired
 

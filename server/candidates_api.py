@@ -41,7 +41,8 @@ def handle_candidates_post(body: dict) -> dict:
         cands, ok, message = cands_mod.remove(cands, body.get("symbol"))
     elif action == "status":
         cands, ok, message = cands_mod.set_status(
-            cands, body.get("symbol"), str(body.get("status", "")).strip())
+            cands, body.get("symbol"), str(body.get("status", "")).strip(),
+            actor="api:status")
     elif action == "note":
         cands, ok, message = cands_mod.set_note(
             cands, body.get("symbol"), str(body.get("note", "")))
