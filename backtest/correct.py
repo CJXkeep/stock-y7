@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """策略矫正执行器（I8.5 correction-executor）。
 
-口径（docs/信号响应闭环设计.md v1.2 §5.1）：
+口径（docs/迭代_i8_评估闭环/信号响应闭环设计.md v1.2 §5.1）：
 - 矫正器不发明矫正：动作白名单封闭、门槛证据从 results.csv 按 score 现算复核
   （不信任计划自报数字）、每次执行 = 备份 → 写目标 → 追加决策日志；--dry-run 零写入；
 - param_change 硬门槛（全部通过才写 params_override，引擎下次进程启动生效）：

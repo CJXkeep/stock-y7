@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """评估响应规则检查（I8.4 evaluation-review）。
 
-口径（docs/信号响应闭环设计.md §4 v1.1）：
+口径（docs/迭代_i8_评估闭环/信号响应闭环设计.md §4 v1.1）：
 - 预先承诺：规则阈值/窗口/门槛全部集中 backtest/config.py，本模块只做规则匹配与证据呈现；
 - 只匹配呈现不执行：不写池、不改参数、不发通知、不动 stats/sensitivity 产物；
   唯一写入 = review.md + review-state.json；

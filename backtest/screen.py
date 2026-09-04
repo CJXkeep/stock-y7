@@ -5,7 +5,7 @@
 逐股四视界绝对/超额数据 + SCREEN_GATE 门槛判定，写入 `results/<id>/screen.md`
 与 `screen.csv`；验证成功后候选状态置为 `validated`。
 
-口径（docs/i9/选股层与滚动评估设计.md §I9.3）：
+口径（docs/迭代_i9_选股层/选股层与滚动评估设计.md §I9.3）：
 - 快照复用 build_snapshot（source="screen"），manifest 增 source/candidates_version；
 - 重放/统计与正式评估完全同源（滚动 250/60、warmup 标记、原始 run_analysis 输出）；
 - SCREEN_GATE 作用于候选**买入侧合计**（results.csv 的行即已去重/排除预热后的

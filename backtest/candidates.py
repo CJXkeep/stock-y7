@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """候选池读写与变更（I9.2 screener-candidates）。
 
-口径（docs/i9/选股层与滚动评估设计.md §I9.2）：
+口径（docs/迭代_i9_选股层/选股层与滚动评估设计.md §I9.2）：
 - data/candidates.json 为候选池唯一事实来源，schema v5.candidates.v1；
 - items 有序、symbol 唯一；status ∈ watching|validated|parked|promoted|rejected；
   source ∈ scan（扫描一键入池）| manual（手动添加/导入）；
