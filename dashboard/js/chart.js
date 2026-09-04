@@ -208,7 +208,7 @@ export function _bkConfDesc(b) {
   if (c == null) return '置信度：数据不足未评估。';
   const lv = b.confidence_level || (c >= 70 ? '高' : c >= _bkConfMin(b) ? '中' : '低');
   const fs = Array.isArray(b.confidence_factors) ? b.confidence_factors.slice(0, 5) : [];
-  return `置信度 ${c}%（${lv}）：突破力度/量能确认/趋势配合/信号时效/跟随表现综合评估，低于 ${_bkConfMin(b)}% 的买点不上图。`
+  return `置信度 ${c}%（${lv}）：突破力度/量能确认/趋势配合/信号时效/跟随表现综合评估，低于 ${_bkConfMin(b)}% 的买点以弱化"参考"标记显示，不作为有效买点。`
     + (fs.length ? '\n' + fs.map(x => '· ' + x).join('\n') : '');
 }
 
@@ -221,13 +221,16 @@ export function renderKline(klines, signal, symbol) {
   const ohlc = klines.map(k => [k.open, k.close, k.low, k.high]);
   const { ma5, ma10, ma20, ma60 } = _maSeriesFor(klines);   // improvements #14：统一走缓存
 
-  // ===== 买卖点标记（buy-point-confidence）=====
-  // 入场点▲/▼标在真正的突破那根K线上，并带置信度；置信度低于门槛的入场点整组不上图。
+  // ===== 买卖点标记（buy-point-confidence，三档显示）=====
+  // 不靠隐藏掩盖证据，而是分档显示并标注质量：
+  //   高置信度(>=70) / 达门槛(>=60) 的正常买点 → 醒目标记 + 止损/入场水平线；
+  //   低置信度(<60，含"冲高回落假突破") → 弱化"参考"标记（灰色/空心），
+  //     只标注"此处曾触发突破但失败"，**不**画止损/入场水平线，避免误导成有效买点。
   // 风险事件（2N止损卖出 / 空头平仓）不受门槛限制，永远展示。
   const markPoints = [];
   S._signalPoints = [];
-  const shownBreakouts = [];    // 通过置信度门槛、允许画标记与水平线的系统
-  const hiddenBreakouts = [];   // 被门槛过滤掉的系统（图上角标说明，避免"信号凭空消失"）
+  const shownBreakouts = [];    // 达门槛、允许画标记与水平线的系统（有效买点）
+  const weakBreakouts = [];     // 低置信度/假突破 → 仅作弱化参考标记
   const bkList = (signal && signal.breakouts) ? signal.breakouts : [];
   for (const b of bkList) {
     const conf = _bkConf(b);
@@ -235,8 +238,8 @@ export function renderKline(klines, signal, symbol) {
     const isExit = (b.signal === '卖出' || b.signal === '空头平仓');
     const hasEntry = !!(b.entry_price && b.entry_price > 0) && b.signal !== '无信号' && b.signal !== '观望';
     if (!hasEntry && !isExit) continue;
-    if (!isExit && conf != null && conf < minConf) { hiddenBreakouts.push(b); continue; }
-    shownBreakouts.push(b);
+    const isWeak = !isExit && conf != null && conf < minConf;   // 低置信度/假突破 → 仅作参考
+    if (isWeak) weakBreakouts.push(b); else shownBreakouts.push(b);
 
     const sysName = b.system || '系统';
     const sysPeriod = (sysName.match(/(\d+)日/) || [null, '20'])[1] || '20';
@@ -256,21 +259,26 @@ export function renderKline(klines, signal, symbol) {
         : baseY - Math.max(range * 0.5, baseY * 0.005);
       const color = isShort ? C.down : C.up;
       const dateStr = dates[idx] || dates[dates.length - 1];
+      // 弱化参考买点：低置信度(<60，含冲高回落假突破) → 灰色小号三角 + 标签加"参考"，不作为有效买点
+      const weakStyle = isWeak ? { color: '#888', borderColor: '#cfcfcf', size: 15, lbl: `${sysName} ${isShort ? '做空' : '买点'}参考${confTag}` } : null;
       markPoints.push({
         coord: [dateStr, markerY],
-        symbol: 'triangle', symbolSize: 20, symbolRotate: isShort ? 180 : 0,
-        itemStyle: { color: color, borderWidth: 2, borderColor: '#fff' },
-        label: { show: true, formatter: `${sysName} ${isShort ? '做空' : '买点'}${confTag}`,
-                 fontSize: 11, fontWeight: 'bold', color: '#fff',
-                 backgroundColor: color, padding: [2,4], borderRadius: 3, position: isShort ? 'top' : 'bottom' },
+        symbol: 'triangle', symbolSize: (weakStyle && weakStyle.size) || 20, symbolRotate: isShort ? 180 : 0,
+        itemStyle: { color: (weakStyle && weakStyle.color) || color, borderWidth: weakStyle ? 1 : 2,
+                     borderColor: (weakStyle && weakStyle.borderColor) || '#fff' },
+        label: { show: true, formatter: (weakStyle && weakStyle.lbl) || `${sysName} ${isShort ? '做空' : '买点'}${confTag}`,
+                 fontSize: weakStyle ? 10 : 11, fontWeight: weakStyle ? 'normal' : 'bold',
+                 color: weakStyle ? '#bbb' : '#fff', backgroundColor: (weakStyle && weakStyle.color) || color,
+                 padding: [2,4], borderRadius: 3, position: isShort ? 'top' : 'bottom' },
       });
       S._signalPoints.push({
         date: dateStr, price: markerY,
-        title: `${sysName} ${isShort ? '做空入场' : '买点'}（海龟法则）${conf != null ? ' · 置信度' + conf + '%' : ''}`,
+        title: `${sysName} ${isShort ? '做空入场' : '买点'}${isWeak ? '（低置信度参考）' : ''}（海龟法则）${conf != null ? ' · 置信度' + conf + '%' : ''}`,
         formula: isShort
           ? `${sysName}：跌破${sysPeriod}日最低点 ${b.entry_price} → 做空入场\n止损 ${b.stop_loss}（入场+2×N，N=${b.current_n || '?'}）`
           : `${sysName}：突破${sysPeriod}日最高点 ${b.entry_price} → 做多入场\n止损 ${b.stop_loss}（入场-2×N，N=${b.current_n || '?'}）`,
-        desc: `${b.entry_date ? '突破日 ' + b.entry_date + '，' : ''}已持有 ${b.holding_days != null ? b.holding_days : '?'} 根K线。\n` + _bkConfDesc(b),
+        desc: (isWeak ? `⚠ 低置信度突破（${conf}%），仅作参考：此类"冲高回落"多为假突破，不作为有效买点。\n` : '')
+          + `${b.entry_date ? '突破日 ' + b.entry_date + '，' : ''}已持有 ${b.holding_days != null ? b.holding_days : '?'} 根K线。\n` + _bkConfDesc(b),
       });
     }
 
@@ -300,10 +308,10 @@ export function renderKline(klines, signal, symbol) {
       });
     }
   }
-  // 被置信度门槛隐藏的系统 → 图右上角提示，避免用户以为信号丢了
-  const hiddenNote = hiddenBreakouts.length
-    ? hiddenBreakouts.map(b => `${b.system || '系统'} 置信度${_bkConf(b)}%`).join(' · ')
-      + `，低于 ${_bkConfMin(hiddenBreakouts[0])}% 已隐藏`
+  // 右上角提示：低置信度买点以弱化"参考"标记显示，而非隐藏，供用户参考（不掩盖失败证据）
+  const weakNote = weakBreakouts.length
+    ? '参考点 ' + weakBreakouts.map(b => `${b.system || '系统'} ${_bkConf(b)}%`).join(' · ')
+      + `（低于 ${_bkConfMin(weakBreakouts[0])}%，仅作参考，非有效买点）`
     : '';
 
   // 关键水平线（止损、目标价、支撑/压力）——加粗+背景色突出显示
@@ -323,7 +331,7 @@ export function renderKline(klines, signal, symbol) {
   const markLines = [];
   S._signalLines = [];
   {
-    // 只画置信度达标（或含风险事件）的系统，与买点标记口径一致
+    // 只画置信度达标（或含风险事件）的系统（有效买点），与买点标记口径一致；弱化参考点不画水平线
     for (const b of shownBreakouts) {
       const sysName = b.system || '';
       const bConf = _bkConf(b);
@@ -403,8 +411,8 @@ export function renderKline(klines, signal, symbol) {
     backgroundColor: C.bg,
     animation: chartAnim('kline'),
     // 低置信度买点被隐藏时的角标说明（buy-point-confidence）
-    title: hiddenNote ? {
-      text: '⊘ ' + hiddenNote, right: 8, top: 6,
+    title: weakNote ? {
+      text: '⊘ ' + weakNote, right: 8, top: 6,
       textStyle: { color: '#777', fontSize: 10, fontWeight: 'normal' },
     } : undefined,
     xAxis: {

@@ -165,8 +165,8 @@ def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
         score += 2
         factors.append(f"突破日收盘仅越过通道 {ext:.1f}N，力度偏弱 (+2)")
     else:
-        score -= 15
-        factors.append(f"突破日冲高后收盘回落到通道内 ({ext:.1f}N)，疑似假突破 (-15)")
+        score -= 30
+        factors.append(f"突破日冲高后收盘回落到通道内 ({ext:.1f}N)，假突破，未守稳通道 (-30)")
 
     # 2) 量能确认
     avg_v = _avg_volume(klines, entry_idx, 20)
@@ -262,6 +262,13 @@ def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
     elif n_pct <= 1.5:
         score += 3
         factors.append(f"日均波动 {n_pct:.1f}%，波动可控 (+3)")
+
+    # 8) 假突破展示封顶：突破日收盘回落到通道内（ext < 0）说明当天未守稳通道，
+    #    无论量能/均线/时效如何加分，都不算有效突破，置信度一律压到展示门槛之下，
+    #    避免"放量+均线多头"把一根冲高回落的假突破救成 60+、在图上显示为买点。
+    if ext < 0:
+        score = min(score, CONFIDENCE_DISPLAY_MIN - 1)
+        factors.append(f"冲高回落未守稳通道，无论量能/均线如何加分，置信度不达展示门槛 (封顶 {CONFIDENCE_DISPLAY_MIN - 1})")
 
     conf = int(round(max(5.0, min(95.0, score))))
     return conf, factors

@@ -96,6 +96,24 @@ def test_fake_breakout_low_confidence_hidden():
     assert any("缩量" in f for f in r.confidence_factors), r.confidence_factors
 
 
+def test_fake_breakout_with_strong_volume_and_ma_is_hidden():
+    """回归：冲高回落假突破即使放量 + 均线多头，置信度也不得被救回展示门槛之上。
+
+    旧逻辑只扣 -15，会被 放量(+14)+均线(+12)+新鲜(+8) 救到 69，仍然显示为买点；
+    现在是"冲高回落未守稳通道"即视为假突破，置信度封顶在展示门槛之下。
+    """
+    kl = _base_with_consolidation()
+    entry_ref = max(x.high for x in kl[-20:])
+    # 盘中冲高破通道，但收盘回落到通道内；放量 + 均线多头（命中旧逻辑的加分项）
+    kl.append(_k(len(kl), entry_ref - 0.4, high=entry_ref + 0.4, low=entry_ref - 0.6,
+                 volume=3500.0))
+    r = _analyze_system(kl, 20, "系统一(20日)")
+    assert r.direction == "多"
+    assert r.confidence < CONFIDENCE_DISPLAY_MIN, (r.confidence, r.confidence_factors)
+    assert r.confidence_level == "低", r.confidence_level
+    assert any("未守稳通道" in f or "封顶" in f for f in r.confidence_factors), r.confidence_factors
+
+
 def test_stopped_out_entry_is_penalized():
     """入场后已收盘触及 2N 止损的过期入场点：出局校验命中且不达展示门槛。"""
     kl = _rising_base()

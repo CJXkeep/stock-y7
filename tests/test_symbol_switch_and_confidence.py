@@ -4,7 +4,7 @@
 对应本次修复：
   1) 切换两只股票时，旧标的的 2s 行情轮询/分时/资金流响应回写到新标的的图表
      （典型症状：日K最后一根蜡烛的收盘/高低/量变成上一只股票的值）；
-  2) 系统一/系统二买点参考价值低：K线上按置信度展示，低置信度买点不上图。
+  2) 系统一/系统二买点参考价值低：K线上按置信度**三档展示**——达门槛的有效买点醒目标记，低置信度/假突破以弱化"参考"标记显示（不掩盖失败证据）。
 
 用源码断言（与既有前端回归测试同口径），仅使用 Python 标准库。
 """
@@ -61,16 +61,21 @@ def test_minute_and_flow_recheck_symbol_after_await():
 def test_confidence_gate_exists_in_chart():
     assert "BREAKOUT_CONF_MIN" in CHART, "chart.js 未定义买点置信度门槛"
     assert "confidence_display_min" in CHART, "chart.js 未读取后端下发的展示门槛"
-    assert "hiddenBreakouts" in CHART and "shownBreakouts" in CHART, \
-        "chart.js 未按置信度区分展示/隐藏的突破系统"
-    assert "conf < minConf" in CHART, "chart.js 缺少低置信度买点过滤逻辑"
+    # 三档显示：达门槛的有效买点 + 低置信度/假突破的弱化参考点
+    assert "shownBreakouts" in CHART and "weakBreakouts" in CHART, \
+        "chart.js 未区分有效买点与低置信度参考点"
+    assert "conf < minConf" in CHART, "chart.js 缺少低置信度判定逻辑"
 
 
-def test_low_confidence_entry_not_drawn_but_risk_event_always_drawn():
-    seg = CHART.split("const markPoints = [];")[1].split("// 被置信度门槛隐藏的系统")[0]
-    assert "if (!isExit && conf != null && conf < minConf)" in seg, \
-        "低置信度入场点未被过滤，或风险事件被误过滤"
-    assert "hiddenBreakouts.push(b); continue;" in seg, "被隐藏的系统未登记，无法提示用户"
+def test_low_confidence_entry_becomes_weak_reference_but_risk_event_always_drawn():
+    # 低置信度/假突破不再隐藏，而是以弱化"参考"标记显示（不掩盖失败证据）
+    seg = CHART.split("const markPoints = [];")[1].split("// 2) 离场/风险事件")[0]
+    assert "const isWeak = !isExit && conf != null && conf < minConf" in seg, \
+        "chart.js 缺少低置信度判定（isWeak）"
+    assert "if (isWeak) weakBreakouts.push(b); else shownBreakouts.push(b);" in seg, \
+        "低置信度突破未被登记为弱化参考点"
+    assert "weakStyle" in seg, "低置信度参考点缺少弱化样式（弱Style）"
+    assert "买点参考" in seg or "参考" in seg, "低置信度参考点标签未标注『参考』"
 
 
 def test_marker_label_shows_confidence():

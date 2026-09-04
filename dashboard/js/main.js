@@ -447,9 +447,9 @@ function renderSignal(signal) {
     const why = simpleSig ? `<span class="sig-why" onclick="toggleWhy(this)">为什么？</span><span class="sig-why-body" style="display:none">${escHtml(whyTextFor(s.text))}</span>` : '';
     const anchor = _signalAnchorFor(s.text, signal);
     const ptHtml = anchor ? `<span class="sig-pt${anchor.kind === '止损' || anchor.kind === '卖出' ? ' sig-pt-stop' : ''}" title="${anchor.system} · ${anchor.kind}位 ${anchor.price.toFixed(2)}">点 ${anchor.price.toFixed(2)}</span>` : '';
-    // 置信度徽标（buy-point-confidence）：低置信度的突破点在K线上不显示，这里也标出来
+    // 置信度徽标（buy-point-confidence）：低置信度的突破点以弱化"参考"标记显示，这里也标出来
     const confHtml = (anchor && anchor.conf != null)
-      ? `<span class="sig-conf ${anchor.conf >= 70 ? 'conf-high' : anchor.conf >= 60 ? 'conf-mid' : 'conf-low'}" title="买点置信度 ${anchor.conf}%（${escHtml(anchor.confLevel)}）：低于60%不在K线上标注">置信 ${anchor.conf}%</span>`
+      ? `<span class="sig-conf ${anchor.conf >= 70 ? 'conf-high' : anchor.conf >= 60 ? 'conf-mid' : 'conf-low'}" title="买点置信度 ${anchor.conf}%（${escHtml(anchor.confLevel)}）：低于60%的买点在K线上以弱化\"参考\"标记显示，不作为有效买点">置信 ${anchor.conf}%</span>`
       : '';
     const jumpAttr = anchor ? ` data-point="${anchor.price}" data-date="${anchor.date || ''}" onclick="jumpToPoint(this)"` : '';
     if (s.type === 'buy') return `<div class="sig-item sig-buy"${jumpAttr}>▲ ${body}${ptHtml}${confHtml}${coreTag}${why}</div>`;
