@@ -15,6 +15,13 @@ if ROOT not in sys.path:
 
 from server import sim_strategy as ss
 from server import sim_service as svc
+
+# 测试隔离：sim 巡检状态不得写真实 data/tasks/sim.json（本文件独立子进程内重定向）
+from server import task_store as _ts
+import tempfile as _tempfile
+import os as _os
+_ts.TASK_PATHS["sim"] = _os.path.join(_tempfile.gettempdir(), "sim_task_test_redir.json")
+_ts.reset_for_tests("sim")
 from backtest import config as jc
 from backtest.sim_account import Decision
 

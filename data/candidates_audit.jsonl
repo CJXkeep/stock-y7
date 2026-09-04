@@ -66,3 +66,7 @@
 {"ts": "2026-09-04T09:28:05Z", "symbol": "600519", "from": "watching", "to": "promoted", "actor": "correct:pool_add", "version": 3, "schema": "v5.candidates-audit.v1"}
 {"ts": "2026-09-04T09:28:23Z", "symbol": "600000", "from": "watching", "to": "validated", "actor": "api:status", "version": 3, "schema": "v5.candidates-audit.v1"}
 {"ts": "2026-09-04T09:28:26Z", "symbol": "600036", "from": "watching", "to": "promoted", "actor": "correct:pool_add", "version": 42, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-04T09:46:53Z", "symbol": "600519", "from": "watching", "to": "promoted", "actor": "correct:pool_add", "version": 3, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-04T09:47:07Z", "symbol": "600000", "from": "watching", "to": "validated", "actor": "api:status", "version": 3, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-04T09:50:43Z", "symbol": "600036", "from": "promoted", "to": "watching", "actor": "revert-2026-09-04-test-pollution", "version": 43, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-04T09:51:10Z", "symbol": "600000", "from": "watching", "to": "validated", "actor": "api:status", "version": 3, "schema": "v5.candidates-audit.v1"}

@@ -181,10 +181,16 @@ def test_run_rolling_eval_failure_no_index_and_marks_error():
     d, old_state, old_index = _redirect_paths()
     orig_clock, orig_md = rolling.shanghai_now, rolling._market_dates
     orig_stats = stats_mod.run_stats
+    orig_build = snap_mod.build_snapshot
+    orig_replay = replay_mod.run_replay
     orig_expected = eval_svc._expected_pool_version
     try:
         now = _dt(2026, 8, 31, 15, 46)
         _set_clock(now, trade_date="2026-08-31")
+        # build_snapshot/run_replay 必须打桩：真跑会网络抓指数并在 data/snapshots
+        # 落孤儿快照（测试污染事故 2026-09-04）
+        snap_mod.build_snapshot = lambda *a, **k: ("20260831T000000Z", {"pool_version": 1})
+        replay_mod.run_replay = lambda *a, **k: {"signals": 0}
         eval_svc._expected_pool_version = lambda: 1
 
         def boom(*a, **k):
@@ -204,6 +210,8 @@ def test_run_rolling_eval_failure_no_index_and_marks_error():
     finally:
         rolling.shanghai_now, rolling._market_dates = orig_clock, orig_md
         stats_mod.run_stats = orig_stats
+        snap_mod.build_snapshot = orig_build
+        replay_mod.run_replay = orig_replay
         eval_svc._expected_pool_version = orig_expected
         _reset_eval_state()
         _restore_paths(d, old_state, old_index)

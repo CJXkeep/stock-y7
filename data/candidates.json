@@ -1,7 +1,7 @@
 {
   "schema": "v5.candidates.v1",
-  "version": 42,
-  "updated_at": "2026-09-04T09:28:26Z",
+  "version": 43,
+  "updated_at": "2026-09-04T09:50:43Z",
   "items": [
     {
       "symbol": "605577",
@@ -84,8 +84,8 @@
       "first_action": "强烈买入",
       "first_score": 78,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "promoted",
-      "last_status_change_at": "2026-09-04T09:28:26Z"
+      "status": "watching",
+      "last_status_change_at": "2026-09-04T09:50:43Z"
     },
     {
       "symbol": "603162",

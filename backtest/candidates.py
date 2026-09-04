@@ -33,10 +33,11 @@ AUDIT_SCHEMA = "v5.candidates-audit.v1"
 
 
 def audit_path(path: str = None) -> str:
-    """审计文件路径：默认 data/candidates_audit.jsonl；传 path 时取同目录（测试隔离）。"""
+    """审计文件路径：默认跟随 candidates_path()（同目录，测试 monkeypatch 一并生效）；
+    显式传 path 时取该候选文件同目录。"""
     if path:
         return os.path.join(os.path.dirname(path), "candidates_audit.jsonl")
-    return os.path.join(config.ROOT, "data", "candidates_audit.jsonl")
+    return os.path.join(os.path.dirname(candidates_path()), "candidates_audit.jsonl")
 
 
 def _append_audit(records: list, path: str = None) -> None:

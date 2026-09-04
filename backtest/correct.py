@@ -338,14 +338,18 @@ def run_correct(plan_path: str, root: str = None, dry_run: bool = False,
         return result
 
     applied = _apply(plan, paths, now)
-    # I9.4 P27：pool_add 执行成功 → 候选池中对应候选置 promoted（尽力而为，失败仅告警）
+    # I9.4 P27：pool_add 执行成功 → 候选池中对应候选置 promoted（尽力而为，失败仅告警）。
+    # 路径必须跟随 root（否则测试 root=d 也会写真实 data/candidates.json——2026-09-04
+    # 双线合并后真实入池的 600036 被 fixture 撞上，造成测试污染真实数据的事故）。
     if action == "pool_add" and plan.get("payload", {}).get("symbol"):
         try:
             from backtest import candidates as _cands
-            cands = _cands.load()
+            _cpath = (os.path.join(root, "data", "candidates.json")
+                      if root else None)
+            cands = _cands.load(_cpath)
             _cands, ok, msg = _cands.set_status(
                 cands, str(plan["payload"]["symbol"]), "promoted",
-                actor="correct:%s" % action)
+                path=_cpath, actor="correct:%s" % action)
             if not ok:
                 _log.warning("矫正执行成功但候选状态回写未生效（%s，可能不在候选池）: %s",
                              plan["payload"]["symbol"], msg)
