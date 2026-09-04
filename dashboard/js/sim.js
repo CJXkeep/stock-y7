@@ -171,6 +171,54 @@ function _renderTrades(data) {
   el.innerHTML = html;
 }
 
+// ---------------------------------------------------------------- 贡献拆解（I11 持仓级净值归因）
+
+function _renderContribution(data) {
+  const el = document.getElementById('sim-contribution');
+  if (!el) return;
+  const c = data.contribution;
+  if (!c) {
+    el.innerHTML = '<div class="sim-empty">贡献拆解数据不可用（需升级后端服务）。</div>';
+    return;
+  }
+  const LEVEL = { strong: '强烈买入', normal: '买入', cautious: '谨慎买入' };
+  const total = c.total || {};
+  const resetNote = (total.reset_count || 0) > 0
+    ? `已剔除 ${total.reset_count} 笔账户重置审计笔（合计 ${_fmtSigned(total.reset_pnl)}，仅留痕不计入贡献）。 ` : '';
+  const head = `<div class="sim-metrics-note">已实现 ${_fmtSigned(total.realized_pnl)} · 浮动 ${_fmtSigned(total.unrealized_pnl)} · 合计 ${_fmtSigned(total.total_pnl)}（与账户概览同源可对账）。 ${resetNote}口径：平仓笔简单聚合，胜率/均值为简单平均，样本少仅供参考。</div>`;
+  if (!c.by_symbol || !c.by_symbol.length) {
+    el.innerHTML = head + '<div class="sim-empty">' + escHtml(c.note || '暂无平仓与持仓数据。') + '</div>';
+    return;
+  }
+  const rowHtml = (r, isSymbol) => `
+      <tr>
+        <td>${isSymbol
+          ? `<a class="sim-jump" href="/?symbol=${escHtml(r.symbol)}" title="回看板分析该股"><b>${escHtml(r.name || r.symbol)}</b><span class="code">${escHtml(r.symbol)}</span></a>`
+          : escHtml(LEVEL[r.level] || r.level || '--')}</td>
+        <td class="${_pnlClass(r.realized_pnl)}">${_fmtSigned(r.realized_pnl)}</td>
+        <td class="${_pnlClass(r.unrealized_pnl)}">${_fmtSigned(r.unrealized_pnl)}</td>
+        <td class="${_pnlClass(r.total_pnl)}"><b>${_fmtSigned(r.total_pnl)}</b></td>
+        <td>${r.closed_count || 0}</td>
+        <td>${r.win_rate == null ? '—' : _fmtPct(r.win_rate)}</td>
+        <td class="${_pnlClass(r.avg_pnl_pct)}">${r.avg_pnl_pct == null ? '—' : _fmtPct(r.avg_pnl_pct)}</td>
+        <td class="sim-sub">${r.avg_hold_days == null ? '—' : Number(r.avg_hold_days).toFixed(1) + ' 天'}</td>
+        <td class="sim-sub">${_fmtMoney(r.market_value)}</td>
+        <td class="sim-sub">${r.position_count || 0}</td>
+      </tr>`;
+  const table = (rows, isSymbol) => `<table class="sim-table">
+      <thead><tr>
+        <th>${isSymbol ? '代码 / 名称' : '档位'}</th><th>已实现</th><th>浮动</th><th>合计</th>
+        <th>平仓笔数</th><th>胜率</th><th>均收益率</th><th>均持有</th><th>持仓市值</th><th>持仓只数</th>
+      </tr></thead><tbody>
+      ${rows.map((r) => rowHtml(r, isSymbol)).join('')}
+      </tbody></table>`;
+  let html = head + '<div class="eval-notice-line">按标的</div>' + table(c.by_symbol, true);
+  if (c.by_level && c.by_level.length) {
+    html += '<div style="height:8px"></div><div class="eval-notice-line">按档位</div>' + table(c.by_level, false);
+  }
+  el.innerHTML = html;
+}
+
 // ---------------------------------------------------------------- 净值曲线
 
 function _renderEquity(data) {
@@ -460,6 +508,7 @@ export async function loadSimPanel() {
     _renderMetrics(data);
     _renderPositions(data);
     _renderTrades(data);
+    _renderContribution(data);
     _renderPlans(data);
     _renderEquity(data);
     _renderConfig(data);

@@ -1206,6 +1206,144 @@ def compute_metrics(equity_rows: list, initial_capital: float = None,
     return result
 
 
+# ---------------------------------------------------------------- 持仓级归因（I11）
+
+def _contribution_bucket() -> dict:
+    """归因分组累加器初值（内部结构，finalize 时转对外行）。"""
+    return {
+        "name": "", "realized_pnl": 0.0, "closed_count": 0, "win_count": 0,
+        "pnl_pct_sum": 0.0, "pnl_pct_n": 0, "hold_days_sum": 0.0,
+        "hold_days_n": 0, "fees": 0.0,
+        "unrealized_pnl": 0.0, "market_value": 0.0, "position_count": 0,
+    }
+
+
+def _finalize_group(key: str, bucket: dict, is_symbol: bool) -> dict:
+    """累加器 → 对外行：补派生指标（胜率/均值）；无平仓时披露字段为 None。"""
+    closed = bucket["closed_count"]
+    row = {
+        ("symbol" if is_symbol else "level"): key,
+        "realized_pnl": _r2(bucket["realized_pnl"]),
+        "unrealized_pnl": _r2(bucket["unrealized_pnl"]),
+        "market_value": _r2(bucket["market_value"]),
+        "total_pnl": _r2(bucket["realized_pnl"] + bucket["unrealized_pnl"]),
+        "closed_count": closed,
+        "win_rate": _r2(bucket["win_count"] / closed * 100.0) if closed else None,
+        # 均值只对有效样本求平均：pnl_pct/hold_days 缺失的笔不参与（避免 0 假均值）
+        "avg_pnl_pct": _r2(bucket["pnl_pct_sum"] / bucket["pnl_pct_n"]) if bucket["pnl_pct_n"] else None,
+        "avg_hold_days": _r2(bucket["hold_days_sum"] / bucket["hold_days_n"]) if bucket["hold_days_n"] else None,
+        "fees": _r2(bucket["fees"]),
+        "position_count": bucket["position_count"],
+    }
+    if is_symbol:
+        row["name"] = bucket["name"] or ""
+    return row
+
+
+def contribution_summary(trades: list, positions: list = None) -> dict:
+    """持仓级净值归因：按标的 / 按档位拆解已实现与浮动盈亏贡献（I11，纯函数离线）。
+
+    口径：
+    - 已实现：逐笔平仓（side=sell）的 pnl 求和；账户重置审计笔（reason=reset）
+      不计入贡献，单列 reset_count/reset_pnl 披露；
+    - 浮动：当前持仓估值视图（portfolio_summary().positions，价格缺失按成本估值）
+      的 pnl / market_value 求和；
+    - 合计 total_pnl = realized_pnl + unrealized_pnl（现金侧不参与，与
+      portfolio_summary 的 realized/unrealized 同源可对账）；
+    - 纯披露聚合：不设门槛、不做结论，样本量由调用方/前端披露。
+
+    返回 {"by_symbol": [...], "by_level": [...], "total": {...}, "note": ""}。
+    """
+    trades = trades or []
+    positions = positions or []
+    by_symbol = {}
+    by_level = {}
+    total = {
+        "realized_pnl": 0.0, "unrealized_pnl": 0.0, "total_pnl": 0.0,
+        "closed_count": 0, "reset_count": 0, "reset_pnl": 0.0,
+    }
+
+    for t in trades:
+        if not isinstance(t, dict) or t.get("side") != "sell":
+            continue
+        if t.get("reason") == "reset":
+            total["reset_count"] += 1
+            try:
+                total["reset_pnl"] += float(t.get("pnl") or 0.0)
+            except (TypeError, ValueError):
+                pass
+            continue
+        symbol = str(t.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        try:
+            pnl = float(t.get("pnl") or 0.0)
+        except (TypeError, ValueError):
+            pnl = 0.0
+        pnl_pct = t.get("pnl_pct")
+        hold = t.get("hold_days")
+        try:
+            fees = float(t.get("fees") or 0.0)
+        except (TypeError, ValueError):
+            fees = 0.0
+        level = str(t.get("level") or "unknown").strip() or "unknown"
+        for key, is_symbol in ((symbol, True), (level, False)):
+            buckets = by_symbol if is_symbol else by_level
+            b = buckets.setdefault(key, _contribution_bucket())
+            if is_symbol:
+                b["name"] = str(t.get("name") or b["name"] or "")
+            b["realized_pnl"] += pnl
+            b["closed_count"] += 1
+            if pnl > 0:
+                b["win_count"] += 1
+            if isinstance(pnl_pct, (int, float)):
+                b["pnl_pct_sum"] += float(pnl_pct)
+                b["pnl_pct_n"] += 1
+            if isinstance(hold, (int, float)):
+                b["hold_days_sum"] += float(hold)
+                b["hold_days_n"] += 1
+            b["fees"] += fees
+        total["realized_pnl"] += pnl
+        total["closed_count"] += 1
+
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        symbol = str(p.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        try:
+            pnl = float(p.get("pnl") or 0.0)
+            mv = float(p.get("market_value") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        level = str(p.get("level") or "unknown").strip() or "unknown"
+        for key, is_symbol in ((symbol, True), (level, False)):
+            buckets = by_symbol if is_symbol else by_level
+            b = buckets.setdefault(key, _contribution_bucket())
+            if is_symbol:
+                b["name"] = str(p.get("name") or b["name"] or "")
+            b["unrealized_pnl"] += pnl
+            b["market_value"] += mv
+            b["position_count"] += 1
+        total["unrealized_pnl"] += pnl
+
+    total["realized_pnl"] = _r2(total["realized_pnl"])
+    total["unrealized_pnl"] = _r2(total["unrealized_pnl"])
+    total["total_pnl"] = _r2(total["realized_pnl"] + total["unrealized_pnl"])
+    total["reset_pnl"] = _r2(total["reset_pnl"])
+
+    rows_symbol = sorted(
+        (_finalize_group(k, b, True) for k, b in by_symbol.items()),
+        key=lambda r: r["total_pnl"], reverse=True)
+    rows_level = sorted(
+        (_finalize_group(k, b, False) for k, b in by_level.items()),
+        key=lambda r: r["total_pnl"], reverse=True)
+    note = "暂无平仓与持仓数据" if not rows_symbol else ""
+    return {"by_symbol": rows_symbol, "by_level": rows_level,
+            "total": total, "note": note}
+
+
 # ---------------------------------------------------------------- 内部
 
 def _lock() -> threading.RLock:

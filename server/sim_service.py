@@ -30,6 +30,7 @@ from backtest.sim_account import (
     load_config, save_config, load_state, save_state, reset_account,
     execute_buy, execute_sell, append_equity, load_trades, load_equity,
     portfolio_summary, compute_metrics, _norm_benchmark,
+    contribution_summary,
     today_str, market_now, limit_down_price,
     REASON_SIGNAL, REASON_STOP, REASON_TARGET, REASON_MAX_HOLD, REASON_MANUAL,
 )
@@ -749,7 +750,14 @@ def handle_sim_get(params: dict) -> dict:
     cfg = load_config()
     state = load_state()
     summary = portfolio_summary(state, _live_prices(state))
-    trades = list(reversed(load_trades(journal_config.SIM_TRADE_LOG_LIMIT)))
+    # I11 归因需要全史流水：全量读一次，展示切片仍取最近 SIM_TRADE_LOG_LIMIT 条
+    # （limit 与 load_trades 同语义：0/None 视为不限制；负切片在 0 时会退化为全量，需显式分支）
+    trades_all = load_trades()
+    _tlog_limit = int(journal_config.SIM_TRADE_LOG_LIMIT or 0)
+    trades = list(reversed(
+        trades_all[-_tlog_limit:] if _tlog_limit and len(trades_all) > _tlog_limit
+        else trades_all))
+    contribution = contribution_summary(trades_all, summary["positions"])
     equity = load_equity(journal_config.SIM_EQUITY_LIMIT)
     benchmark_code = _norm_benchmark(cfg.get("benchmark"))
     metrics = compute_metrics(equity, state.get("initial_capital"), benchmark_code)
@@ -797,6 +805,7 @@ def handle_sim_get(params: dict) -> dict:
             "win_rate": summary["win_rate"],
         },
         "positions": summary["positions"],
+        "contribution": contribution,
         "trades": trades,
         "equity": equity,
         "metrics": metrics,
