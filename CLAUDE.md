@@ -20,13 +20,13 @@
 
 # 项目指南（stock-y7）
 
-个人自用的 A 股趋势分析工具：多周期 K 线、五模块信号引擎与缠论买卖点，本地 Web 看板实时查看；v5 增加信号日志（SQLite 信号档案）、核心池管理、历史信号统计管线与「评估 → 响应闭环」。纯 Python 标准库实现（无第三方运行时依赖），主线已推进到 **I9（选股层与滚动评估，2026-09-01 落地）**，详见 `docs/版本路线图.md` 与 `docs/迭代_i9_选股层/选股层与滚动评估设计.md`。
+个人自用的 A 股趋势分析工具：多周期 K 线、五模块信号引擎与缠论买卖点，本地 Web 看板实时查看；v5 增加信号日志（SQLite 信号档案）、核心池管理、历史信号统计管线与「评估 → 响应闭环」。纯 Python 标准库实现（无第三方运行时依赖），主线已推进到 **I9（选股层与滚动评估）与模拟账户 v8（v6→v8，2026-09 落地）**，详见 `docs/版本路线图.md` 与 `docs/迭代_i9_选股层/选股层与滚动评估设计.md`。
 
 ## 常用命令
 
 ```bash
 python app.py                          # 启动服务 → http://127.0.0.1:8795（PORT/BIND_HOST 可覆盖）
-python run_all_tests.py                # 全量回归（47 个测试文件）
+python run_all_tests.py                # 全量回归（56 个测试文件）
 python run_all_tests.py --list         # 列出测试文件
 python run_all_tests.py --filter journal   # 只跑匹配文件名的测试
 
@@ -54,8 +54,8 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 | `backtest/` | 快照/无前视重放/统计/敏感性/评审/矫正（cli.py + `__main__.py`）；journal.py（信号档案）、pool.py（核心池）、candidates.py（I9.2 候选池）、screen.py（I9.3 候选验证）、advise.py（I9.4 建议）、**sim_account.py（v6 模拟账户账户内核：Decision 契约/撮合/记账/绩效）** |
 | `digest/` | 每日速递聚合 |
 | `dashboard/` | 前端看板（原生 ESM JS，无构建步骤）：index.html + js/ + vendor/，I9 新增 `js/candidates.js`（候选/建议/验证进度），v6 新增 `js/sim.js`（模拟账户分区） |
-| `tests/` | 回归测试（`run_all_tests.py` 统一跑，47 个文件） |
-| `docs/` | 设计文档与版本路线图（`docs/comet/` 为 Comet 工作流归档） |
+| `tests/` | 回归测试（`run_all_tests.py` 统一跑，56 个文件） |
+| `docs/` | 设计文档与版本路线图（迭代稿按 `迭代_xx/` 归档；索引见 `docs/README.md`；`docs/comet/` 为 Comet 工作流归档） |
 | `libs/` | 第三方 vendored 库，一般不改 |
 
 ## 关键数据文件（事实来源）
