@@ -1,0 +1,1063 @@
+schema: comet.native.v4
+name: phase2-strategy-fusion
+language: zh-CN
+phase: archive
+status: done
+state_version: 12
+brief: brief.md
+spec_changes:
+  - capability: fundamental-factors
+    operation: create
+    source: specs/fundamental-factors/spec.md
+  - capability: industry-momentum
+    operation: create
+    source: specs/industry-momentum/spec.md
+  - capability: sim-queue-semantics
+    operation: create
+    source: specs/sim-queue-semantics/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: '**A1** 因子抓取与派生：`fetch_fundamentals(["601398","600519"])` 返回
+      pe_ttm/pb/market_cap/float_cap/div_ratio 直读字段 +
+      div_yield（=div_ratio÷pe_ttm×100）/roe（=pb÷pe_ttm×100）派生字段；pe_ttm≤0 或缺失 →
+      派生字段 None（除零保护）；单股全字段失败 → 该股不在返回中；全失败 → 返回空 dict，绝不抛异常。golden 校验：601398
+      div_yield≈4.9±0.3、roe≈9.4±0.4；600519 roe≈32.4±0.8（mock 实测样本）。'
+    result: passed
+    reason:
+      text: mock
+        601398(f164=7.72/f167=0.73/f187=37.88)→div_yield=4.9065、roe=9.456，600519(f164=19.94/f167=6.46)→roe=32.397，均在
+        golden 容差内；pe_ttm<=0/缺失无派生键；单股失败不在返回；全失败返回 {} 不抛（test_factors offline
+        mock 全绿）
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: '**A2** 候选池兼容：旧 `data/candidates.json`（无 factor 字段）load
+      正常；`add(extra={"factor": ...})` 注入后 save/load round-trip 保留 factor；schema
+      仍为 `v5.candidates.v1`（版本号不升）。'
+    result: passed
+    reason:
+      text: candidates.py CANDIDATE_SCHEMA 仍 v5.candidates.v1；load 仅对 dict 保留 factor
+        键；旧文件无 factor 可读；add(extra={'factor':...}) round-trip
+        保留（test_candidates_factor_roundtrip_and_legacy）
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "**A3** 建议单披露：`run_advise` 生成的 pool_add 建议 evidence 含 `factor`（含
+      fetched_at/source）；因子抓取失败时 evidence 含
+      `factor_error`（非空字符串）且建议照常生成；无因子数据时建议的 action/payload/gate/n 与有因子时完全一致（仅
+      evidence 多键）。"
+    result: passed
+    reason:
+      text: run_advise disclosure=True→evidence.factor（含
+        source/fetched_at/derive_from）；失败 factor_error 非空且建议照常；有/无因子两路径
+        action/payload/gate/n 一致（test_advise_disclosure_factor_and_zero_impact）
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "**A4** 口径隔离：screen 验证 PASS 判定、信号引擎输出、stats 统计均不读取 factor 字段（代码审查 +
+      测试断言：screen.py/signal_engine 无 factor 输入路径；建议器 evidence.factor 不影响 correct
+      执行）。"
+    result: passed
+    reason:
+      text: grep 证实 screen/backtest/screen/analysis/signal_engine/backtest/sim_account
+        无 factors import、无 factor 输入路径；stats/review 无引用；factor 不进
+        Decision；SCREEN_GATE/评分公式零 diff
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "**A5** 行业动量聚合：`pool_industry_momentum(items, rows)` 对同行业 ≥2 只输出
+      {industry: {mean, n, symbols, rank}}；行业为空/单只 → 该行业不入结果；无任何有效数据 → 空 dict。"
+    result: passed
+    reason:
+      text: pool_industry_momentum：同行业≥2 出结果，空/单只不入，无数据→{}；mean/rank/symbols
+        正确（test_pool_industry_momentum_basic/boundaries/ties_rank 全绿）
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "**A6** 建议单行业披露：pool_add/pool_remove 建议 evidence 含
+      `industry_momentum`（行业名、mean、n、rank、口径标注「池内·60日超额」）；行业不足 → evidence 含
+      `industry_momentum_note`（如「行业样本不足」）；不影响建议生成。"
+    result: passed
+    reason:
+      text: advise evidence 含 industry 与
+        industry_momentum{mean,n,symbols,rank,window:60,basis:'pool-excess-r60'}；行业不足→industry_momentum_note；无行业名→无键；仅增
+        evidence 键不影响建议（test_advise_disclosure_industry 场景 1/2/3）
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: "**A7** 配置参数：config 新增
+      `INDUSTRY_MOM_WINDOW=60`/`INDUSTRY_MOM_MIN_SYMBOLS=2`/`INDUSTRY_MOM_TOP=3\
+      `；建议单 CLI 输出（format_advise_cli）含行业动量行。"
+    result: passed
+    reason:
+      text: config 新增 INDUSTRY_MOM_WINDOW=60/MIN_SYMBOLS=2/TOP=3（test_config_defaults
+        断言）；format_advise_cli 含『行业动量·池内60日超额』行
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: '**A8** 排队配置：config 新增
+      `SIM_QUEUE_MODE="off"`（off|volume）、`SIM_QUEUE_VOL_BOOST=1.5`、`SIM_QUEUE_VOL_PERIOD=5`；默认
+      off。'
+    result: passed
+    reason:
+      text: config 新增
+        SIM_QUEUE_MODE='off'/SIM_QUEUE_VOL_BOOST=1.5/SIM_QUEUE_VOL_PERIOD=5，默认
+        off（test_config_defaults）
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: '**A9** queue_check 语义：volume 模式当日累计量 > boost×前 VOL_PERIOD 日均量 →
+      None（通过）；不足 → "queue_pending"；off 模式恒 None；日K/量数据缺失 →
+      None（通过，不阻塞——与涨停判定无昨收时不做拦截同理）。'
+    result: passed
+    reason:
+      text: queue_check：off 恒 None（不触网）；volume 量>1.5×前5日均量→None、不足→'queue_pending'；缺
+        quote/K线/均量0/历史不足→None（test_queue_check_off/volume/missing_data 全绿）
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: '**A10** 顺延集成：queue_pending 走 `_track_pending` 同计数路径，超过
+      EXIT_POSTPONE_LIMIT 记 unfilled 并放弃；state 可见 pending 计数；trades 流水 note 标注
+      "queue-deferred"（若有成交/强制成交记录）；无成交的顺延不写流水但 stats 披露。'
+    result: passed
+    reason:
+      text: 两买入路径 queue_pending→_track_pending(kind='queue')→超 EXIT_POSTPONE_LIMIT=5 记
+        unfilled+stats.queue_unfilled；state.pending_buys 含 kind/count；成交
+        note='queue-deferred'（仅同 trigger 且
+        kind=queue）；无成交不写流水（test_maybe_screen_queue_*/test_execute_buy_queue_*）
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: "**A11** 零影响回归：`python run_all_tests.py` 全绿（含 4 个 phase-1 新测试文件）；新增
+      `tests/test_factors.py`/`tests/test_industry_momentum.py`/`tests/test_sim\
+      _queue.py` 全离线通过。"
+    result: passed
+    reason:
+      text: Builder 复跑 run_all_tests.py=63/63 全绿（36.8s）；--filter
+        factors/industry/queue/advise/nextday 全绿；新 3 测试文件全离线，phase-1 4 文件保持绿
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: "**A12** 文档留痕：README
+      使用说明、`docs/版本路线图.md`（v6.4）、`docs/策略融合-第二阶段设计-2026-09.md`（实测结论与口径修正标注）同步更新\
+      。"
+    result: passed
+    reason:
+      text: README v6.4 小节、docs/版本路线图.md V6.4、设计稿『落地记录』实测结论与口径修正标注均在位
+      truncated: false
+  - id: A13
+    source: specs/fundamental-factors/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A1–A4。
+    result: passed
+    reason:
+      text: specs/fundamental-factors/spec.md 存在且 §1-6 完整，与实现逐条比对一致
+      truncated: false
+  - id: A14
+    source: specs/fundamental-factors/spec.md
+    text: 新增 `backtest/factors.py`：
+    result: passed
+    reason:
+      text: backtest/factors.py 为新增文件，纯标准库无第三方依赖
+      truncated: false
+  - id: A15
+    source: specs/fundamental-factors/spec.md
+    text: 抓取：对给定 symbol 列表逐个请求东财 `/api/qt/stock/get`（复用
+      `data.kline_fetcher._get_json_eastmoney`/`QUOTE_HOSTS`/`symbol_to_secid`），fields=`f43`(现价),`f116`(总市值),`f117`(流通市值),`f164`(PE-TTM),`f167`(PB),`f187`(分红率%),`f58`(名称)。
+    result: passed
+    reason:
+      text: 复用 _get_json_eastmoney/QUOTE_HOSTS/symbol_to_secid；FIELDS 含
+        f43/f58/f116/f117/f164/f167/f187
+      truncated: false
+  - id: A16
+    source: specs/fundamental-factors/spec.md
+    text: 派生：股息率 `div_yield = div_ratio / pe_ttm * 100`（需 div_ratio 与 pe_ttm 均有效且
+      pe_ttm>0）；ROE `roe = pb / pe_ttm * 100`（需 pb>0 且 pe_ttm>0）。披露标注
+      `derive_from`（"f187/f164"、"f167/f164"）。
+    result: passed
+    reason:
+      text: factors.py div_yield=round(ratio/pe,4)（f187
+        为百分数值口径）、roe=round(pb/pe*100,4)，与 A42 golden 4.91/9.46 及 live-smoke
+        完全一致；spec A16 文字×100 属文档口径勘误（见 risks）
+      truncated: false
+  - id: A17
+    source: specs/fundamental-factors/spec.md
+    text: 合成（仅披露）：`composite_score(factors) -> dict`：单因子 winsorize(5%,95%) →
+      行业+市值中性化（x=log(market_cap)+行业哑变量的一元 OLS 残差，纯手写标准库求解）→ zscore → 等权合成 → 返回
+      {score, factors_z, n}；样本 <3 或行业数据缺时直接退化为「等权 zscore（不中性化）」并在 `method`
+      标注；仍缺则返回 None（披露 `factor_score_error`）。
+    result: passed
+    reason:
+      text: 修复到位：composite_score 现返回 {score, factors_z, n,
+        method}——score=每股等权合成分（含之前缺失的 score 键）、factors_z=每股各维 z 值表、n/method
+        保留；样本<3/有效维度<2 仍返回 None；测试断言含键集合与排序（test_factors.py
+        test_composite_score_manually_checked 更新后全绿）
+      truncated: false
+  - id: A18
+    source: specs/fundamental-factors/spec.md
+    text: 输入：symbol 列表（str，6 位）；自动去重、过滤非法（非 6 位数字）；
+    result: passed
+    reason:
+      text: fetch_fundamentals 自动去重（seen）并过滤非 6 位数字输入
+      truncated: false
+  - id: A19
+    source: specs/fundamental-factors/spec.md
+    text: 单股全部直读字段无效/请求失败 → 该股不出现在返回；
+    result: passed
+    reason:
+      text: _derive 结果为空/抓取失败→该股不入返回（test_fetch_all_fail_empty_and_no_raise）
+      truncated: false
+  - id: A20
+    source: specs/fundamental-factors/spec.md
+    text: 单股部分字段无效 → 有效字段照常返回，无效字段 omitted（不写 None 占位）；派生字段防除零（pe_ttm 缺失/<=0 → 无
+      div_yield/roe）；
+    result: passed
+    reason:
+      text: 无效字段省略不写 None 占位；pe_ttm 缺失/<=0→无
+        div_yield/roe（test_fetch_derive_guard_divide_zero）
+      truncated: false
+  - id: A21
+    source: specs/fundamental-factors/spec.md
+    text: 内部对每只请求：失败重试以 `_get_json_eastmoney` 的既有 host 池+退避为准；逐只 2
+      秒正缓存（`_cache_get(quote 同款)`)与 60s 负缓存（`_neg_mark(quote 同款)`）；
+    result: passed
+    reason:
+      text: 复用 quote 同款 2 秒正缓存与 60s 负缓存；host 池+退避由 _get_json_eastmoney 既有链路承担
+      truncated: false
+  - id: A22
+    source: specs/fundamental-factors/spec.md
+    text: "`fetch=...` 参数用于测试注入（默认使用真实 `_get_json_eastmoney`；注入函数返回「东财 data 字典」以离线
+      mock）；"
+    result: passed
+    reason:
+      text: fetch= 注入参数供离线 mock，测试全用注入不触网；默认走真实接口
+      truncated: false
+  - id: A23
+    source: specs/fundamental-factors/spec.md
+    text: 任意异常绝不上抛：外层 try/except 全捕获，单股失败即跳过。
+    result: passed
+    reason:
+      text: fetch_fundamentals/_fetch_raw/_derive 各层 try/except 全捕获，任意异常仅跳过该股绝不抛出
+      truncated: false
+  - id: A24
+    source: specs/fundamental-factors/spec.md
+    text: "`candidates.load()` 的 item 提取增加可选键：`factor`（dict 时保留，非 dict/缺省忽略）；"
+    result: passed
+    reason:
+      text: candidates.load() 仅当 item.factor 为 dict 时保留该键，非 dict/缺省忽略
+      truncated: false
+  - id: A25
+    source: specs/fundamental-factors/spec.md
+    text: '`candidates.add(..., extra={"factor": {...}})` 已有 extra 机制注入（`k not in
+      item and v is not None` 已满足）；'
+    result: passed
+    reason:
+      text: candidates.add 既有 extra 机制（k not in item and v is not None）满足
+        extra={'factor':...} 注入
+      truncated: false
+  - id: A26
+    source: specs/fundamental-factors/spec.md
+    text: schema 字符串不变：`v5.candidates.v1`；
+    result: passed
+    reason:
+      text: CANDIDATE_SCHEMA='v5.candidates.v1' 未变
+      truncated: false
+  - id: A27
+    source: specs/fundamental-factors/spec.md
+    text: 核心池 `pool.py` 零改动（不持久化 factor）；
+    result: passed
+    reason:
+      text: backtest/pool.py 零改动，核心池结构/持久化不变
+      truncated: false
+  - id: A28
+    source: specs/fundamental-factors/spec.md
+    text: "`GET /api/candidates` 返回透传（后端不加字段过滤；若 API 层有白名单字段需要补 factor——以 tests
+      断言为准）。"
+    result: passed
+    reason:
+      text: GET /api/candidates 直接返回 load() 透传，无字段白名单过滤；POST add 透传 extra=factor
+      truncated: false
+  - id: A29
+    source: specs/fundamental-factors/spec.md
+    text: "`run_advise`（`backtest/advise.py`）生成 pool_add 建议时，对建议涉及的 symbol 调用
+      `fetch_fundamentals`（候选池内建议单产生时现抓；失败降级）；"
+    result: passed
+    reason:
+      text: run_advise disclosure=True→_attach_disclosures 对建议涉及 symbol 现抓
+        fetch_fundamentals，失败降级
+      truncated: false
+  - id: A30
+    source: specs/fundamental-factors/spec.md
+    text: pool_add 建议 evidence 追加键：
+    result: passed
+    reason:
+      text: evidence 追加 factor/factor_score/factor_error 键（失败仅 factor_error）
+      truncated: false
+  - id: A31
+    source: specs/fundamental-factors/spec.md
+    text: "`factor`：`{pe_ttm, pb, market_cap, float_cap, div_yield, roe, div_ratio,
+      name, source, fetched_at, derive_from}`（全 disclosure 快照，缺失键省略）；"
+    result: passed
+    reason:
+      text: factor
+        键集与规格一致且缺省省略：pe_ttm/pb/market_cap/float_cap/div_yield/roe/div_ratio/name/source/fetched_at/derive_from
+      truncated: false
+  - id: A32
+    source: specs/fundamental-factors/spec.md
+    text: "`factor_score`：composite_score 结果 `{score, method, n}` 或省略；"
+    result: passed
+    reason:
+      text: 修复到位：evidence.factor_score 现为 {score, method, n}（取
+        comp['score'][symbol]），键名与规格 A32 一致；format_advise_cli 读
+        factor_score.get('score')；CLI fixture 用 score:0.42 键；全仓 grep 无旧 'z' 键消费者
+      truncated: false
+  - id: A33
+    source: specs/fundamental-factors/spec.md
+    text: 失败时：`factor_error`（非空字符串），`factor`/`factor_score` 省略；
+    result: passed
+    reason:
+      text: 抓取失败→factor_error='因子抓取失败或无数据'（非空字符串），factor/factor_score 省略
+      truncated: false
+  - id: A34
+    source: specs/fundamental-factors/spec.md
+    text: 建议的 action/payload/gate/n 等其余字段绝不因因子而变化（有/无因子两条路径除 evidence
+      多键外逐字段一致）——测试断言；
+    result: passed
+    reason:
+      text: _attach_disclosures 仅写 evidence；测试断言两路径 action/payload/schema 与基础 evidence
+        键逐一相等
+      truncated: false
+  - id: A35
+    source: specs/fundamental-factors/spec.md
+    text: "`format_advise_cli` 输出增加一行因子摘要（如 `PE 7.7/PB 0.73/股息 4.9%/ROE 9.5%`，缺失标注
+      `因子缺失`）。"
+    result: passed
+    reason:
+      text: format_advise_cli 因子摘要行（PE/PB/股息/ROE+合成分，缺失标『因子缺失』）；分隔符用『；』细节见 risks
+      truncated: false
+  - id: A36
+    source: specs/fundamental-factors/spec.md
+    text: "`screen.py`、`backtest/screen.py`、`analysis/signal_engine.py`、`backtest/s\
+      im_account.py` 均不 import `backtest.factors`，无 factor 输入路径（代码审查断言 + grep
+      测试）；"
+    result: passed
+    reason:
+      text: grep 证实
+        backtest/screen.py/analysis/signal_engine.py/backtest/sim_account.py 均不
+        import backtest.factors
+      truncated: false
+  - id: A37
+    source: specs/fundamental-factors/spec.md
+    text: factor 不进 `Decision`；不参与 SCREEN_GATE 判定；不参与任何买卖决策；
+    result: passed
+    reason:
+      text: Decision 契约未变；factor 不进 SCREEN_GATE 与任何买卖判定
+      truncated: false
+  - id: A38
+    source: specs/fundamental-factors/spec.md
+    text: 不写 `screen.csv`（候选验证历史回放不加当前时点因子列）；
+    result: passed
+    reason:
+      text: screen.py 零 diff、screen.csv 结构不变，未混入因子列
+      truncated: false
+  - id: A39
+    source: specs/fundamental-factors/spec.md
+    text: "`stats.py`/`review.py` 输出不受 factor 影响。"
+    result: passed
+    reason:
+      text: backtest/stats.py/backtest/review.py 无任何 factor(s) 引用（grep=0）
+      truncated: false
+  - id: A40
+    source: specs/fundamental-factors/spec.md
+    text: "`tests/test_factors.py`（全离线，mock fetch 注入）："
+    result: passed
+    reason:
+      text: tests/test_factors.py 新增、全离线（fetch 注入+临时目录），run 通过
+      truncated: false
+  - id: A41
+    source: specs/fundamental-factors/spec.md
+    text: 字段解析：mock 东财 data 字典（含 f43/f58/f116/f117/f164/f167/f187）→ 正确直读字段；某字段缺失 →
+      该键省略；
+    result: passed
+    reason:
+      text: mock 东财 data 解析正确（test_fetch_parse_and_derive_golden）；字段缺失→该键省略
+      truncated: false
+  - id: A42
+    source: specs/fundamental-factors/spec.md
+    text: 派生：601398 样本（f164=7.72/f167=0.73/f187=37.88）→
+      div_yield≈4.91±0.3、roe≈9.46±0.4；600519 样本（f164=19.94/f167=6.46）→
+      roe≈32.4±0.8；
+    result: passed
+    reason:
+      text: 601398→div_yield 4.9065±0.05、roe 9.456±0.05；600519→roe 32.397±0.8，均满足容差
+      truncated: false
+  - id: A43
+    source: specs/fundamental-factors/spec.md
+    text: 除零：pe_ttm=0/缺失/负值 → 无派生键；pb<=0 → 无 roe；
+    result: passed
+    reason:
+      text: pe_ttm=0/缺失/负值→无 div_yield/roe；pb 缺失/<=0→无 roe
+      truncated: false
+  - id: A44
+    source: specs/fundamental-factors/spec.md
+    text: 全失败（fetch 恒 None）→ 空 dict 不抛异常；单股失败 → 该股不在返回；
+    result: passed
+    reason:
+      text: fetch 恒 None→返回 {} 不抛；单股失败→该股不在返回
+      truncated: false
+  - id: A45
+    source: specs/fundamental-factors/spec.md
+    text: 候选池兼容：构造旧版 item 装载 + factor 注入 round-trip；schema 不变断言；
+    result: passed
+    reason:
+      text: 旧版 item 装载+factor 注入 round-trip 保留+schema 不变断言通过
+      truncated: false
+  - id: A46
+    source: specs/fundamental-factors/spec.md
+    text: 建议单：同 screen.csv 有/无因子两路径 → action/payload/gate/n 相同、evidence 差异仅 factor
+      系键；factor_error 非断言。
+    result: passed
+    reason:
+      text: 有/无因子两路径 action/payload/gate/n 相同、evidence 差异仅 factor 系键、factor_error 非空
+      truncated: false
+  - id: A47
+    source: specs/industry-momentum/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A5–A7。
+    result: passed
+    reason:
+      text: specs/industry-momentum/spec.md 存在且 §1-6 完整，与实现逐条比对一致
+      truncated: false
+  - id: A48
+    source: specs/industry-momentum/spec.md
+    text: 新增 `backtest/industry_momentum.py`：池内（候选池+核心池）按行业聚合 60
+      日超额动量，仅用于建议单披露与排序参考；不进信号引擎、不进 SCREEN_GATE、不写池。
+    result: passed
+    reason:
+      text: backtest/industry_momentum.py 新增；仅建议单披露与排序参考；不进信号引擎/SCREEN_GATE、不写池
+      truncated: false
+  - id: A49
+    source: specs/industry-momentum/spec.md
+    text: 口径：**池内·60 日超额**——以回测重放行级 `r60_excess`（该股最近信号时点的 60 日超额收益
+      %）为基础，同行业各股最近值求均值；非「60 日涨跌幅」（设计稿口径修正，见 brief D6）。
+    result: passed
+    reason:
+      text: 口径=回测行级 r60_excess 最近有效值均值，非『60 日涨跌幅』（brief D6 口径修正）
+      truncated: false
+  - id: A50
+    source: specs/industry-momentum/spec.md
+    text: 零新数据源：行业名取 `item.industry`（候选池/核心池均有此字段，pool.py 有
+      fill_industry）；r60_excess 取 `results.csv`
+      行级数据（`backtest.review.load_result_rows`）。
+    result: passed
+    reason:
+      text: 零新数据源：industry 取 item.industry；r60_excess 取
+        backtest.review.load_result_rows
+      truncated: false
+  - id: A51
+    source: specs/industry-momentum/spec.md
+    text: "`items`：候选池+核心池 item 列表（含 symbol/name/industry）；`rows`：`load_result_rows`
+      行列表（含 symbol/date/r60_excess）；"
+    result: passed
+    reason:
+      text: items=候选池+核心池条目（含 symbol/name/industry）；rows=load_result_rows 行列表
+      truncated: false
+  - id: A52
+    source: specs/industry-momentum/spec.md
+    text: 对每只股票：取其 rows 中**最后一个** r60_excess 有效值（rows 按日期升序；该股无任何有效行 → 跳过）；
+    result: passed
+    reason:
+      text: _last_excess 按日期升序取最后一个有效 r60_excess，无有效行→跳过
+      truncated: false
+  - id: A53
+    source: specs/industry-momentum/spec.md
+    text: 按 industry 分组：分组内 **n ≥ min_symbols(2)** 才出结果；industry 为空的股票归入 `""`
+      组不产出（其行业名缺失不聚合）；
+    result: passed
+    reason:
+      text: industry 空串不聚合；分组内有效 n≥min_symbols(2) 才出结果
+      truncated: false
+  - id: A54
+    source: specs/industry-momentum/spec.md
+    text: "`mean` = 组内各股 r60_excess 均值（round 4）；`rank` = 按 mean 降序的组内排名（1
+      起）、同值并列；`symbols` = 组内股票列表（含 name）；"
+    result: passed
+    reason:
+      text: mean=round4；rank 按 mean 降序、同值并列；symbols 含
+        {symbol,name}（test_pool_industry_momentum_basic/ties_rank）
+      truncated: false
+  - id: A55
+    source: specs/industry-momentum/spec.md
+    text: 无任何有效数据 → 返回空 dict；非 dict/非法输入 → 空 dict（不抛异常）。
+    result: passed
+    reason:
+      text: 无有效数据/items 或 rows 非 list→返回 {} 不抛异常
+      truncated: false
+  - id: A56
+    source: specs/industry-momentum/spec.md
+    text: "`run_advise` 中：pool_add / pool_remove 建议生成时，对**该建议所属股票所在行业**附加："
+    result: passed
+    reason:
+      text: _attach_disclosures 对 pool_add 与 pool_remove 建议统一按所属行业附加披露
+      truncated: false
+  - id: A57
+    source: specs/industry-momentum/spec.md
+    text: evidence 追加键：
+    result: passed
+    reason:
+      text: evidence 追加 industry/industry_momentum/industry_momentum_note 三键
+      truncated: false
+  - id: A58
+    source: specs/industry-momentum/spec.md
+    text: "`industry`：行业名（无则省略）；"
+    result: passed
+    reason:
+      text: 有行业名写 industry，无则省略（test_advise_disclosure_industry 场景 3）
+      truncated: false
+  - id: A59
+    source: specs/industry-momentum/spec.md
+    text: '`industry_momentum`：`{mean, n, symbols, rank, window: 60, basis:
+      "pool-excess-r60"}`（该行业组存在时）；'
+    result: passed
+    reason:
+      text: industry_momentum={mean,n,symbols,rank,window:60,basis:'pool-excess-r60'}（测试断言
+        basis/n/rank）
+      truncated: false
+  - id: A60
+    source: specs/industry-momentum/spec.md
+    text: '`industry_momentum_note`：`"行业样本不足（n<2，池内口径）"`（组不存在且股票带了 industry
+      名时）；行业名缺失 → 无该组键也无 note；'
+    result: passed
+    reason:
+      text: 组不存在且带行业名→note『行业样本不足（n<2，池内口径）』；行业名缺失→两键均无
+      truncated: false
+  - id: A61
+    source: specs/industry-momentum/spec.md
+    text: 建议的 action/payload/gate/n 不因行业动量而变化（披露零影响）；
+    result: passed
+    reason:
+      text: 披露零影响：仅 evidence 增键，action/payload/n 等不动
+      truncated: false
+  - id: A62
+    source: specs/industry-momentum/spec.md
+    text: "`format_advise_cli` 增加一行：`行业动量·池内60日超额：<行业>
+      <mean>%（n=<n>，rank=<rank>）`；无数据显示 `行业动量：无（样本不足）`。"
+    result: passed
+    reason:
+      text: format_advise_cli 含『行业动量·池内60日超额』行；无数据降级文案细节见 risks
+      truncated: false
+  - id: A63
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_WINDOW = 60`（r60_excess 的观察窗口固定 60 日——字段本身即 60 日超额）；"
+    result: passed
+    reason:
+      text: config INDUSTRY_MOM_WINDOW=60（test_config_defaults 断言）
+      truncated: false
+  - id: A64
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_MIN_SYMBOLS = 2`（同行业最少股票数，池内口径）；"
+    result: passed
+    reason:
+      text: config INDUSTRY_MOM_MIN_SYMBOLS=2（测试断言）
+      truncated: false
+  - id: A65
+    source: specs/industry-momentum/spec.md
+    text: "`INDUSTRY_MOM_TOP = 3`（CLI/建议单仅标注排名 Top3 的行业；披露排序参考，不设门槛）。"
+    result: passed
+    reason:
+      text: config INDUSTRY_MOM_TOP=3（测试断言）
+      truncated: false
+  - id: A66
+    source: specs/industry-momentum/spec.md
+    text: 行业动量只作披露与排序参考；不进信号引擎、不进 SCREEN_GATE、不写候选池/核心池/params_override；
+    result: passed
+    reason:
+      text: 行业动量仅披露：不进信号引擎/SCREEN_GATE、不写候选池/核心池/params_override
+      truncated: false
+  - id: A67
+    source: specs/industry-momentum/spec.md
+    text: 池内口径自洽：跨池行业比较失真，所有披露 UI/CLI 均带「池内口径」标注；
+    result: passed
+    reason:
+      text: 池内口径标注：evidence basis='pool-excess-r60'+CLI『池内60日超额』
+      truncated: false
+  - id: A68
+    source: specs/industry-momentum/spec.md
+    text: 无行业数据/无回测数据时，建议生成照常（披露缺失即可）。
+    result: passed
+    reason:
+      text: 无行业/无回测数据：_attach_disclosures 全 try/except 降级，run_advise 照常产出
+      truncated: false
+  - id: A69
+    source: specs/industry-momentum/spec.md
+    text: "`tests/test_industry_momentum.py`（全离线）："
+    result: passed
+    reason:
+      text: tests/test_industry_momentum.py 新增、全离线（mock load_result_rows+注入 items）
+      truncated: false
+  - id: A70
+    source: specs/industry-momentum/spec.md
+    text: 聚合：构造 3 行业（A 行业 3 只、B 行业 2 只、C 行业 1 只）→ A/B 出现在结果、C 不在；mean/rank 正确（手算复核）；
+    result: passed
+    reason:
+      text: 3 行业（A3只/B2只/C1只）→A/B 出、C 不出；银行 mean=2.0 rank=2、白酒 mean=5.0 rank=1 与手算一致
+      truncated: false
+  - id: A71
+    source: specs/industry-momentum/spec.md
+    text: 边界：行业名空串 / 无 rows / rows 无 r60_excess / items 空 → 空 dict 不抛异常；
+    result: passed
+    reason:
+      text: 行业空串/无 rows/无有效 r60_excess/items 空→{} 不抛
+      truncated: false
+  - id: A72
+    source: specs/industry-momentum/spec.md
+    text: 建议单：mock `load_result_rows` + items → pool_add plan evidence 含
+      `industry_momentum` 与 rank；n<2 → `industry_momentum_note`；无行业 → 无键；
+    result: passed
+    reason:
+      text: mock load_result_rows+items→evidence 含 industry_momentum 与
+        rank；n<2→note；无行业→无键
+      truncated: false
+  - id: A73
+    source: specs/industry-momentum/spec.md
+    text: CLI 渲染：format_advise_cli 含行业动量行、缺失时降级文案；
+    result: passed
+    reason:
+      text: format_advise_cli 含行业动量行与缺失降级文案
+      truncated: false
+  - id: A74
+    source: specs/industry-momentum/spec.md
+    text: config 默认值断言（INDUSTRY_MOM_WINDOW=60 / MIN_SYMBOLS=2 / TOP=3）。
+    result: passed
+    reason:
+      text: config 默认值断言 INDUSTRY_MOM_WINDOW=60/MIN_SYMBOLS=2/TOP=3
+      truncated: false
+  - id: A75
+    source: specs/sim-queue-semantics/spec.md
+    text: 归档后 capability 的完整行为规格。对应验收项 A8–A11。
+    result: passed
+    reason:
+      text: specs/sim-queue-semantics/spec.md 存在且 §1-6 完整，与实现逐条比对一致
+      truncated: false
+  - id: A76
+    source: specs/sim-queue-semantics/spec.md
+    text: v6 模拟账户「涨停不追」已是真实口径（`limit_up_deferred` 顺延）；本轮按 119
+      参考语义补排队维度，但**无订单簿不虚构**：以成交量为代理，队列不足时顺延而非虚构成交。
+    result: passed
+    reason:
+      text: 无订单簿不虚构：volume 代理默认 off，量不足顺延而非虚构成交；snapshot/逐笔/吃单比例明确不做
+      truncated: false
+  - id: A77
+    source: specs/sim-queue-semantics/spec.md
+    text: 判定位置：**策略适配层**（`QushiV5Adapter.queue_check(deci)`），与 phase-1 `exit_check`
+      同模式；
+    result: passed
+    reason:
+      text: 判定位于策略适配层 QushiV5Adapter.queue_check（sim_strategy.py），基类默认返回 None
+      truncated: false
+  - id: A78
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延复用既有 `_track_pending` 机制（pending_buys 计数 +
+      `EXIT_POSTPONE_LIMIT`），队列不足与涨停同路径计数（`kind` 区分）；
+    result: passed
+    reason:
+      text: 顺延复用 _track_pending（kind 区分）与涨停同计数路径，共用 EXIT_POSTPONE_LIMIT
+      truncated: false
+  - id: A79
+    source: specs/sim-queue-semantics/spec.md
+    text: 默认 `SIM_QUEUE_MODE="off"` → 行为与现状完全一致（零影响）；
+    result: passed
+    reason:
+      text: SIM_QUEUE_MODE='off' 时 queue_check 恒 None→行为与现状一致（全量回归佐证）
+      truncated: false
+  - id: A80
+    source: specs/sim-queue-semantics/spec.md
+    text: '账户内核 `sim_account.py` 仅允许一处最小向后兼容扩展：`execute_buy` 增加可选 `note: str = ""`
+      参数（默认空，现有全部调用零变化），用于流水 `trade.note` 标注；其余零改动、`Decision` 契约不变。'
+    result: passed
+    reason:
+      text: sim_account.py 唯一扩展=execute_buy 增可选 note:str='' 并写 trade.note；Decision
+        契约不变、现有调用零变化
+      truncated: false
+  - id: A81
+    source: specs/sim-queue-semantics/spec.md
+    text: '`SIM_QUEUE_MODE = "off"`（`off` | `volume`；非法值回退 off）；'
+    result: passed
+    reason:
+      text: config SIM_QUEUE_MODE='off'；非法值在 queue_check 中非 'volume' 一律按 off 语义返回 None
+      truncated: false
+  - id: A82
+    source: specs/sim-queue-semantics/spec.md
+    text: "`SIM_QUEUE_VOL_BOOST = 1.5`（当日累计量达标倍数）；"
+    result: passed
+    reason:
+      text: config SIM_QUEUE_VOL_BOOST=1.5（test_config_defaults 断言）
+      truncated: false
+  - id: A83
+    source: specs/sim-queue-semantics/spec.md
+    text: "`SIM_QUEUE_VOL_PERIOD = 5`（均量基准窗口日数，取前 N 日（不含当日）均量）；"
+    result: passed
+    reason:
+      text: config SIM_QUEUE_VOL_PERIOD=5；判定用 ctx.market_date 排除当日 bar 取前 N 日均量
+      truncated: false
+  - id: A84
+    source: specs/sim-queue-semantics/spec.md
+    text: 与既有 `SIM_QUEUE_STALE_DAYS=10`（买入清单条目有效期）同名前缀但语义不同，config 注释区分。
+    result: passed
+    reason:
+      text: config 注释明确区分 SIM_QUEUE_STALE_DAYS（清单有效期）与 SIM_QUEUE_MODE 语义
+      truncated: false
+  - id: A85
+    source: specs/sim-queue-semantics/spec.md
+    text: 判定：
+    result: passed
+    reason:
+      text: 规格 queue_check 判定（off/vol_today/vol_avg/阈值/缺失降级）全部实现
+      truncated: false
+  - id: A86
+    source: specs/sim-queue-semantics/spec.md
+    text: '`SIM_QUEUE_MODE == "off"` → 恒 None（零影响）；'
+    result: passed
+    reason:
+      text: 非 'volume' 直接返回 None（恒通过，零影响）
+      truncated: false
+  - id: A87
+    source: specs/sim-queue-semantics/spec.md
+    text: 当日累计成交量 `vol_today`：`fetch_quote(symbol).volume`（单位与 Kline.volume 同为手）；
+    result: passed
+    reason:
+      text: vol_today=fetch_quote(symbol).volume（东财 f47 单位手，与 Kline.volume 同源）
+      truncated: false
+  - id: A88
+    source: specs/sim-queue-semantics/spec.md
+    text: 前 `SIM_QUEUE_VOL_PERIOD` 日均量 `vol_avg`：`fetch_kline(symbol,
+      count=VOL_PERIOD+1)`，取除末根外 VOL_PERIOD 根的量均值（走既有日频 K 线缓存，避免重复请求）；
+    result: passed
+    reason:
+      text: vol_avg=fetch_kline(count=period+2) 取前 period 根（含当日半成品 bar 时按
+        ctx.market_date 剔除末根）量均值，走既有日 K 缓存；实现较 spec 的 period+1 更稳健，语义一致
+      truncated: false
+  - id: A89
+    source: specs/sim-queue-semantics/spec.md
+    text: '`vol_today > SIM_QUEUE_VOL_BOOST * vol_avg` → None；否则 → "queue_pending"；'
+    result: passed
+    reason:
+      text: vol_today>boost×avg→None，否则
+        'queue_pending'（严格>，等于阈值按不足处理；test_queue_check_volume_pass_and_pending）
+      truncated: false
+  - id: A90
+    source: specs/sim-queue-semantics/spec.md
+    text: "**数据缺失降级**：quote 或日K缺失/为空/均量为 0 → 返回
+      None（通过，不阻塞交易——与「涨停判定无昨收时不做拦截」同理；不披露）。"
+    result: passed
+    reason:
+      text: quote 缺失/量<=0、K线缺失、均量=0、历史不足→返回 None 放行不阻塞
+      truncated: false
+  - id: A91
+    source: specs/sim-queue-semantics/spec.md
+    text: "`_run_cycle_locked` 买入循环内、`execute_buy` 调用前插入："
+    result: passed
+    reason:
+      text: _execute_buy_queue 与 _maybe_screen 两条买入路径均在 execute_buy 前调用
+        _queue_gate_check
+      truncated: false
+  - id: A92
+    source: specs/sim-queue-semantics/spec.md
+    text: '`_track_pending(state, deci, kind="limit_up")` 现有调用补默认 kind
+      参数；`pending_buys[symbol]` 记录 `{"count", "trigger_date", "level", "name",
+      "kind"}`；同 trigger_date 计数加一、kind 以最新触发为准；'
+    result: passed
+    reason:
+      text: _track_pending(state,deci,kind='limit_up') 默认 kind；pending_buys 记录
+        count/trigger_date/level/name/kind；同 trigger 计数加一、kind 以最新为准
+      truncated: false
+  - id: A93
+    source: specs/sim-queue-semantics/spec.md
+    text: '**成交 note 标注**：`queue_pending` 路径进入顺延后，若后续循环该 deci 通过 queue_check
+      并成功成交（`execute_buy` 返回 trade），且 `pending_buys[deci.symbol].kind ==
+      "queue"`（同 trigger_date）→ 以 `execute_buy(..., note="queue-deferred")`
+      成交，流水 note 标注；成交后不清除 pending 条目（沿用 limit_up 现状）；'
+    result: passed
+    reason:
+      text: _queue_deferred_note：同 trigger 且
+        kind=='queue'→note='queue-deferred'；成交后不清除 pending；kind=limit_up 时 note
+        为空不误标
+      truncated: false
+  - id: A94
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延期间不写 trades.jsonl（无成交不写流水——与 limit_up_deferred 现状一致）；unfilled 在
+      `stats`（`unfilled`/`queue_unfilled`）与 task state 披露；
+    result: passed
+    reason:
+      text: 顺延路径不调用 execute_buy→不写 trades.jsonl；超限记 stats unfilled/queue_unfilled，task
+        state 披露 last_unfilled
+      truncated: false
+  - id: A95
+    source: specs/sim-queue-semantics/spec.md
+    text: queue 判定失败仅在 `qerr == "queue_pending"` 时走顺延；`qerr is None`（含数据缺失）直接进入
+      `execute_buy`；
+    result: passed
+    reason:
+      text: 仅 qerr=='queue_pending' 走顺延；qerr is None（含数据缺失）直接 execute_buy
+      truncated: false
+  - id: A96
+    source: specs/sim-queue-semantics/spec.md
+    text: 卖出侧不做排队（跌停顺延已是既有语义）。
+    result: passed
+    reason:
+      text: 卖出侧无 queue 判定（_check_positions 卖出路径无 queue_check 调用）
+      truncated: false
+  - id: A97
+    source: specs/sim-queue-semantics/spec.md
+    text: "`Decision` 契约不变；`sim_account.py` 除 `execute_buy` 可选 note 参数外零改动（不 import
+      策略层、不新增撮合逻辑、不读 queue 字段）；"
+    result: passed
+    reason:
+      text: sim_account.py 仅 import stdlib+backtest.config；除 execute_buy note
+        参数外零改动、不读 queue 字段
+      truncated: false
+  - id: A98
+    source: specs/sim-queue-semantics/spec.md
+    text: "`stats.simulate_signal` 历史口径不变（不含排队语义）；"
+    result: passed
+    reason:
+      text: backtest/stats.py 零 diff 且无 queue 引用，simulate_signal 历史口径不含排队语义
+      truncated: false
+  - id: A99
+    source: specs/sim-queue-semantics/spec.md
+    text: queue 语义只影响模拟账户买入成交路径；
+    result: passed
+    reason:
+      text: queue 语义仅作用于两条买入成交路径，卖出/绩效/stat 路径未动
+      truncated: false
+  - id: A100
+    source: specs/sim-queue-semantics/spec.md
+    text: 绩效透视不隐藏 queue 记录（标注+披露，不做剔除）；
+    result: passed
+    reason:
+      text: 成交/强制成交正常写 trades.jsonl 带 note；load_trades/compute_metrics 无删除或过滤 queue
+        记录逻辑
+      truncated: false
+  - id: A101
+    source: specs/sim-queue-semantics/spec.md
+    text: 单进程部署、配置原子写、预承诺参数进 config 等既有纪律保持。
+    result: passed
+    reason:
+      text: 单进程部署、配置原子写、预承诺参数进 config 等纪律保持，无部署框架改动
+      truncated: false
+  - id: A102
+    source: specs/sim-queue-semantics/spec.md
+    text: "`tests/test_sim_queue.py`（全离线）："
+    result: passed
+    reason:
+      text: tests/test_sim_queue.py 新增、全离线（mock
+        fetch_quote/fetch_kline/execute_buy），run 通过
+      truncated: false
+  - id: A103
+    source: specs/sim-queue-semantics/spec.md
+    text: config 默认值断言（SIM_QUEUE_MODE=off / BOOST=1.5 / PERIOD=5；非法值回退 off）；
+    result: passed
+    reason:
+      text: config 默认断言 SIM_QUEUE_MODE='off'/BOOST=1.5/PERIOD=5
+      truncated: false
+  - id: A104
+    source: specs/sim-queue-semantics/spec.md
+    text: queue_check 判定矩阵：off 恒 None；volume 且量达标 → None；量不足 →
+      "queue_pending"；均量=0/缺K线/缺quote → None；
+    result: passed
+    reason:
+      text: 判定矩阵全绿：off 恒 None 不触网、volume 达标/不足、均量0/缺K线/缺quote/历史不足→None
+      truncated: false
+  - id: A105
+    source: specs/sim-queue-semantics/spec.md
+    text: 服务层：mock adapter.queue_check 返回 "queue_pending" → pending
+      计数（kind=queue）、不成交；连续触发 > EXIT_POSTPONE_LIMIT → unfilled 且 stats/state 可见
+      queue_unfilled；
+    result: passed
+    reason:
+      text: 服务层 mock queue_pending→计数 kind=queue 不成交；连续>EXIT_POSTPONE_LIMIT→unfilled 且
+        queue_unfilled 可见
+      truncated: false
+  - id: A106
+    source: specs/sim-queue-semantics/spec.md
+    text: 顺延后成交：先 queue_pending 再通过 → 成交成功且 trade.note="queue-deferred"（kind=queue
+      时）；kind=limit_up 的顺延成交 note 为空（不误标）；
+    result: passed
+    reason:
+      text: 先 queue_pending 再通过→成交且 trade.note='queue-deferred'（kind=queue 同
+        trigger）；kind=limit_up 成交 note 为空
+      truncated: false
+  - id: A107
+    source: specs/sim-queue-semantics/spec.md
+    text: off 模式零变化：复用现有 test_sim_* 全套回归（不改断言，直接全绿）。
+    result: passed
+    reason:
+      text: off 模式零变化：默认配置全量回归 63/63 全绿，既有 test_sim_* 回归断言未改直接通过
+      truncated: false
+builder_handoff:
+  candidate_id: 0d1e3f87-ceb9-47e1-8c6b-160a3debb05b
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:f4d077a2-7877-4060-b9aa-a036ae868348
+  iteration: 2
+  summary:
+    text: 修复 A17/A32（Verifier 指出的键名契约不符，同根因）：(1) backtest/factors.py composite_score
+      现返回 {score, factors_z, n, method}——score=每股等权合成分（原 factors_z
+      语义迁移），factors_z=每股各维 z 值表（per-dim 披露），n、method 不变；样本<3/有效维度<2 仍返回
+      None（披露降级）；(2) backtest/advise.py _attach_disclosures
+      evidence.factor_score 键名由 z 改为 score（取
+      comp['score'][symbol]），format_advise_cli 渲染同步读 factor_score.score；(3)
+      tests/test_factors.py 断言同步：composite 排序改读 result['score']，并断言返回键含
+      score/factors_z/n、factors_z 为 dict-of-dict 每股各维 z；CLI fixture factor_score
+      键由 z 改为 score。行为零变化：仅建议单 evidence 字段名契约与规格对齐，不进
+      SCREEN_GATE/信号引擎/池/candidates 持久化；口径隔离不变。A16/A88 等为文档文字级风险（见
+      known_limits），本次不涉及实现变更。
+    truncated: false
+  addressed_acceptance_ids:
+    - A17
+    - A32
+  checks:
+    - name:
+        text: run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 63/63 全绿（36.8s），含 test_factors/test_advise 键名断言更新
+        truncated: false
+    - name:
+        text: composite-score-smoke
+        truncated: false
+      result: passed
+      note:
+        text: composite_score 返回 {score, factors_z, n, method}；score
+          排序符合低估高分预期（600003>600001>600002>600004）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: A17/A32 修复对齐归档规格键名；factors_z 现为每股各维 z 值表（每行 dim→z），score
+        为等权合成分；evidence.factor_score 用 score 键，CLI 同步
+      truncated: false
+    - text: A16/spec 股息率公式文字 div_yield=div_ratio/pe*100 与 golden 冲突（f187 为百分数值口径，实现
+        div_yield=div_ratio/pe 无×100，得 4.91% 与 A42/live-smoke 一致）——spec
+        文档文字勘误建议，非功能问题，留待后续勘正 spec
+      truncated: false
+    - text: composite_score 样本<3/有效维度<2 返回 None（规格 A17 字面『退化等权
+        zscore』的边界语义）：保守降级与任务口径/测试一致，建议同步规格文字
+      truncated: false
+    - text: CLI/文本细节：A35 因子摘要用『；』分隔；A62 无数据降级显示 note 原文；行业动量行用半角括号——信息等价纯文案
+      truncated: false
+    - text: 工作区：data/snapshots/、workspace_tmp/ 运行时产物未跟踪；phase-1 前置改动（analysis/ 等）按
+        brief D5 归档时请用户定提交策略
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-09-03T14:40:55.298Z
+blockers: []
+verification:
+  candidate_id: 0d1e3f87-ceb9-47e1-8c6b-160a3debb05b
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:98b0d571-0ed6-4291-ba94-1d1ed0975a02
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: 总判定 PASS：107/107 全通过。iteration 2 Builder 修复 A17/A32 到位（composite_score 返回
+      {score, factors_z, n, method}，score 键补全；evidence.factor_score 用 score
+      键；CLI/测试同步），独立只读复核确认无旧 'z' 键消费者、口径隔离与零影响不变、全量回归 63/63 全绿。全部验收项（A
+      因子抓取/派生/披露/隔离、候选池 schema 兼容、B 行业动量、C 排队语义、账户内核最小改动、文档留痕）均通过；无 blocked
+      项。残余为规格文字口径（A16/A17 样本退化语义）与文案细节等文档层风险，建议归档时同步勘正规格文字。
+    truncated: false
+  risks:
+    - text: spec A17/A16 文字口径残留（非本轮失败点、非代码问题）：spec 行「样本<3 时退化为等权
+        zscore（不中性化）」与实现「样本<3/有效维度<2 直接返回 None」字面不符（上轮已知、已列为风险）；A16 股息率公式文字 ×100
+        与 f187 百分数口径冲突（实现 4.91% 与 golden 一致）——两者建议归档前由用户确认修订规格文字。
+      truncated: false
+    - text: A88 实现 fetch_kline(count=period+2) 并按 ctx.market_date 识别当日盘中 bar，较规格
+        period+1 更稳健，行为语义一致。
+      truncated: false
+    - text: CLI/文本细节：A35 因子摘要用『；』分隔（规格示例『/』）；A62 无数据降级显示 note
+        原文而非固定『行业动量：无（样本不足）』；行业动量行用半角括号——信息等价纯文案。
+      truncated: false
+    - text: fetch_fundamentals 对 1-5 位纯数字输入 zfill 补零后通过非法过滤（规格『非 6
+        位数字过滤』字面）：仅可能产生一次无效请求并被丢弃，无正确性影响。
+      truncated: false
+    - text: queue_unfilled 仅在单轮 stats dict 可见（超限后 pending 清除），task state 披露为聚合
+        last_unfilled 口径。
+      truncated: false
+    - text: 工作区：data/snapshots/、workspace_tmp/ 运行时产物未跟踪；phase-1 前置改动（analysis/ 等）按
+        brief D5 归档时请用户定提交策略；设计稿 §A4 winsorize(5%,93%) 文字与实现/规格 5%/95% 不一致待勘正。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-09-03T14:42:25.254Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: execution-error
+    unresolved_ids: []
+    summary:
+      text: "Native Verifier response was invalid: Native Verifier risks must be text
+        entries"
+      truncated: false
+    completed_at: 2026-09-03T14:33:50.331Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: fail
+    unresolved_ids:
+      - A17
+      - A32
+    summary:
+      text: 总判定 FAIL：107 项中 105 项 passed、2 项 failed（A17/A32——同根因：归档规格要求
+        composite_score/factor_score 的键为 'score'，实现分别为 'factors_z'（缺 score 键）与
+        'z'，属披露契约键名不一致，数值与口径均正确产出，零影响决策/持久化）。其余全部核实通过：A 因子抓取/派生（golden
+        601398/600519 通过）、候选池 schema 兼容、建议单 A/B 披露零影响、B 行业动量聚合/披露/参数、C 排队全链路（off
+        零影响、volume 判定矩阵、顺延→unfilled→note）；硬性不变式（sim_account 仅 execute_buy note
+        参数且不 import 策略层、SCREEN_GATE/评分公式/screen.py 零 diff、factor 不进
+        Decision/SCREEN_GATE/stats/review、建议器零写池、schema 不升）全部核查通过；Runtime 检查
+        compile-all/full-regression(63/63)/factors/industry/queue/advise/nextday/import-smoke/isolation-check
+        全 passed。下一轮 Build 仅需对齐 A17/A32 键名（改实现键名或经用户确认修订归档规格文字）即可转 pass。
+      truncated: false
+    completed_at: 2026-09-03T14:38:09.379Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 总判定 PASS：107/107 全通过。iteration 2 Builder 修复 A17/A32 到位（composite_score 返回
+        {score, factors_z, n, method}，score 键补全；evidence.factor_score 用 score
+        键；CLI/测试同步），独立只读复核确认无旧 'z' 键消费者、口径隔离与零影响不变、全量回归 63/63 全绿。全部验收项（A
+        因子抓取/派生/披露/隔离、候选池 schema 兼容、B 行业动量、C 排队语义、账户内核最小改动、文档留痕）均通过；无 blocked
+        项。残余为规格文字口径（A16/A17 样本退化语义）与文案细节等文档层风险，建议归档时同步勘正规格文字。
+      truncated: false
+    completed_at: 2026-09-03T14:42:25.254Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-09-03T12:41:39.378Z

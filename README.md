@@ -71,7 +71,7 @@ python -m backtest stats <snapshot_id>      # 统计报告（--simulate --capita
   买入清单可在「待执行计划」卡预览（档位 / 综合分 / 止损 / 目标）；
 - **买入**：三档全买（强烈买入 / 买入 / 谨慎买入），单笔金额 = 总资产 ×
   `per_trade_pct`（20%）× 档位系数（1.0 / 0.7 / 0.4），货款 + 费用不超过可用资金；
-- **卖出**：判定顺序 超期 → 止损 → 止盈 → 信号（引擎卖出动作），另支持手动买卖；
+- **卖出**：判定顺序 超期 → 止损 → 止盈 → **动态退出规则**（v6.3 外源参考融合：昨收涨停今日开板 / 现价破日线 MA20 / 买入后最高点回撤 >3% / 当日量 > 3×前10日均量且未涨停，命中即卖；规则属策略适配层，默认开，参数见 `backtest/config.py` 的 `SIM_EXIT_*`）→ 信号（引擎卖出动作），另支持手动买卖；
   所有买卖均为记账层面的**模拟成交**，不触碰真实券商；
 - **成交口径**：与历史统计同源（`stats.simulate_signal`）——滑点 0.1%（买上浮 / 卖下压，
   0.01 步进）、佣金 `max(0.025% × 金额, 5 元)` 双边、印花税卖出 0.05%、整手 100 股、
@@ -84,6 +84,31 @@ python -m backtest stats <snapshot_id>      # 统计报告（--simulate --capita
 - **解耦**：账户 / 撮合 / 记账 / 绩效与策略通过 `Decision` 契约解耦，当前经
   `QushiV5Adapter`（qushi_v5）接入；后续换策略只需新增适配器，账户层与前端零改动；
   模拟成交**不写** `data/journal/` 信号档案。
+
+### 外源参考机制融合（v6.3）
+
+- **RSRS 大盘门控**（可选，**默认关**）：适配层策略参数 `rsrs_gate` 开启后，买入 Decision 在
+  RSRS 弱市（`zscore(斜率,250)×r² < -0.7`，N=18，指数=上证；M=250 因指数数据源单次上限 400 根，留痕 config）时按 `rsrs_bear_action`
+  拦截（hold）或降级为「谨慎买入」；只影响模拟账户买入，**不触碰** SCREEN_GATE / 建议单 / 信号引擎评分；
+- **动态退出规则**（默认开）：见上「卖出」顺序说明；
+- **动量披露字段**：看板分析输出新增 `momentum_quality`（20 日 log 回归年化 × R²）与
+  `market_rsrs`（大盘 RSRS），**不参与综合分**（评估 / 回测 / 信号档案口径零影响）。
+
+### 策略融合第二阶段（v6.4，2026-09-03）
+
+- **基本面因子披露**（115/116/39/74 参考）：`backtest/factors.py` 逐只东财 stock/get 直读
+  PE-TTM(f164)/PB(f167)/市值(f116/f117)/分红率(f187)，并按会计恒等式推导**股息率 = 分红率÷PE-TTM**
+  与 **ROE = PB÷PE-TTM**（披露标注 `derive_from`；5 只样本实测：工行 4.91%/9.46%、茅台 2.55%/32.4%）；
+  建议单 evidence 披露 `factor`/`factor_score`/`factor_error`；候选池 item 增可选 `factor`（schema 不升、旧文件兼容）；
+  **不进** SCREEN_GATE / 信号引擎 / screen.csv / 核心池；不做 PEG（盈利增速字段不可靠）；
+- **行业动量·B 级**（118 参考）：`backtest/industry_momentum.py` 池内（候选+核心）同行业 ≥2 只按
+  回测行级 `r60_excess`（60 日超额）聚合 + 排名，随建议单披露（`industry_momentum` 含 mean/n/rank/basis）；
+  口径标注「池内·60日超额」（非板块指数口径）；参数 `INDUSTRY_MOM_*` 进 config；只披露不设门槛；
+- **撮合排队 volume 代理**（119 参考）：`QushiV5Adapter.queue_check`（与 exit_check 同模式）——
+  `SIM_QUEUE_MODE=volume` 时当日量 > 1.5×前 5 日均量视为队列充足，不足记 `queue_pending` 复用
+  `_track_pending` 顺延（上限 `EXIT_POSTPONE_LIMIT` 同涨停，超限 unfilled+披露；成交流水 note 标 `queue-deferred`）；
+  **默认 off 零影响**；无订单簿不虚构（不做逐笔/吃单比例回放）；账户内核仅 `execute_buy` 增加可选 `note` 参数；
+- 设计稿与实测：`docs/策略融合-第二阶段设计-2026-09.md`；验收 A1–A12，新增测试 3 文件全绿 + 全量回归全绿。
 
 ### 模拟操作推钉钉（sim-notify）
 

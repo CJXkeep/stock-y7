@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from data.kline_fetcher import Kline, Quote, FundFlow
-from ._indicators import last_sma, sma_series, pct_change
+from ._indicators import last_sma, sma_series, pct_change, linfit_stats, rsrs_score, linfit_stats, rsrs_score
 
 
 @dataclass
@@ -27,6 +27,44 @@ class MomentumResult:
     signals: List[str] = field(default_factory=list)
     cup_handle: Optional[dict] = None
     description: str = ""
+    # 外源参考披露字段（2026-09 融合；不参与 total，评估/回测口径零影响）
+    momentum_quality: Optional[dict] = None
+    market_rsrs: Optional[dict] = None
+
+
+#: RSRS 披露默认窗口（084 参数集；仅披露，门控阈值在 sim 适配层用 config）
+#: M=250 而非参考值 600：数据源（东财指数K线）单次上限 400 根，留痕于 config.SIM_RSRS_M
+RSRS_SAMPLE_N = 18
+RSRS_SAMPLE_M = 250
+
+
+def _calc_momentum_quality(klines: List[Kline], window: int = 20) -> Optional[dict]:
+    """动量质量分（043/003 参考：log 价格回归年化 × R²；仅披露，不参与评分）。
+
+    对最近 window 根收盘做 ln(close/close0) ~ x 的最小二乘回归，
+    annualized = exp(slope × 250) - 1（日度斜率年化），
+    quality = annualized × max(r2, 0)——R² 用于惩罚噪声动量。
+    数据不足返回 None。
+    """
+    if len(klines) < window + 2:
+        return None
+    closes = [k.close for k in klines[-window:]]
+    base = closes[0]
+    if base <= 0:
+        return None
+    import math
+    ys = [math.log(c / base) for c in closes]
+    fit = linfit_stats(list(range(window)), ys)
+    if fit is None:
+        return None
+    slope, r2, _ = fit
+    annualized = math.exp(slope * 250.0) - 1.0
+    return {
+        "annualized": round(annualized * 100.0, 4),
+        "r2": round(r2, 4),
+        "quality": round(annualized * max(r2, 0.0) * 100.0, 4),
+        "window": window,
+    }
 
 
 def _sma(values: List[float], period: int) -> float:
@@ -407,9 +445,24 @@ def analyze_momentum(
     if breadth_signal:
         description += f"；{breadth_signal}"
 
+    # ---- 外源参考披露字段（2026-09 融合；不参与评分，评估/回测口径零影响） ----
+    momentum_quality = _calc_momentum_quality(klines)
+    market_rsrs = None
+    if index_klines and len(index_klines) >= RSRS_SAMPLE_N + RSRS_SAMPLE_M:
+        market_rsrs = rsrs_score(
+            [k.high for k in index_klines],
+            [k.low for k in index_klines],
+            n=RSRS_SAMPLE_N, m=RSRS_SAMPLE_M,
+        )
+    if momentum_quality:
+        signals.append(f"动量质量(20日年化×R²)={momentum_quality['quality']:.2f}%")
+    if market_rsrs:
+        signals.append(f"RSRS(大盘)={market_rsrs['score']:.4f}")
+
     return MomentumResult(
         c_score=c_score, a_score=a_score, n_score=n_score,
         s_score=s_score, l_score=l_score, i_score=i_score, m_score=m_score,
         total=total, grade=grade, signals=signals,
         cup_handle=cup_handle, description=description,
+        momentum_quality=momentum_quality, market_rsrs=market_rsrs,
     )

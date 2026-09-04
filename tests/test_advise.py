@@ -5,6 +5,8 @@
 逐股样本门槛（n<SCREEN_ADVISE_MIN_N 只列观察）、已入池候选不重复建议、
 建议单 schema 与 correct 兼容、/api/advice 只读摘要、建议器零写核心池。
 全部离线：文件均落在临时 root 下，核心池 load 打桩。
+披露（因子/行业动量）全离线测试见 test_factors.py / test_industry_momentum.py；
+本文件 run_advise 统一 disclosure=False，避免测试触发真实行情抓取。
 """
 import csv
 import json
@@ -74,7 +76,7 @@ def test_advise_add_and_remove_plans_written():
                          {"symbol": "000001", "name": "平安银行", "gate": "FAIL",
                           "note": "不达标应跳过"}],
         )
-        result = advise_mod.run_advise("S1", root=root)
+        result = advise_mod.run_advise("S1", root=root, disclosure=False)
         plans = result["plans"]
         actions = {p["action"] for p in plans}
         assert "pool_add" in actions and "pool_remove" in actions
@@ -118,7 +120,7 @@ def test_advise_sample_threshold_only_watch():
         # 600000 只有 3 笔信号（< 10），即使超额为负也不出建议
         _make_results(root, "S1", pool_stocks=[("600000", 3, -2.0)],
                       screen_rows=[{"symbol": "600519", "gate": "FAIL"}])
-        result = advise_mod.run_advise("S1", root=root)
+        result = advise_mod.run_advise("S1", root=root, disclosure=False)
         assert result["plans"] == [], "样本不足不得出任何建议"
         watch = result["watchlist"][0]
         assert watch["symbol"] == "600000"
@@ -135,7 +137,7 @@ def test_advise_missing_screen_csv_skips_add():
     try:
         pool_mod.load = lambda *a, **k: _fake_pool(["600000"])
         _make_results(root, "S1", pool_stocks=[("600000", 12, -1.0)], screen_rows=None)
-        result = advise_mod.run_advise("S1", root=root)
+        result = advise_mod.run_advise("S1", root=root, disclosure=False)
         assert all(p["action"] == "pool_remove" for p in result["plans"])
         assert any("跳过入池" in n for n in result["notes"])
     finally:
@@ -215,7 +217,7 @@ def test_advise_never_touches_pool():
         pool_mod.load = lambda *a, **k: _fake_pool(["600000"])
         _make_results(root, "S1", pool_stocks=[("600000", 15, -1.0)],
                       screen_rows=[{"symbol": "600519", "gate": "PASS"}])
-        result = advise_mod.run_advise("S1", root=root)
+        result = advise_mod.run_advise("S1", root=root, disclosure=False)
         assert result["plans"], "应有建议"
         assert not os.path.exists(os.path.join(d, "pool.json")), "建议器不应写核心池"
     finally:

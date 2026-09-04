@@ -35,11 +35,14 @@ from data.kline_fetcher import (
     fetch_index_kline, fetch_market_breadth,
 )
 from analysis.signal_engine import run_analysis
+from analysis._indicators import rsrs_score
 from server.signal_pipeline import signal_to_dict, _apply_signal_optimization
 from backtest import config as journal_config
 from backtest import watchlist_store
 from backtest import pool as stock_pool
-from backtest.sim_account import Decision, _LEVEL_ALIASES
+from backtest.sim_account import (Decision, _LEVEL_ALIASES, limit_up_price,
+                             REASON_LIMIT_OPEN, REASON_MA20_BREAK,
+                             REASON_VOLUME_SPIKE, REASON_PEAK_DRAWDOWN)
 
 log = logging.getLogger("trend_app")
 
@@ -236,6 +239,23 @@ class StrategyAdapter:
     def screen(self, items: list, ctx: dict = None) -> list:
         raise NotImplementedError
 
+    def exit_check(self, pos: dict, quote, ctx: dict = None) -> str:
+        """策略专有动态退出规则（2026-09 融合；默认不启用）。
+
+        返回卖出原因字符串（sim_account.REASON_*）时表示该持仓应退出；
+        返回 None/空 表示维持。由服务层在 static stop/target 之后调用
+        （见 sim_service._check_positions）。
+        """
+        return None
+
+    def queue_check(self, deci, ctx: dict = None) -> str:
+        """撮合排队判定（2026-09 融合；默认不启用）。
+
+        返回 None/空 = 队列充足可成交（含数据缺失静默放行）；
+        返回 "queue_pending" = 队列不足，调用方走顺延（见 sim_service._track_pending）。
+        """
+        return None
+
 
 class QushiV5Adapter(StrategyAdapter):
     """qushi_v5：包装现有信号引擎（run_analysis + 后处理），输出 Decision。
@@ -263,6 +283,7 @@ class QushiV5Adapter(StrategyAdapter):
             merged["require_weekly"] = require_weekly
         self.params = self.normalize_params(merged)
         self._consec_source_fails = 0   # 初筛连续行情源失败计数（screen 内使用）
+        self._rsrs_cache = None         # RSRS 快照懒缓存：{"date", "value"}
 
     @property
     def require_weekly(self) -> bool:
@@ -298,6 +319,20 @@ class QushiV5Adapter(StrategyAdapter):
                 "type": "float", "min": 0.0, "max": 1.0,
                 "default": float(scale.get("cautious", 0.4)), "label": "谨慎买入仓位系数",
             },
+            # 外源参考：RSRS 大盘门控（084/101；默认关，只影响买入 Decision）
+            "rsrs_gate": {
+                "type": "bool", "default": False,
+                "label": "RSRS 弱市门控",
+            },
+            "rsrs_threshold": {
+                "type": "float", "min": 0.0, "max": 5.0,
+                "default": float(journal_config.SIM_RSRS_THRESHOLD),
+                "label": "RSRS 弱市阈值（score < -阈值）",
+            },
+            "rsrs_bear_action": {
+                "type": "enum", "options": ["hold", "downgrade"],
+                "default": "hold", "label": "弱市动作（hold=不买 / downgrade=降为谨慎）",
+            },
         }
 
     def normalize_params(self, raw: dict) -> dict:
@@ -331,6 +366,64 @@ class QushiV5Adapter(StrategyAdapter):
     def position_scale(self, level: str) -> float:
         return float(self.params.get(f"scale_{level}", 1.0))
 
+    # ---- 外源参考：RSRS 大盘门控（084/101） ----
+    def _rsrs_snapshot(self):
+        """RSRS 快照（懒缓存，每日一次）：fetch_index_kline 拉长历史后计算。
+
+        失败/数据不足返回 None —— 门控静默放行（披露缺省，不阻塞交易）。
+        """
+        today = None
+        try:
+            from data.kline_fetcher import shanghai_now
+            today = shanghai_now().strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        if self._rsrs_cache and self._rsrs_cache.get("date") == today:
+            return self._rsrs_cache.get("value")
+        value = None
+        try:
+            n = int(journal_config.SIM_RSRS_N)
+            m = int(journal_config.SIM_RSRS_M)
+            klines = fetch_index_kline(journal_config.SIM_RSRS_INDEX,
+                                       count=n + m + 5)
+            if klines and len(klines) >= n + m:
+                value = rsrs_score([k.high for k in klines],
+                                   [k.low for k in klines], n=n, m=m)
+        except Exception:
+            value = None
+        self._rsrs_cache = {"date": today, "value": value}
+        return value
+
+    def _apply_market_gate(self, deci: Decision) -> Decision:
+        """市场门控：弱市（rsrs_score < -threshold）时按配置拦截/降级买入。"""
+        if not deci or deci.side != "buy":
+            return deci
+        if not bool(self.params.get("rsrs_gate", False)):
+            return deci
+        rsrs = self._rsrs_snapshot()
+        if not rsrs:
+            return deci
+        threshold = float(self.params.get("rsrs_threshold",
+                                          journal_config.SIM_RSRS_THRESHOLD))
+        if float(rsrs.get("score", 0)) >= -threshold:
+            return deci
+        action = str(self.params.get("rsrs_bear_action", "hold")).strip().lower()
+        reason = f"{deci.reason}；RSRS弱市门控({rsrs.get('score')})" if deci.reason \
+            else f"RSRS弱市门控({rsrs.get('score')})"
+        if action == "downgrade":
+            return Decision(symbol=deci.symbol, name=deci.name, side="buy",
+                            level="cautious", score=deci.score,
+                            confidence=deci.confidence, price=deci.price,
+                            pre_close=deci.pre_close, stop=deci.stop,
+                            target=deci.target, trigger_date=deci.trigger_date,
+                            strategy=deci.strategy, reason=reason)
+        return Decision(symbol=deci.symbol, name=deci.name, side="hold",
+                        level="", score=deci.score, confidence=deci.confidence,
+                        price=deci.price, pre_close=deci.pre_close,
+                        stop=deci.stop, target=deci.target,
+                        trigger_date=deci.trigger_date,
+                        strategy=deci.strategy, reason=reason)
+
     # ---- 内部：跑信号引擎并映射 ----
     def _run(self, symbol: str, name: str, klines, quote, flows, index_klines,
              breadth, period: str = "day") -> Decision:
@@ -346,7 +439,7 @@ class QushiV5Adapter(StrategyAdapter):
             mapped = ("hold", "")
         side, level = mapped
         plan = signal_data.get("trade_plan") or {}
-        return Decision(
+        deci = Decision(
             symbol=symbol,
             name=name or (getattr(quote, "name", "") if quote else ""),
             side=side,
@@ -361,6 +454,8 @@ class QushiV5Adapter(StrategyAdapter):
             strategy=self.id,
             reason=action,
         )
+        # 外源参考：RSRS 市场门控（仅作用于买入 Decision；sell/hold 原样）
+        return self._apply_market_gate(deci)
 
     def _klines_for(self, item: dict, ctx: dict, period: str = "day",
                      close_mode: bool = False):
@@ -466,6 +561,115 @@ class QushiV5Adapter(StrategyAdapter):
             if week.side == "buy":
                 verified.append(deci)
         return verified
+
+    def exit_check(self, pos: dict, quote, ctx: dict = None) -> str:
+        """外源参考动态退出规则（15/107/022/078 参数集；docs/策略融合-外源参考-2026-09.md）。
+
+        顺序判定（命中即返回原因，其余静默放行）：
+        1. 涨停开板：昨收 K 线收盘 ≥ 昨日涨停价（前收×1.0995 口径）且今日现价 < 今日涨停价；
+        2. 均线跌破：现价 < 最近 20 根完整日 K 收盘均线（排除当日盘中半成品 bar）；
+        3. 高点回撤：买入日起最高价（含现价）回撤 > SIM_EXIT_PEAK_DRAWDOWN(%）；
+        4. 尾盘放量：盘口累计量 > SIM_EXIT_VOL_RATIO × 前 SIM_EXIT_VOL_PERIOD 日均量 且未涨停。
+
+        任何数据/网络异常均返回 None（静默放行，不阻塞持仓巡检）。
+        """
+        try:
+            if not pos or not quote or not getattr(quote, "price", 0) or quote.price <= 0:
+                return None
+            symbol = str(pos.get("symbol", "") or "")
+            name = str(pos.get("name", "") or "")
+            klines = fetch_kline(symbol, count=35, period="day")
+            if not klines or len(klines) < 2:
+                return None
+            ctx_date = (ctx or {}).get("market_date", "")
+            is_today_bar = bool(ctx_date) and str(klines[-1].date)[:10] == ctx_date
+            hist = klines[:-1] if is_today_bar else klines
+
+            # 1) 涨停开板（115/104：持仓昨日涨停、今日开板即卖）
+            if int(journal_config.SIM_EXIT_LIMIT_OPEN) and len(klines) >= 3:
+                prev_close = klines[-2].close
+                prev_prev_close = klines[-3].close
+                if prev_prev_close > 0 and prev_close >= limit_up_price(prev_prev_close, symbol, name):
+                    today_up = limit_up_price(float(quote.pre_close or 0), symbol, name)
+                    if today_up > 0 and quote.price < today_up:
+                        return REASON_LIMIT_OPEN
+
+            # 2) 均线跌破（107：现价 < MA20，MA 用完整日 K，排除当日半成品）
+            if int(journal_config.SIM_EXIT_MA20) and len(hist) >= 20:
+                closes = [k.close for k in hist[-20:]]
+                ma20 = sum(closes) / max(1, len(closes))
+                if ma20 > 0 and quote.price < ma20:
+                    return REASON_MA20_BREAK
+
+            # 3) 高点回撤（078：买入以来最高高点回撤 > 阈值）
+            peak_dd = float(journal_config.SIM_EXIT_PEAK_DRAWDOWN or 0)
+            if peak_dd > 0:
+                buy_date = str(pos.get("buy_date", "") or "")[:10]
+                peak = 0.0
+                if buy_date:
+                    for k in hist:
+                        if str(k.date)[:10] >= buy_date:
+                            peak = max(peak, float(k.high or 0))
+                peak = max(peak, float(pos.get("buy_price", 0) or 0))
+                peak = max(peak, float(quote.price or 0))
+                if peak > 0 and quote.price < peak:
+                    dd = (peak - quote.price) / peak * 100.0
+                    if dd > peak_dd:
+                        return REASON_PEAK_DRAWDOWN
+
+            # 4) 尾盘放量（022：当日累计量 > 倍数 × 前 N 日均量，且未涨停）
+            vol_ratio = float(journal_config.SIM_EXIT_VOL_RATIO or 0)
+            vol_period = int(journal_config.SIM_EXIT_VOL_PERIOD or 10)
+            if vol_ratio > 0 and len(hist) >= vol_period and float(quote.volume or 0) > 0:
+                avg = sum(float(k.volume or 0) for k in hist[-vol_period:]) / vol_period
+                if avg > 0 and float(quote.volume) > vol_ratio * avg:
+                    today_up = limit_up_price(float(quote.pre_close or 0), symbol, name)
+                    if today_up <= 0 or quote.price < today_up:
+                        return REASON_VOLUME_SPIKE
+            return None
+        except Exception as exc:
+            log.debug("exit_check %s 静默放行: %s", pos.get("symbol", ""), exc)
+            return None
+
+    # ---- 外源参考：撮合排队 volume 代理（119；docs/策略融合-第二阶段设计-2026-09.md §C） ----
+    def queue_check(self, deci, ctx: dict = None) -> str:
+        """队列判定（volume 代理）：当日累计量 > BOOST × 前 N 日均量视为队列充足。
+
+        - off 模式恒 None（零影响）；
+        - 数据缺失/均量为 0 → None（静默放行，不阻塞交易）；
+        - 当日量不足 → "queue_pending"（调用方复用 _track_pending 顺延）。
+        """
+        try:
+            mode = str(journal_config.SIM_QUEUE_MODE or "off").strip().lower()
+            if mode != "volume":
+                return None
+            if not deci or getattr(deci, "side", "") != "buy":
+                return None
+            symbol = str(getattr(deci, "symbol", "") or "")
+            quote = fetch_quote(symbol)
+            if not quote or not float(getattr(quote, "volume", 0) or 0) or float(quote.volume) <= 0:
+                return None
+            period = max(1, int(journal_config.SIM_QUEUE_VOL_PERIOD or 5))
+            boost = max(0.0, float(journal_config.SIM_QUEUE_VOL_BOOST or 1.5))
+            klines = fetch_kline(symbol, count=period + 2, period="day")
+            if not klines:
+                return None
+            ctx_date = (ctx or {}).get("market_date", "")
+            is_today_bar = bool(ctx_date) and str(klines[-1].date)[:10] == ctx_date
+            hist = klines[:-1] if is_today_bar else klines
+            window = hist[-period:]
+            if len(window) < period:
+                return None          # 历史量不足（次新/停牌复牌）：无法判定 → 放行
+            avg = sum(float(k.volume or 0) for k in window) / period
+            if avg <= 0:
+                return None
+            if float(quote.volume) > boost * avg:
+                return None          # 队列充足
+            return "queue_pending"
+        except Exception as exc:
+            log.debug("queue_check %s 静默放行: %s",
+                      getattr(deci, "symbol", "") if deci else "", exc)
+            return None
 
 
 # ---------------------------------------------------------------- adapter 注册表

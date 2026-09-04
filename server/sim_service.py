@@ -241,7 +241,7 @@ def _pop_sell_queue(state: dict, symbol: str) -> None:
 
 
 def _execute_buy_queue(state: dict, cfg: dict, adapter, stats: dict,
-                       now: datetime.datetime) -> None:
+                       now: datetime.datetime, ctx: dict = None) -> None:
     """执行收盘定档买入清单（close_nextday 交易时段巡检时调用，不重新选股）。
 
     受持仓上限 / 单仓位 / 当日卖出去重 / 资金 / 涨停顺延约束；已持有、同信号已买、
@@ -279,7 +279,14 @@ def _execute_buy_queue(state: dict, cfg: dict, adapter, stats: dict,
             continue
         summary = portfolio_summary(state, {}, now)
         budget = summary["equity"] * per_trade_pct / 100.0 * adapter.position_scale(deci.level)
-        trade, err = execute_buy(state, deci, budget=budget, now=now)
+        # 外源参考：撮合排队 volume 代理（119；默认 off 零影响）——队列不足走顺延
+        if _queue_gate_check(adapter, deci, ctx) == "queue_pending":
+            if _track_pending(state, deci, kind="queue"):
+                stats["unfilled"] = stats.get("unfilled", 0) + 1
+                stats.setdefault("queue_unfilled", []).append(symbol)
+            continue                      # 顺延计数，条目作废（当日收盘会重建）
+        note = _queue_deferred_note(state, deci)
+        trade, err = execute_buy(state, deci, budget=budget, now=now, note=note)
         if err == "limit_up_deferred":
             if _track_pending(state, deci):
                 stats["unfilled"] = stats.get("unfilled", 0) + 1
@@ -367,7 +374,7 @@ def _run_cycle_locked(cfg: dict = None, force: bool = False) -> dict:
 
         _check_positions(state, cfg, ctx, now, adapter, stats, signal_mode=mode)
         if mode == "close_nextday":
-            _execute_buy_queue(state, cfg, adapter, stats, now)
+            _execute_buy_queue(state, cfg, adapter, stats, now, ctx=ctx)
         else:
             _maybe_screen(state, cfg, ctx, now, adapter, stats, force=force)
         summary = _snapshot_equity(state, now, cfg=cfg)
@@ -432,7 +439,14 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
             reason = REASON_STOP
         elif cfg.get("take_profit_enabled") and pos.get("target") and quote.price >= float(pos["target"]):
             reason = REASON_TARGET
-        elif cfg.get("auto_sell"):
+        elif adapter is not None and getattr(adapter, "exit_check", None):
+            # 外源参考动态退出规则（涨停开板/MA20 跌破/高点回撤/放量；策略适配层产出）
+            try:
+                reason = adapter.exit_check(pos, quote, ctx)
+            except Exception as exc:
+                log.debug("动态退出规则评估失败 %s: %s", symbol, exc)
+                reason = None
+        if not reason and cfg.get("auto_sell"):
             if signal_mode == "close_nextday":
                 in_queue = any(isinstance(e, dict) and e.get("symbol") == symbol
                                for e in (state.get("sell_queue") or []))
@@ -566,7 +580,14 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
 
         summary = portfolio_summary(state, {}, now)
         budget = summary["equity"] * per_trade_pct / 100.0 * adapter.position_scale(deci.level)
-        trade, err = execute_buy(state, deci, budget=budget, now=now)
+        # 外源参考：撮合排队 volume 代理（119；默认 off 零影响）——队列不足走顺延，不虚构成交
+        if _queue_gate_check(adapter, deci, ctx) == "queue_pending":
+            if _track_pending(state, deci, kind="queue"):
+                stats["unfilled"] += 1
+                stats.setdefault("queue_unfilled", []).append(deci.symbol)
+            continue
+        note = _queue_deferred_note(state, deci)
+        trade, err = execute_buy(state, deci, budget=budget, now=now, note=note)
         if err == "limit_up_deferred":
             if _track_pending(state, deci):
                 stats["unfilled"] += 1
@@ -583,8 +604,30 @@ def _maybe_screen(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
     state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _track_pending(state: dict, deci: Decision) -> str:
-    """涨停顺延计数：超过 EXIT_POSTPONE_LIMIT 记 unfilled 并放弃。"""
+def _queue_gate_check(adapter, deci, ctx):
+    """queue_check 包装：异常静默放行（返回 None，与 exit_check 同纪律）。"""
+    if adapter is None or not getattr(adapter, "queue_check", None):
+        return None
+    try:
+        return adapter.queue_check(deci, ctx)
+    except Exception as exc:
+        log.debug("queue_check %s 静默放行: %s", getattr(deci, "symbol", ""), exc)
+        return None
+
+
+def _queue_deferred_note(state: dict, deci: Decision) -> str:
+    """曾因队列不足顺延（同 trigger 的 kind=queue）→ 成交流水 note 标注。"""
+    pb = (state.get("pending_buys") or {}).get(deci.symbol)
+    if pb and pb.get("kind") == "queue" and pb.get("trigger_date") == deci.trigger_date:
+        return "queue-deferred"
+    return ""
+
+
+def _track_pending(state: dict, deci: Decision, kind: str = "limit_up") -> str:
+    """涨停/队列顺延计数：超过 EXIT_POSTPONE_LIMIT 记 unfilled 并放弃。
+
+    kind 记录触发来源（limit_up=涨停不追 / queue=队列不足顺延），旧 5 个计数字段保留。
+    """
     # 必须写回原 dict：空 dict 是 falsy，`or {}` 会拿新对象导致计数全部丢失（存量 bug）
     if not isinstance(state.get("pending_buys"), dict):
         state["pending_buys"] = {}
@@ -592,7 +635,8 @@ def _track_pending(state: dict, deci: Decision) -> str:
     pb = pending.get(deci.symbol)
     if not pb or pb.get("trigger_date") != deci.trigger_date:
         pb = {"count": 0, "trigger_date": deci.trigger_date,
-              "level": deci.level, "name": deci.name}
+              "level": deci.level, "name": deci.name, "kind": "limit_up"}
+    pb["kind"] = str(kind or "limit_up")      # 以最新触发原因记录（披露用）
     pb["count"] = int(pb.get("count", 0) or 0) + 1
     if pb["count"] > int(journal_config.EXIT_POSTPONE_LIMIT):
         pending.pop(deci.symbol, None)

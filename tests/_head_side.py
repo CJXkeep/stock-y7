@@ -66,31 +66,6 @@ SCREEN_ADVICE_MIN_N = 10         # 逐股出池建议的最低窗口信号数（
 SIGNAL_POLICY_VERSION = "policy.v1.gate"   # 当前=含策略门/软否决/盈亏比/M 降档的规则集
 SIGNAL_BUY_TIERS = ("强烈买入", "买入", "谨慎买入")  # 最终动作买入侧档位（gate/advise 口径，I10 起）
 
-# ---- 外源参考机制融合（2026-09，docs/策略融合-外源参考-2026-09.md；预承诺，改动须留痕） ----
-# RSRS 大盘门控（084/101 参考；只作用于模拟账户适配层，默认关）
-SIM_RSRS_N = 18                    # 高低点 OLS 回归窗口（日）
-SIM_RSRS_M = 250                   # 斜率 zscore 回溯窗口（日）——数据源（东财指数K线）单次上限 400 根，
-                                   # 从 084 参考值 600 调整为 250（≈1 年，与 REPLAY_WINDOW 口径习惯一致）；改此须留痕
-SIM_RSRS_THRESHOLD = 0.7           # 弱市阈值：rsrs_score < -threshold（zscore×r² 口径）
-SIM_RSRS_INDEX = "000001"          # 门控指数（上证）
-# 动态退出规则（exit_check；115/107/022/078 参考；作用于模拟账户持仓巡检）
-SIM_EXIT_LIMIT_OPEN = 1            # 昨收涨停+今日开板 → 卖（1=开）
-SIM_EXIT_MA20 = 1                  # 现价 < 日线 MA20 → 卖（1=开）
-SIM_EXIT_VOL_RATIO = 3.0           # 尾盘放量倍数：当日量 > 倍数 × 前 SIM_EXIT_VOL_PERIOD 日均量
-SIM_EXIT_VOL_PERIOD = 10           # 放量基准均量窗口（日）
-SIM_EXIT_PEAK_DRAWDOWN = 3.0       # 买入以来最高高点回撤触发阈值（%）
-
-# ---- 策略融合第二阶段（2026-09，docs/策略融合-第二阶段设计-2026-09.md；预承诺，默认不改行为） ----
-# B 级行业动量（118 参考；池内聚合，仅建议单披露，不进任何门槛）
-INDUSTRY_MOM_WINDOW = 60        # 行业动量观察窗口（日）——取回测行级 r60_excess（字段本身即 60 日超额）
-INDUSTRY_MOM_MIN_SYMBOLS = 2    # 同行业最少股票数（池内口径，少于则不出行业动量）
-INDUSTRY_MOM_TOP = 3            # 披露标注的行业动量 Top 排名数（仅排序参考，不设门槛）
-# C 撮合排队语义（119 参考；无订单簿不虚构 → volume 代理；默认 off 零影响）
-# 注意与既有 SIM_QUEUE_STALE_DAYS（买入清单条目有效期）同名前缀但语义不同
-SIM_QUEUE_MODE = "off"          # off | volume；volume = 当日量 > 倍数×前 N 日均量视为队列充足
-SIM_QUEUE_VOL_BOOST = 1.5       # 队列充足判定倍数（当日累计量 / 前 N 日均量）
-SIM_QUEUE_VOL_PERIOD = 5        # 均量基准窗口（日，不含当日）
-
 # ---- 历史信号统计（I7.4） ----
 SNAPSHOT_DIR = os.path.join(ROOT, "data", "snapshots")
 RESULTS_DIR = os.path.join(ROOT, "data", "results")

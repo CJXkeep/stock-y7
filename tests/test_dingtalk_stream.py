@@ -69,8 +69,18 @@ class StreamMessageTest(unittest.TestCase):
 
 
 class StartStreamTest(unittest.TestCase):
+    def setUp(self):
+        # 注入临时空配置目录：不依赖真实 data/notify.json 的「未配置凭证」巧合前提
+        self.tmp = tempfile.mkdtemp(prefix="dingtalk_start_")
+        self.orig_path = ns.notify_config_path
+        ns.notify_config_path = lambda path=None: path or os.path.join(self.tmp, "notify.json")
+
+    def tearDown(self):
+        ns.notify_config_path = self.orig_path
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
     def test_no_credentials_does_not_start(self):
-        # 真实项目根的 data/notify.json 当前未配置凭证 → 不启动且不抛异常
+        # 空配置 + 未启动标志 → 不启动且不抛异常
         assert ds.start_stream() is False
 
 
