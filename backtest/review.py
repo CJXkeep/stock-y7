@@ -45,7 +45,10 @@ def load_result_rows(snapshot_id: str, results_root: str = None) -> list:
     with open(path, "r", encoding="utf-8-sig", newline="") as fh:
         for raw in csv.DictReader(fh):
             row = {"date": raw.get("date", ""), "symbol": raw.get("symbol", ""),
-                   "action": raw.get("action", "")}
+                   "action": raw.get("action", ""),
+                   "final_action": raw.get("final_action", ""),
+                   "veto_reason": raw.get("veto_reason", ""),
+                   "policy_version": raw.get("policy_version", "")}
             score = raw.get("score")
             try:
                 row["score"] = float(score) if score not in (None, "") else None

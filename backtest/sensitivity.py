@@ -17,6 +17,7 @@ from analysis.signal_engine import (STRONG_SCORE, MEDIUM_SCORE,
                                     action_from_score)
 from backtest import config
 from backtest.dedupe import mark_window
+from analysis.signal_postprocess import reapply_policy_for_tier
 from backtest.replay import load_signals
 from backtest.snapshot import load_snapshot, verify_snapshot
 from backtest.stats import (BENCH_KEY, HORIZONS, aggregate,
@@ -118,34 +119,73 @@ def run_sensitivity(snapshot_id: str, threshold_sets=None, root: str = None,
             fwd = compute_forward_returns(closes, s["t"])
         fwd_by_key[(s["symbol"], s["t"])] = fwd
 
+    has_policy_inputs = any(s.get("policy_inputs") or s.get("final_action")
+                            for s in stat_signals)
     groups = []
     for th_strong, th_buy in sorted(threshold_sets):
+        is_anchor = (th_strong, th_buy) == ANCHOR_THRESHOLDS
         rows = []
+        rows_final = []
         for s in stat_signals:
             fwd = fwd_by_key.get((s["symbol"], s["t"]))
             if fwd is None:
                 continue
+            tier = action_from_score(s.get("score") or 0, th_strong, th_buy)
             rows.append({
                 "symbol": s["symbol"], "date": s["date"],
-                "action": action_from_score(s.get("score") or 0,
-                                            th_strong, th_buy),
+                "action": tier,
                 "score": s.get("score"),
                 "warmup": bool(s.get("warmup")), "deduped": s["deduped"],
                 **fwd,
             })
+            # I10 双口径：锚点组用落盘 final_action（含盈亏比否决，精确）；
+            # 非锚点组由 policy_inputs 复算（不含盈亏比否决——价格结构属性与阈值无关）
+            if is_anchor and s.get("final_action"):
+                fin = s["final_action"]
+            elif s.get("policy_inputs"):
+                fin = reapply_policy_for_tier(tier, s["policy_inputs"])
+            else:
+                fin = None
+            if fin and fin in config.SIGNAL_BUY_TIERS:
+                rows_final.append(dict(rows[-1], action=fin))
         summary = aggregate(rows)
         mono = tier_monotonicity(summary.get("by_action") or {},
                                  excess=has_bench)
+        summary_final = None
+        mono_final = None
+        final_dist = {}
+        if has_policy_inputs:
+            summary_final = aggregate(rows_final)
+            mono_final = tier_monotonicity(summary_final.get("by_action") or {},
+                                           excess=has_bench)
+            for s in stat_signals:
+                fwd = fwd_by_key.get((s["symbol"], s["t"]))
+                if fwd is None:
+                    continue
+                if is_anchor and s.get("final_action"):
+                    fin = s["final_action"]
+                elif s.get("policy_inputs"):
+                    fin = reapply_policy_for_tier(
+                        action_from_score(s.get("score") or 0, th_strong, th_buy),
+                        s["policy_inputs"])
+                else:
+                    continue
+                if fin not in config.SIGNAL_BUY_TIERS:
+                    final_dist[fin] = final_dist.get(fin, 0) + 1
         action_dist = {}
         for row in rows:
             action_dist[row["action"]] = action_dist.get(row["action"], 0) + 1
         groups.append({
             "thresholds": (th_strong, th_buy),
-            "is_anchor": (th_strong, th_buy) == ANCHOR_THRESHOLDS,
+            "is_anchor": is_anchor,
             "stats_count": len(rows),
             "action_dist": action_dist,
             "summary": summary,
             "mono": mono,
+            "summary_final": summary_final,
+            "mono_final": mono_final,
+            "final_dist": final_dist,
+            "stats_count_final": len(rows_final),
         })
 
     out_dir = os.path.join(results_root or config.RESULTS_DIR, str(snapshot_id))
@@ -219,6 +259,11 @@ def render_sensitivity(snapshot_id: str, groups: list, has_bench: bool,
     else:
         lines.append("- **本轮无基准**（快照缺 %s 指数日线）：超额列退化为绝对口径" % config.BENCHMARK_SYMBOL)
     lines.append("- 分组 n<%d 标注「⚠样本不足」；统计为信号与市场环境的复合结果，非因果" % config.SAMPLE_MIN)
+    if groups and groups[0].get("summary_final") is not None:
+        lines.append("- I10 双口径：锚点组最终动作取落盘值（含盈亏比否决）；非锚点组由 policy_inputs 复算"
+                     "（**不含盈亏比否决**——盈亏比是价格结构属性，与分档阈值无关）；事件集合仍以原始买入侧为锚")
+    elif groups and not any(g.get("summary_final") for g in groups):
+        lines.append("- 存量 signals 无 policy 字段（I10 前落盘）：仅原始分档口径，重新 replay 可获得双口径")
     if stale_used:
         lines.append("- **⚠ 本次使用过期快照（stale）**：结果仅供对照")
     lines.append("")
@@ -254,6 +299,32 @@ def render_sensitivity(snapshot_id: str, groups: list, has_bench: bool,
                               for h in HORIZONS)
             lines.append("档位单调性（判据：%s）：%s" % (
                 "超额均值" if has_bench else "绝对均值", marks))
+            lines.append("")
+        sf = group.get("summary_final")
+        if sf is not None:
+            f_overall = sf.get("overall") or {}
+            f_by_action = sf.get("by_action") or {}
+            f_section = {"总体": {**f_overall, "n": group.get("stats_count_final", 0)}}
+            for action in config.SIGNAL_BUY_TIERS:
+                if action in f_by_action:
+                    f_section[action] = f_by_action[action]
+            _table(lines, f_section,
+                   "最终动作口径（策略后处理后；%s）"
+                   % ("落盘值，含盈亏比否决" if group["is_anchor"]
+                      else "由 policy_inputs 复算，不含盈亏比否决"))
+            if has_bench and any(("r%d_excess" % h) in f_overall for h in HORIZONS):
+                _table(lines, f_section,
+                       "超额口径（最终动作，相对%s）" % config.BENCHMARK_NAME,
+                       key="r%d_excess")
+            mono_f = group.get("mono_final") or {}
+            if mono_f:
+                marks = "；".join("r%d=%s" % (h, (mono_f.get("r%d" % h) or {}).get("marker") or "--")
+                                  for h in HORIZONS)
+                lines.append("档位单调性（最终动作口径）：%s" % marks)
+            fdist = group.get("final_dist") or {}
+            if fdist:
+                lines.append("被拦截/降出买入侧（最终口径）：%s 笔（不参与最终口径统计）" % (
+                    "，".join("%s %d" % (k, v) for k, v in sorted(fdist.items()))))
             lines.append("")
     lines.append("---")
     lines.append("")

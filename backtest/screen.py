@@ -121,11 +121,23 @@ def run_screen(candidates_path: str = None, root: str = None, workers: int = 8,
 
     from backtest.review import load_result_rows
     rows = load_result_rows(sid, results_root=_results_dir(root))
+    # I10（Q1 拍板）：SCREEN_GATE 作用于**最终动作买入侧**——
+    # 行集合仍以原始买入侧为锚，但参与门槛的行限 final_action∈SIGNAL_BUY_TIERS；
+    # 存量结果（无 final_action 列）退回原始口径并在报告头披露。
+    dual = any(r.get("final_action") for r in rows)
+    caliber_note = (
+        "最终动作口径（policy=%s）：门槛行=final_action∈买入侧档" % next(
+            (r.get("policy_version") for r in rows if r.get("policy_version")), "--"))
+    if not dual:
+        caliber_note = "存量结果无 final_action 列：门槛仍作用于原始口径行（重新 stats 可获双口径）"
 
     results = []
     for item in watching:
         symbol = str(item.get("symbol") or "").strip()
-        sub = [r for r in rows if r.get("symbol") == symbol]
+        sub_all = [r for r in rows if r.get("symbol") == symbol]
+        sub = [r for r in sub_all
+               if (not r.get("final_action"))
+               or r.get("final_action") in config.SIGNAL_BUY_TIERS] if dual else sub_all
         gate = evaluate_gate(sub)
         results.append({
             "symbol": symbol,
@@ -141,13 +153,14 @@ def run_screen(candidates_path: str = None, root: str = None, workers: int = 8,
             _log.warning("候选状态回写失败 %s: %s", r["symbol"], msg)
 
     outputs = _write_outputs(sid, root, manifest, results,
-                             elapsed=time.time() - started)
+                             elapsed=time.time() - started,
+                             caliber_note=caliber_note)
     return {"snapshot_id": sid, "candidates": results,
             "manifest": manifest, "outputs": outputs}
 
 
 def _write_outputs(sid: str, root: str, manifest: dict, results: list,
-                   elapsed: float = None) -> dict:
+                   elapsed: float = None, caliber_note: str = None) -> dict:
     """写 screen.md 与 screen.csv；返回文件路径。
 
     elapsed 非 None 时在报告头披露本次验证耗时（I9.3：冷启动走网络兜底时耗时更长）。
@@ -182,9 +195,11 @@ def _write_outputs(sid: str, root: str, manifest: dict, results: list,
         "> 口径：无前视重放，原始 run_analysis 输出；滚动 %d 根/指数 %d 根；基准沪深300；"
         "n<10 标 ⚠样本不足不下结论；统计为信号×环境的复合结果，非因果，自用参考非投资建议。"
         % (config.REPLAY_WINDOW, config.INDEX_WINDOW),
-        "> SCREEN_GATE（买入侧合计）：n>=%d、r20_excess>0、r60_excess>0、"
+        "> SCREEN_GATE（买入侧合计，I10 起=%s）：n>=%d、r20_excess>0、r60_excess>0、"
         "r20/r60 超额胜率>=%.0f%%；样本不足永不 PASS。" % (
+            ("最终动作口径" if caliber_note and "最终动作" in caliber_note else "原始口径"),
             config.SAMPLE_MIN, config.SCREEN_GATE_EXCESS_WIN_RATE),
+        "> 口径说明：%s" % (caliber_note or "--"),
         "> 耗时：%s（冷启动/网络兜底时更长；本地K线库命中时更短）" % (
             ("%.1f 秒" % elapsed) if elapsed is not None else "--"),
         "",

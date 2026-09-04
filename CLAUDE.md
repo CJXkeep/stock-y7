@@ -34,7 +34,7 @@
 
 ```bash
 python app.py                          # 启动服务 → http://127.0.0.1:8795（PORT/BIND_HOST 可覆盖）
-python run_all_tests.py                # 全量回归（56 个测试文件）
+python run_all_tests.py                # 全量回归（57 个测试文件）
 python run_all_tests.py --list         # 列出测试文件
 python run_all_tests.py --filter journal   # 只跑匹配文件名的测试
 
@@ -62,7 +62,7 @@ python -m backtest advise <snapshot_id>                           # 入池/出�
 | `backtest/` | 快照/无前视重放/统计/敏感性/评审/矫正（cli.py + `__main__.py`）；journal.py（信号档案）、pool.py（核心池）、candidates.py（I9.2 候选池）、screen.py（I9.3 候选验证）、advise.py（I9.4 建议）、**sim_account.py（v6 模拟账户账户内核：Decision 契约/撮合/记账/绩效）** |
 | `digest/` | 每日速递聚合 |
 | `dashboard/` | 前端看板（原生 ESM JS，无构建步骤）：index.html + js/ + vendor/，I9 新增 `js/candidates.js`（候选/建议/验证进度），v6 新增 `js/sim.js`（模拟账户分区） |
-| `tests/` | 回归测试（`run_all_tests.py` 统一跑，56 个文件） |
+| `tests/` | 回归测试（`run_all_tests.py` 统一跑，57 个文件） |
 | `docs/` | 设计文档与版本路线图（迭代稿按 `迭代_xx/` 归档；索引见 `docs/README.md`；`docs/comet/` 为 Comet 工作流归档） |
 | `libs/` | 第三方 vendored 库，一般不改 |
 

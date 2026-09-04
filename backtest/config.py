@@ -61,6 +61,10 @@ SCREEN_GATE_EXCESS_WIN_RATE = 50.0  # r20/r60 双超额胜率门槛（%）
 # ---- 入池/出池建议（I9.4 pool-advisor） ----
 SCREEN_ADVICE_MIN_N = 10         # 逐股出池建议的最低窗口信号数（T3 为组合级规则，逐股须另设样本门槛）
 
+# ---- 信号后处理策略（I10 口径收敛；规则变更须升版本并在决策日志留痕） ----
+SIGNAL_POLICY_VERSION = "policy.v1.gate"   # 当前=含策略门/软否决/盈亏比/M 降档的规则集
+SIGNAL_BUY_TIERS = ("强烈买入", "买入", "谨慎买入")  # 最终动作买入侧档位（gate/advise 口径，I10 起）
+
 # ---- 历史信号统计（I7.4） ----
 SNAPSHOT_DIR = os.path.join(ROOT, "data", "snapshots")
 RESULTS_DIR = os.path.join(ROOT, "data", "results")

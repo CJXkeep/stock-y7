@@ -148,6 +148,43 @@ def aggregate(rows: list) -> dict:
             "by_year": by_year, "by_symbol": by_symbol}
 
 
+def attach_dual_caliber(summary: dict, rows: list, rows_all: list,
+                        excess: bool = True) -> dict:
+    """I10 双口径：在 summary 上挂最终动作（策略后处理后）并列统计与拦截披露。
+
+    - rows：参与统计行（去重/排除预热后，原始买入侧锚）；
+    - rows_all：全部落盘行（用于判定是否含 final_action 字段）；
+    - 存量结果无 final_action（policy=legacy）→ 只标 policy_caliber，不挂新键；
+    - 拦截分析只披露不结论（n<SAMPLE_MIN 标样本不足）。
+    """
+    dual = any(r.get("final_action") for r in rows_all)
+    summary["meta"] = summary.get("meta") or {}
+    summary["meta"]["policy_caliber"] = "dual" if dual else "raw_only_legacy"
+    if not dual:
+        return summary
+    final_rows = [dict(r, action=r["final_action"]) for r in rows
+                  if r.get("final_action") in config.SIGNAL_BUY_TIERS]
+    agg_final = aggregate(final_rows)
+    summary["aggregate_final"] = agg_final
+    summary["tier_monotonicity_final"] = tier_monotonicity(
+        agg_final.get("by_action") or {}, excess=excess)
+    summary["meta"]["final_stats_count"] = len(final_rows)
+    intercepted = [r for r in rows
+                   if r.get("final_action")
+                   and r["final_action"] not in config.SIGNAL_BUY_TIERS]
+
+    def _blk(key):
+        return _summary([r.get(key) for r in intercepted
+                         if r.get(key) is not None])
+
+    summary["intercepted"] = {
+        "n": len(intercepted),
+        "r20": _blk("r20"), "r60": _blk("r60"),
+        "r20_excess": _blk("r20_excess"), "r60_excess": _blk("r60_excess"),
+    }
+    return summary
+
+
 def tier_monotonicity(by_action: dict, horizons=None, excess: bool = True) -> dict:
     """档位单调性（I8.2）：逐视界比较相邻档判据均值，三态标记。
 
@@ -407,6 +444,9 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
             fwd = compute_forward_returns(closes, s["t"])
         row_all = {
             "symbol": s["symbol"], "date": s["date"], "action": s["action"],
+            "raw_action": s.get("raw_action", s["action"]),
+            "final_action": s.get("final_action", ""),
+            "veto_reason": s.get("veto_reason", ""),
             "score": s.get("score"), "warmup": bool(s.get("warmup")),
             "deduped": s["deduped"], **fwd,
         }
@@ -430,6 +470,7 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     summary["simulation"] = summarize_simulation(simulated_rows) if simulate else None
     summary["tier_monotonicity"] = tier_monotonicity(summary.get("by_action") or {},
                                                      excess=has_bench)
+
     summary["meta"] = {
         "raw_count": raw_count,
         "visible_count": len(visible),
@@ -454,7 +495,14 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         "total_symbols": manifest.get("total_symbols"),
         "stale_used": bool(manifest.get("stale_used")),
         "exit_rule": "盘中触价即时成交（保守）",
+        "policy_version": next((s.get("policy_version") for s in signals
+                                if s.get("policy_version")), None),
+        "policy_hash": next((s.get("policy_hash") for s in signals
+                             if s.get("policy_hash")), None),
     }
+
+    # ---- I10 双口径：最终动作（策略后处理后）并列统计与拦截披露 ----
+    attach_dual_caliber(summary, rows, rows_all, excess=has_bench)
 
     out_dir = os.path.join(results_root or config.RESULTS_DIR, str(snapshot_id))
     os.makedirs(out_dir, exist_ok=True)

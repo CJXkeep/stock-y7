@@ -1,0 +1,644 @@
+{
+ "hard_veto": {
+  "action": "观望",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "硬否决：价格跌破MA20，趋势已坏"
+  ],
+  "risk_codes": [
+   "price_below_ma20"
+  ],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "空仓等待",
+   "action": "观望"
+  },
+  "risk_level": "高",
+  "signal_strength": "弱",
+  "plain_summary": "建议观望，处于上升趋势。建议耐心等待信号明确后再操作。",
+  "optimized_action": "观望",
+  "original_action": "买入",
+  "veto_reason": "硬否决：价格跌破MA20，趋势已坏",
+  "position_advice": "空仓等待",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "gate_downtrend": {
+  "action": "观望",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "策略门：处于下降趋势，不新增仓位"
+  ],
+  "risk_codes": [
+   "trend_down"
+  ],
+  "trend": {
+   "direction": "下降",
+   "strength": 20,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "空仓等待",
+   "action": "观望"
+  },
+  "risk_level": "高",
+  "signal_strength": "弱",
+  "plain_summary": "建议观望，处于下降趋势。建议耐心等待信号明确后再操作。",
+  "optimized_action": "观望",
+  "original_action": "买入",
+  "veto_reason": "策略门：处于下降趋势，不新增仓位",
+  "position_advice": "空仓等待",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "gate_bear_market": {
+  "action": "观望",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "策略门：市场环境偏空，不新增仓位"
+  ],
+  "risk_codes": [
+   "market_regime_bear"
+  ],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 25
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "空仓等待",
+   "action": "观望"
+  },
+  "risk_level": "高",
+  "signal_strength": "弱",
+  "plain_summary": "建议观望，处于上升趋势，大盘环境偏空。建议耐心等待信号明确后再操作。",
+  "optimized_action": "观望",
+  "original_action": "买入",
+  "veto_reason": "策略门：市场环境偏空，不新增仓位",
+  "position_advice": "空仓等待",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "soft_veto_downgrade": {
+  "action": "买入",
+  "score": 80,
+  "confidence": 70,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 50
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "软否决：MA20向下，短期趋势偏弱"
+  ],
+  "risk_codes": [
+   "ma20_down"
+  ],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "正常仓位",
+   "action": "买入"
+  },
+  "risk_level": "中",
+  "signal_strength": "中",
+  "plain_summary": "出现买入信号，处于强势上升趋势。建议正常仓位入场，买入价10.00，止损9.00，目标12.00（盈亏比2.0）。",
+  "optimized_action": "买入",
+  "original_action": "强烈买入",
+  "veto_reason": "软否决：MA20向下，短期趋势偏弱",
+  "position_advice": "正常仓位",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "strong_no_target": {
+  "action": "买入",
+  "score": 80,
+  "confidence": 70,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "无结构化目标价，强烈买入降级为买入"
+  ],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 11.0,
+   "risk_reward_ratio": 1.0,
+   "target_source": "heuristic_10pct",
+   "position_size": "正常仓位",
+   "action": "买入"
+  },
+  "risk_level": "中",
+  "signal_strength": "中",
+  "plain_summary": "出现买入信号，处于强势上升趋势。建议正常仓位入场，买入价10.00，止损9.00，目标11.00（盈亏比1.0）。",
+  "optimized_action": "买入",
+  "original_action": "强烈买入",
+  "veto_reason": "无结构化目标价，强烈买入降级为买入",
+  "position_advice": "正常仓位",
+  "risk_notes": [
+   "盈亏比1.0偏低，谨慎操作"
+  ],
+  "risk_reward": 1.0
+ },
+ "strong_structured": {
+  "action": "强烈买入",
+  "score": 80,
+  "confidence": 70,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "正常仓位",
+   "action": "强烈买入"
+  },
+  "risk_level": "中",
+  "signal_strength": "强",
+  "plain_summary": "原摘要",
+  "optimized_action": "强烈买入",
+  "original_action": "强烈买入",
+  "position_advice": "正常仓位",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "m_low_downgrade": {
+  "action": "谨慎买入",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "大盘M分35偏低，降级为谨慎买入"
+  ],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 35
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "轻仓(1/4) — 大盘偏空，严格控制仓位",
+   "action": "谨慎买入"
+  },
+  "risk_level": "中",
+  "signal_strength": "中",
+  "plain_summary": "出现买入信号，处于强势上升趋势。建议轻仓(1/4) — 大盘偏空，严格控制仓位入场，买入价10.00，止损9.00，目标12.00（盈亏比2.0）。",
+  "optimized_action": "谨慎买入",
+  "original_action": "买入",
+  "veto_reason": "大盘M分35偏低，降级为谨慎买入",
+  "position_advice": "轻仓(1/4) — 大盘偏空，严格控制仓位",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "rr_inverted": {
+  "action": "观望",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [
+   "盈亏比0.4倒挂"
+  ],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.5,
+   "target_price": 10.2,
+   "risk_reward_ratio": 0.4,
+   "target_source": "structured",
+   "position_size": "正常仓位",
+   "action": "观望"
+  },
+  "risk_level": "高",
+  "signal_strength": "弱",
+  "plain_summary": "建议观望，处于上升趋势。建议耐心等待信号明确后再操作。",
+  "optimized_action": "观望",
+  "original_action": "买入",
+  "veto_reason": "盈亏比0.4倒挂",
+  "position_advice": "正常仓位",
+  "risk_notes": [
+   "盈亏比0.4倒挂，不建议入场"
+  ],
+  "risk_reward": 0.4
+ },
+ "sell_passthrough": {
+  "action": "卖出",
+  "score": 70,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "空仓等待",
+   "action": "卖出"
+  },
+  "risk_level": "中",
+  "signal_strength": "弱",
+  "plain_summary": "出现买入信号，处于强势上升趋势。建议空仓等待入场，买入价10.00，止损9.00，目标12.00（盈亏比2.0）。",
+  "optimized_action": "卖出",
+  "original_action": "卖出",
+  "position_advice": "空仓等待",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "watch_passthrough": {
+  "action": "观望",
+  "score": 50,
+  "confidence": 30,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "空仓等待",
+   "action": "观望"
+  },
+  "risk_level": "中",
+  "signal_strength": "弱",
+  "plain_summary": "建议观望，处于上升趋势。建议耐心等待信号明确后再操作。",
+  "optimized_action": "观望",
+  "original_action": "观望",
+  "position_advice": "空仓等待",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "cautious_tier": {
+  "action": "谨慎买入",
+  "score": 62,
+  "confidence": 60,
+  "module_scores": {
+   "趋势": 60,
+   "动量资金": 60,
+   "突破": 60,
+   "量价": 60,
+   "形态": 60
+  },
+  "buy_signals": [],
+  "sell_signals": [],
+  "risk_warnings": [],
+  "risk_codes": [],
+  "trend": {
+   "direction": "上升",
+   "strength": 70,
+   "signals": []
+  },
+  "volume_price": {
+   "signals": [],
+   "pattern": ""
+  },
+  "momentum": {
+   "m_score": 60
+  },
+  "trade_plan": {
+   "entry_price": 10.0,
+   "stop_loss": 9.0,
+   "target_price": 12.0,
+   "risk_reward_ratio": 2.0,
+   "target_source": "structured",
+   "position_size": "正常仓位",
+   "action": "谨慎买入"
+  },
+  "risk_level": "中",
+  "signal_strength": "中",
+  "plain_summary": "出现买入信号，处于强势上升趋势。建议正常仓位入场，买入价10.00，止损9.00，目标12.00（盈亏比2.0）。",
+  "optimized_action": "谨慎买入",
+  "original_action": "买入",
+  "position_advice": "正常仓位",
+  "risk_notes": [
+   "盈亏比2.0，风险收益比良好"
+  ],
+  "risk_reward": 2.0
+ },
+ "_param_independence": {
+  "a": {
+   "action": "买入",
+   "score": 70,
+   "confidence": 60,
+   "module_scores": {
+    "趋势": 60,
+    "动量资金": 60,
+    "突破": 60,
+    "量价": 60,
+    "形态": 60
+   },
+   "buy_signals": [],
+   "sell_signals": [],
+   "risk_warnings": [],
+   "risk_codes": [],
+   "trend": {
+    "direction": "上升",
+    "strength": 70,
+    "signals": []
+   },
+   "volume_price": {
+    "signals": [],
+    "pattern": ""
+   },
+   "momentum": {
+    "m_score": 60
+   },
+   "trade_plan": {
+    "entry_price": 10.0,
+    "stop_loss": 9.0,
+    "target_price": 12.0,
+    "risk_reward_ratio": 2.0,
+    "target_source": "structured",
+    "position_size": "正常仓位",
+    "action": "买入"
+   },
+   "risk_level": "中",
+   "signal_strength": "中",
+   "plain_summary": "原摘要",
+   "optimized_action": "买入",
+   "original_action": "买入",
+   "position_advice": "正常仓位",
+   "risk_notes": [
+    "盈亏比2.0，风险收益比良好"
+   ],
+   "risk_reward": 2.0
+  },
+  "b": {
+   "action": "买入",
+   "score": 70,
+   "confidence": 60,
+   "module_scores": {
+    "趋势": 60,
+    "动量资金": 60,
+    "突破": 60,
+    "量价": 60,
+    "形态": 60
+   },
+   "buy_signals": [],
+   "sell_signals": [],
+   "risk_warnings": [],
+   "risk_codes": [],
+   "trend": {
+    "direction": "上升",
+    "strength": 70,
+    "signals": []
+   },
+   "volume_price": {
+    "signals": [],
+    "pattern": ""
+   },
+   "momentum": {
+    "m_score": 60
+   },
+   "trade_plan": {
+    "entry_price": 10.0,
+    "stop_loss": 9.0,
+    "target_price": 12.0,
+    "risk_reward_ratio": 2.0,
+    "target_source": "structured",
+    "position_size": "正常仓位",
+    "action": "买入"
+   },
+   "risk_level": "中",
+   "signal_strength": "中",
+   "plain_summary": "原摘要",
+   "optimized_action": "买入",
+   "original_action": "买入",
+   "position_advice": "正常仓位",
+   "risk_notes": [
+    "盈亏比2.0，风险收益比良好"
+   ],
+   "risk_reward": 2.0
+  }
+ }
+}

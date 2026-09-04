@@ -125,6 +125,10 @@ def _advise_pool_remove(snapshot_id: str, results_root: str, pool_items: list) -
         rows = load_result_rows(snapshot_id, results_root)
     except FileNotFoundError as exc:
         return [], [], "出池建议无法装载结果: %s" % exc
+    # I10（Q1 拍板）：逐股滚动口径同 SCREEN_GATE 切换为**最终动作买入侧**；
+    # 存量结果（无 final_action 列）退回原始口径。
+    if any(r.get("final_action") for r in rows):
+        rows = [r for r in rows if r.get("final_action") in config.SIGNAL_BUY_TIERS]
     by_symbol = {}
     for r in rows:
         by_symbol.setdefault(str(r.get("symbol") or ""), []).append(r)
