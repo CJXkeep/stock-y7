@@ -3,7 +3,8 @@
 
 覆盖：
   - 高质量突破（放量 + 均线多头 + 新鲜 + 顺势跟随）→ 置信度「高」且达到展示门槛；
-  - 假突破（冲高回落 + 缩量 + 逆势）→ 置信度「低」，不达展示门槛；
+  - 假突破（冲高回落收盘未守稳通道）→ **不构成入场**（无信号 / 无买点），
+    且直调置信度评估时封顶于展示门槛之下；
   - 过期信号（突破后早已收盘触及 2N 止损）→ 出局校验因子命中且被压到展示门槛以下；
   - BreakoutResult 新字段（direction/entry_date/holding_days/confidence*）与序列化输出；
   - 置信度只做展示维度，不改变既有突破评分口径。
@@ -81,37 +82,93 @@ def test_strong_breakout_high_confidence():
     assert any("放量" in f for f in r.confidence_factors), r.confidence_factors
 
 
-def test_fake_breakout_low_confidence_hidden():
-    """冲高回落 + 缩量的假突破 → 低置信度，不达展示门槛。"""
+def test_fake_breakout_is_not_an_entry():
+    """冲高回落假突破（盘中破通道但收盘回落）不构成入场 → 无信号。
+
+    买点口径（2026-09-04 拍板）：突破必须**收盘确认**（收盘站在通道之外）；
+    盘中冲高/杀跌、收盘回落到通道内的「假突破」不是买点，不显示入场。
+    """
     kl = _base_with_consolidation()
     entry_ref = max(x.high for x in kl[-20:])
-    # 盘中冲高破通道，收盘回落到通道内，且缩量
-    kl.append(_k(len(kl), entry_ref - 0.5, high=entry_ref + 0.3, low=entry_ref - 0.6,
+    # 盘中冲高破上通道，收盘回落到通道内；低点不破下通道（避免构成空头入场）
+    kl.append(_k(len(kl), entry_ref - 0.5, high=entry_ref + 0.3, low=entry_ref - 0.2,
                  volume=300.0))
     r = _analyze_system(kl, 20, "系统一(20日)")
-    assert r.direction == "多"
-    assert r.confidence < CONFIDENCE_DISPLAY_MIN, (r.confidence, r.confidence_factors)
-    assert r.confidence_level == "低"
-    assert any("假突破" in f for f in r.confidence_factors), r.confidence_factors
-    assert any("缩量" in f for f in r.confidence_factors), r.confidence_factors
+    assert r.signal == "无信号", r.signal
+    assert r.direction == "", r.direction
+    assert r.entry_price is None
+    assert r.confidence == 0 and r.confidence_level == "低", (r.confidence, r.confidence_level)
 
 
-def test_fake_breakout_with_strong_volume_and_ma_is_hidden():
-    """回归：冲高回落假突破即使放量 + 均线多头，置信度也不得被救回展示门槛之上。
+def test_fake_breakout_confidence_is_capped_below_display_gate():
+    """回归：假突破即使放量 + 均线多头，置信度也不得被救回展示门槛之上。
 
     旧逻辑只扣 -15，会被 放量(+14)+均线(+12)+新鲜(+8) 救到 69，仍然显示为买点；
-    现在是"冲高回落未守稳通道"即视为假突破，置信度封顶在展示门槛之下。
+    现在"冲高回落未守稳通道"即视为假突破，置信度封顶在展示门槛之下。
+    （入口已按收盘确认过滤，此处直调 evaluate_confidence 守护封顶分支。）
     """
     kl = _base_with_consolidation()
     entry_ref = max(x.high for x in kl[-20:])
     # 盘中冲高破通道，但收盘回落到通道内；放量 + 均线多头（命中旧逻辑的加分项）
     kl.append(_k(len(kl), entry_ref - 0.4, high=entry_ref + 0.4, low=entry_ref - 0.6,
                  volume=3500.0))
+    entry_idx = len(kl) - 1
+    conf, factors = evaluate_confidence(kl, entry_idx, "多", entry_ref, 0.2, 20)
+    assert conf < CONFIDENCE_DISPLAY_MIN, (conf, factors)
+    assert any("未守稳通道" in f or "封顶" in f for f in factors), factors
+
+
+def test_fake_poke_does_not_replace_prior_confirmed_entry():
+    """回归（000931 2026-08-27 场景）：连续新高行情中，最后一根冲高回落
+    假突破不得顶替之前收盘确认的买点——入场仍为最近一次收盘确认的那根K线。
+    """
+    kl = _base_with_consolidation()
+    entry_ref = max(x.high for x in kl[-20:])   # 追加新K线前先定格通道参考值
+    # 放量长阳收盘确认突破（真实买点）
+    kl.append(_k(len(kl), entry_ref + 0.75, high=entry_ref + 0.85, low=entry_ref - 0.05,
+                 volume=3000.0))
+    confirmed_idx = len(kl) - 1
+    # 之后连续两日盘中再创新高，但收盘回落到通道内（假突破，不得顶替买点）
+    kl.append(_k(len(kl), entry_ref + 0.10, high=entry_ref + 0.90, low=entry_ref - 0.30,
+                 volume=1500.0))
+    kl.append(_k(len(kl), entry_ref + 0.05, high=entry_ref + 0.95, low=entry_ref - 0.40,
+                 volume=1200.0))
+
     r = _analyze_system(kl, 20, "系统一(20日)")
-    assert r.direction == "多"
-    assert r.confidence < CONFIDENCE_DISPLAY_MIN, (r.confidence, r.confidence_factors)
-    assert r.confidence_level == "低", r.confidence_level
-    assert any("未守稳通道" in f or "封顶" in f for f in r.confidence_factors), r.confidence_factors
+    assert r.direction == "多", r.direction
+    assert r.entry_date == kl[confirmed_idx].date, (r.entry_date, kl[confirmed_idx].date)
+    assert abs(r.entry_price - entry_ref) < 0.005, (r.entry_price, entry_ref)
+
+
+def test_stopped_out_check_uses_signal_stop_with_pyramid():
+    """出局校验与信号止损同源（含 0.5N 加仓上移）：仅跌破 entry-2N 的简单
+    止损会被漏判——000931 案例 entry 08-24@5.09 加仓后止损 4.93 于 09-01
+    收盘触及出局，而 entry-2N=4.44 从未触及，旧口径会漏判"仓位已出局"。"""
+    kl = _base_with_consolidation()
+    entry_ref = max(x.high for x in kl[-20:])
+    n_val = 0.2
+    # 放量长阳收盘确认突破
+    kl.append(_k(len(kl), entry_ref + 0.75, high=entry_ref + 0.85, low=entry_ref - 0.05,
+                 volume=3000.0))
+    entry_idx = len(kl) - 1
+    # 加仓冲高（high_since 超 entry+1N → units=3，last_add=entry+1N）
+    kl.append(_k(len(kl), entry_ref + 0.90, high=entry_ref + 1.00, low=entry_ref + 0.50,
+                 volume=2000.0))
+    # 阴跌：收盘破加仓后止损（entry-0.2）但始终高于简单 2N 止损（entry-0.4）
+    for j in range(13):
+        c = entry_ref + 0.70 - j * 0.08
+        kl.append(_k(len(kl), c, high=c + 0.05, low=c - 0.08, volume=1200.0))
+    assert kl[-1].close > entry_ref - 2 * n_val, "用例需保证简单 2N 止损未触及"
+    assert kl[-1].close <= entry_ref - 0.2, "用例需保证加仓后止损已触及"
+
+    sig_stop = entry_ref - 0.2   # last_add(entry+1N) - 2N
+    assert _stop_breached_after_entry(kl, entry_idx, "多", entry_ref, n_val) == -1,         "简单 2N 止损不应判出局"
+    breach = _stop_breached_after_entry(kl, entry_idx, "多", entry_ref, n_val, stop=sig_stop)
+    assert breach > entry_idx, breach
+
+    conf, factors = evaluate_confidence(kl, entry_idx, "多", entry_ref, n_val, 20,
+                                        stop=sig_stop)
+    assert any("2N 止损" in f for f in factors), factors
 
 
 def test_stopped_out_entry_is_penalized():

@@ -58,13 +58,19 @@ def _kline(i: int, open_: float, close: float, high: float, low: float,
 
 
 def _breakout_sell_klines() -> list:
-    """构造能触发系统一多头 2N 止损（signal='卖出'）的合成 K 线。"""
+    """构造能触发系统一多头 2N 止损（signal='卖出'）的合成 K 线。
+
+    买点收盘确认口径（2026-09-04）后：入场锚定收盘确认的 12.0 长阳
+    （通道 10.0），随后 10 根阴线必须真实跌破「加仓后 2N 止损」
+    （约 9.8）才算止损离场——旧用例跌到 10.5 只会得出持仓。
+    末根收盘 9.6、低点 9.5 恰好不破下通道（9.5），避免转成空头入场。
+    """
     klines = []
     for i in range(20):
         klines.append(_kline(i + 1, 10.0, 10.0, 10.0, 9.5))
     klines.append(_kline(21, 11.0, 12.0, 12.0, 10.5))
     for j in range(10):
-        price = 12.0 - (j + 1) * 0.15
+        price = 12.0 - (j + 1) * 0.24
         klines.append(_kline(22 + j, price + 0.1, price, price + 0.2, price - 0.1))
     return klines
 

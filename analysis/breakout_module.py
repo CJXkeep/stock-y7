@@ -65,7 +65,15 @@ def calc_donchian_channel(klines: List[Kline], period: int) -> Tuple[float, floa
 
 
 def _find_last_entry(klines: List[Kline], period: int) -> Optional[Tuple[str, float, int]]:
-    """查找最近一次突破入场。返回 (方向, 入场价, 入场日索引)。"""
+    """查找最近一次**收盘确认**的突破入场。返回 (方向, 入场价, 入场日索引)。
+
+    买点口径（2026-09-04 拍板）：突破当日必须收盘守住通道——多头要求
+    收盘价 > 前 period 日最高价、空头要求收盘价 < 前 period 日最低价；
+    盘中冲高/杀跌但收盘回落到通道内的「假突破」不构成入场点（与
+    evaluate_confidence 的「收盘未守稳通道 = 假突破」判定同源），
+    避免把最后一根冲高回落 K 线误标成买点（000931 2026-08-27 案例：
+    盘中 5.96 破 5.74 通道但收盘 5.70 回落，不构成买点）。
+    """
     n = len(klines)
     for i in range(n - 1, period - 1, -1):
         window = klines[i - period:i]
@@ -74,9 +82,9 @@ def _find_last_entry(klines: List[Kline], period: int) -> Optional[Tuple[str, fl
         window_high = max(k.high for k in window)
         window_low = min(k.low for k in window)
         k = klines[i]
-        if k.high > window_high:
+        if k.high > window_high and k.close > window_high:
             return ("多", window_high, i)
-        if k.low < window_low:
+        if k.low < window_low and k.close < window_low:
             return ("空", window_low, i)
     return None
 
@@ -112,15 +120,19 @@ def _ma_at(klines: List[Kline], idx: int, period: int) -> float:
 
 
 def _stop_breached_after_entry(klines: List[Kline], entry_idx: int,
-                               direction: str, entry: float, n_val: float) -> int:
-    """入场之后是否曾收盘触及 2N 止损；返回首次触及的索引，未触及返回 -1。
+                               direction: str, entry: float, n_val: float,
+                               stop: float = None) -> int:
+    """入场之后是否曾收盘触及止损；返回首次触及的索引，未触及返回 -1。
 
     只读入场日之后的已收盘K线，无未来函数。用于识别"这笔仓位其实早就被止损
     出局"的过期入场点——这类点位不应再被当成当前可参考的买点。
+    stop 缺省时退回简单 2N 止损（entry ∓ 2N）；显式传入则用**实际仓位止损**
+    （含 0.5N 加仓后上移的 last_add ∓ 2N，与 _analyze_system 的卖出判定同源）。
     """
     if n_val <= 0 or entry <= 0:
         return -1
-    stop = entry - 2 * n_val if direction == "多" else entry + 2 * n_val
+    if stop is None or stop <= 0:
+        stop = entry - 2 * n_val if direction == "多" else entry + 2 * n_val
     for i in range(entry_idx + 1, len(klines)):
         k = klines[i]
         if direction == "多" and k.close <= stop:
@@ -131,7 +143,8 @@ def _stop_breached_after_entry(klines: List[Kline], entry_idx: int,
 
 
 def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
-                        entry: float, n_val: float, period: int) -> Tuple[int, List[str]]:
+                        entry: float, n_val: float, period: int,
+                        stop: float = None) -> Tuple[int, List[str]]:
     """突破买点置信度（0-100）与加减分明细。
 
     评估维度（全部只用突破日及之后的已收盘数据，无未来函数）：
@@ -140,7 +153,9 @@ def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
       3) 趋势配合：突破日相对 MA20 / MA60 的位置；
       4) 信号时效：距今多少根K线（相对通道周期），过期信号参考价值低；
       5) 突破后跟随：至今相对入场价走了多少个 N；
-      6) 出局校验：入场后是否已收盘触及 2N 止损（触及即判定为过期信号）；
+      6) 出局校验：入场后是否已收盘触及止损（与信号止损同源，含加仓上移；
+         触及即判定为过期信号——000931 2026-08-24 入场后 09-01 收盘跌破
+         加仓后止损 4.93 已出局，而简单 2N 止损 4.44 从未触及，旧口径会漏判）；
       7) 波动率：N/入场价过大时止损过宽、胜率下降。
     """
     factors: List[str] = []
@@ -248,8 +263,8 @@ def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
         score -= 16
         factors.append(f"入场后逆行 {abs(move):.1f}N，逼近/跌破止损 (-16)")
 
-    # 6) 出局校验：入场后曾收盘触及 2N 止损 → 这笔仓位早已出局
-    breach_idx = _stop_breached_after_entry(klines, entry_idx, direction, entry, n_val)
+    # 6) 出局校验：入场后曾收盘触及实际止损（与信号止损同源，含加仓上移）
+    breach_idx = _stop_breached_after_entry(klines, entry_idx, direction, entry, n_val, stop)
     if breach_idx >= 0:
         score -= 30
         factors.append(f"入场后 {klines[breach_idx].date} 已收盘触及 2N 止损，该仓位应已出局 (-30)")
@@ -337,7 +352,7 @@ def _analyze_system(klines: List[Kline], period: int, system_name: str) -> Break
             sig_text = f"持有空头{holding_days}日，止损{stop:.2f}"
 
     conf, conf_factors = evaluate_confidence(
-        klines, entry_idx, direction, entry, n_val, period)
+        klines, entry_idx, direction, entry, n_val, period, stop=stop)
 
     return BreakoutResult(
         system=system_name,

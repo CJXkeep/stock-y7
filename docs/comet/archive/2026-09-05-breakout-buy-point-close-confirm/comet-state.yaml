@@ -1,0 +1,453 @@
+schema: comet.native.v4
+name: breakout-buy-point-close-confirm
+language: zh-CN
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes:
+  - capability: breakout-buy-point
+    operation: create
+    source: specs/breakout-buy-point/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1（假突破不构成入场）：仅存在盘中突破、收盘回落到通道内的K线时，`_analyze_system`
+      返回「无信号」且不产生入场（direction
+      为空、confidence=0）；在收盘确认入场之后出现假突破K线时，入场仍为最近一次收盘确认的那根K线（`test_fake_breakout_is_not_an_entry`、`test_fake_poke_does_not_replace_prior_confirmed_entry`
+      守护）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2（000931 案例回归）：基于本地 qfq 日线（截至 2026-09-04）运行分析，系统一/系统二的买点均为 **2026-08-24 @
+      5.09**（而不是修复前的 08-27 @ 5.74），止损 4.93，信号=卖出、离场价 4.93。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3（出局校验与信号止损同源）：`evaluate_confidence` 传入实际仓位止损（加仓后 last_add ∓
+      2N）时，收盘跌破该止损即触发「已出局」因子；000931 的置信度落到展示门槛（60）之下且因子含「2026-09-01 已收盘触及 2N
+      止损」（`test_stopped_out_check_uses_signal_stop_with_pyramid` 守护）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4（行为兼容）：通道/N/止损计算、`_breakout_to_score` 评分口径、前端字段契约不变；止损卖出场景（跌破加仓后 2N
+      止损）仍输出卖出信号（`test_breakout_sell_enters_sell_signals` 守护）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5（全量回归）：`python run_all_tests.py` 67/67 文件通过、0
+      失败；`tests/test_breakout_confidence.py` 12/12、`tests/test_p0_fixes.py`
+      11/11。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A6
+    source: specs/breakout-buy-point/spec.md
+    text: 能力名：`breakout-buy-point`。归档后描述系统一（20 日唐奇安通道）与系统二（55
+      日唐奇安通道）的入场选择、仓位与止损、退出判定、置信度展示的完整行为。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A7
+    source: specs/breakout-buy-point/spec.md
+    text: 唐奇安通道：(最高高点, 最低低点)，**不含当日**（`calc_donchian_channel`，窗口为最近 period 根K线之前的一段）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A8
+    source: specs/breakout-buy-point/spec.md
+    text: N = 前 20 日 TR 的简单平均（`calc_n`），TR = max(H-L, |H-PDC|, |L-PDC|)。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A9
+    source: specs/breakout-buy-point/spec.md
+    text: 加仓间隔 = 0.5N；单市场仓位上限 4 单位。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A10
+    source: specs/breakout-buy-point/spec.md
+    text: 从最新K线向前扫描，最近一次满足以下条件的K线为「最近一次入场」：
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A11
+    source: specs/breakout-buy-point/spec.md
+    text: 多头：当日 high > 前 period 日最高价 **且** 当日 close > 前 period 日最高价；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A12
+    source: specs/breakout-buy-point/spec.md
+    text: 空头：当日 low < 前 period 日最低价 **且** 当日 close < 前 period 日最低价。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A13
+    source: specs/breakout-buy-point/spec.md
+    text: 入场价 = 突破时的通道上轨（多头）/ 下轨（空头）；入场日为该K线的日期。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A14
+    source: specs/breakout-buy-point/spec.md
+    text: "**盘中冲高/杀跌但收盘回落到通道内的「假突破」不构成入场**：若扫描不到任何收盘确认的突破，系统返回「无信号」（direction
+      为空、entry 缺省、confidence=0、置信度分档「低」）。"
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A15
+    source: specs/breakout-buy-point/spec.md
+    text: 在先有收盘确认入场、其后出现假突破K线时，入场**不**被假突破顶替，仍为最近一次收盘确认的那根K线。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A16
+    source: specs/breakout-buy-point/spec.md
+    text: 单位数：入场后最高价高出入场价每 0.5N 加 1 单位，上限 4 单位。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A17
+    source: specs/breakout-buy-point/spec.md
+    text: 止损：加仓后止损上移至最后加仓价 - 2N（last_add = entry + (units-1)×0.5N）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A18
+    source: specs/breakout-buy-point/spec.md
+    text: 退出：仅看最后一日；收盘 ≤ 止损 → signal=「卖出」、exit_price=止损；否则「持仓」。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A19
+    source: specs/breakout-buy-point/spec.md
+    text: 后续加仓价：units<4 且非系统二时给出 next_add = entry + units×0.5N。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A20
+    source: specs/breakout-buy-point/spec.md
+    text: 止损 = 入场价 + 2N；单位恒为 1。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A21
+    source: specs/breakout-buy-point/spec.md
+    text: 空头平仓：仅看最后一日，系统一用 10 日高点、系统二用 20 日高点；收盘突破该高点 → 「空头平仓」@高点上轨；否则收盘 ≥ 止损 →
+      「空头平仓」@止损；否则「持仓」。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A22
+    source: specs/breakout-buy-point/spec.md
+    text: 置信度 0-100，评估只用突破日及之后的已收盘K线（无未来函数）：
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A23
+    source: specs/breakout-buy-point/spec.md
+    text: 突破力度：突破日收盘越过通道的 N 数（ext<0 即「收盘回落到通道内」→ 假突破，扣 30 且置信度封顶于展示门槛之下）；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A24
+    source: specs/breakout-buy-point/spec.md
+    text: 量能确认：突破日量 / 前20日均量；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A25
+    source: specs/breakout-buy-point/spec.md
+    text: 趋势配合：突破日相对 MA20/MA60；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A26
+    source: specs/breakout-buy-point/spec.md
+    text: 信号时效：距今根数相对通道周期；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A27
+    source: specs/breakout-buy-point/spec.md
+    text: 突破后跟随：至今相对入场价的 N 数；
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A28
+    source: specs/breakout-buy-point/spec.md
+    text: "**出局校验：入场后是否曾收盘触及实际仓位止损**——与信号止损同源（缺省回退 entry ∓ 2N；`_analyze_system`
+      传入含加仓上移的 last_add ∓ 2N），触及即 -30 并标记「该仓位应已出局」；"
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A29
+    source: specs/breakout-buy-point/spec.md
+    text: 波动率：N/入场价。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A30
+    source: specs/breakout-buy-point/spec.md
+    text: 展示门槛 CONFIDENCE_DISPLAY_MIN=60（前端 `confidence_display_min` 同步）；分档：≥70 高 /
+      ≥60 中 / <60 低。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A31
+    source: specs/breakout-buy-point/spec.md
+    text: 低置信度（含假突破）→ 弱化「参考」标记，不作为有效买点；风险事件（卖出/空头平仓）不受门槛限制一律展示。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A32
+    source: specs/breakout-buy-point/spec.md
+    text: 系统一/系统二各输出一个
+      `BreakoutResult`：system/signal/breakout_price/current_n/stop_loss/entry_price/position_units/exit_price/channel_high/channel_low/next_add_price/signals/description
+      +
+      买点质量字段（direction/entry_date/holding_days/confidence/confidence_level/confidence_factors）。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+  - id: A33
+    source: specs/breakout-buy-point/spec.md
+    text: 五模块评分 `_breakout_to_score` 不变：有持仓/卖出类信号 60 起，空头平仓 +3；置信度不影响评分。
+    result: passed
+    reason:
+      text: 独立只读 Verifier 实测/源码核对通过（A21 附注：空头平仓分支一实现为盘中高点触发，既有行为，规格文字待下轮对齐）
+      truncated: false
+builder_handoff:
+  candidate_id: faa0c65a-e9f5-4b9c-abca-1faf8872b227
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:04675dc0-3f67-4ba0-8ef3-7b93f9060dc9
+  iteration: 1
+  summary:
+    text: 实现已完成并验证：1) _find_last_entry 增加收盘确认（多头 close>前period最高价、空头
+      close<前period最低价），假突破不构成入场、不顶替已确认买点；2)
+      _stop_breached_after_entry/evaluate_confidence
+      支持传入实际仓位止损（含加仓上移），_analyze_system 传入与卖出判定同源的止损；3)
+      回归测试更新：test_breakout_confidence 12/12（新增假突破不构成入场、000931
+      连续新高+冲高回落、加仓后止损出局校验三个用例）、test_p0_fixes 11/11（止损卖出样例按收盘确认口径构造）；4)
+      docs/版本路线图.md 补录口径；5) 000931 实数据验证：买点 08-24@5.09、止损 4.93、卖出@4.93、置信度 46/52
+      低于展示门槛且含「09-01 已收盘触及 2N 止损」因子。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+  checks:
+    - name:
+        text: tests/test_breakout_confidence.py
+        truncated: false
+      result: passed
+      note:
+        text: 12/12 通过
+        truncated: false
+    - name:
+        text: tests/test_p0_fixes.py
+        truncated: false
+      result: passed
+      note:
+        text: 11/11 通过
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 67/67 文件、0 失败（修复收尾后重跑确认）
+        truncated: false
+    - name:
+        text: 000931 /api/analyze 同口径实数据核对
+        truncated: false
+      result: passed
+      note:
+        text: 买点 08-24@5.09、止损 4.93、卖出@4.93、置信度 46(系统一)/52(系统二) 低于门槛，因子含 09-01 触及 2N 止损
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 置信度/持仓状态仍基于当前K线全量反推，非可审计交易账本（既有审计限制，Non-goals 已声明）；前端契约未改动。
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-09-05T00:45:56.973Z
+blockers: []
+verification:
+  candidate_id: faa0c65a-e9f5-4b9c-abca-1faf8872b227
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:5c5ec621-58cb-43fb-b0be-ba71bbc696f9
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: breakout-confidence
+      name:
+        text: python tests/test_breakout_confidence.py
+        truncated: false
+      argv_display:
+        - text: tests/test_breakout_confidence.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 455
+    - id: p0-fixes
+      name:
+        text: python tests/test_p0_fixes.py
+        truncated: false
+      argv_display:
+        - text: tests/test_p0_fixes.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 285
+    - id: full-regression
+      name:
+        text: python run_all_tests.py
+        truncated: false
+      argv_display:
+        - text: run_all_tests.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 29751
+  summary:
+    text: PASS：收盘确认买点口径落地且与置信度「假突破」判定同源；出局校验与信号止损同源（含加仓上移）；000931
+      实数据全链路复现（08-24@5.09、止损/离场 4.93、09-01 出局因子、置信度
+      46/52<60）；行为兼容面（通道/N/评分/前端契约）经 git diff + 测试守护确认未变；全量回归 67/67。
+    truncated: false
+  risks:
+    - text: A21 规格/实现文字出入：空头平仓分支一规格写「收盘突破该高点」，实现为 last.high >=
+        high_exit_level（盘中高点）——既有行为，本 change 未触碰，建议下轮文档对齐。
+      truncated: false
+    - text: 000931 实数据断言未注册为 Runtime 可重复检查（当前 3 项检查已全过）；已给出断言命令可后续补充。
+      truncated: false
+    - text: 置信度实际钳制 [5,95] 与规格「0-100」表述差异（低优先，既有行为）。
+      truncated: false
+    - text: 诊断材料 signals.jsonl 中 000931 计 232 行（口径差异，非验收项）。
+      truncated: false
+    - text: 工作区含无关未提交内容（signal_engine.py ATR
+        WIP、test_atr_floor_fixes.py、workspace_tmp/、data/snapshots/），符合
+        Non-goals，归档提交清单由 owner 决策。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-09-05T00:59:01.067Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: PASS：收盘确认买点口径落地且与置信度「假突破」判定同源；出局校验与信号止损同源（含加仓上移）；000931
+        实数据全链路复现（08-24@5.09、止损/离场 4.93、09-01 出局因子、置信度
+        46/52<60）；行为兼容面（通道/N/评分/前端契约）经 git diff + 测试守护确认未变；全量回归 67/67。
+      truncated: false
+    completed_at: 2026-09-05T00:59:01.067Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-09-05T00:26:53.099Z
