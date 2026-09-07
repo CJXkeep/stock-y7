@@ -25,11 +25,13 @@
 
 ```bash
 python -m backtest snapshot                 # 抓取核心池+指数日线 → data/snapshots/<id>/
-python -m backtest replay <snapshot_id>     # 无前视重放生成 signals.jsonl（--workers N 可并行）
+python -m backtest replay <snapshot_id>     # 无前视重放生成 signals.jsonl + daily_actions.jsonl（--workers N 可并行）
 python -m backtest stats <snapshot_id>      # 统计报告（--simulate --capital 100000 可选模拟）
 ```
 
 - 重放为滚动最近 250 根（指数 60 根）的**原始 run_analysis 输出**，无 app 后处理；
+- I12 起 replay 同时落**日度台账** `daily_actions.jsonl`（每交易日一行 raw/final action，
+  无前视；随缓存 policy_hash 失效重算），供卖出规则对照使用；
 - 统计每个买入信号的 5/10/20/60 交易日胜率/平均收益，支持按动作/年份/股票拆分；
 - 去重窗口、预热期排除、资金假设等口径均写入 `report.md` 报告头；
 - 统计是信号与市场环境的复合结果，非因果；**自用参考，非投资建议**。
@@ -240,6 +242,56 @@ python -m backtest screen [--candidates data/candidates.json] [--workers 8]
 ### 5. 任务状态统一（I9.0）
 
 scan/digest/notify/screen 四套后台任务状态统一经 `server/task_store.py` 读写 `data/tasks/<kind>.json`（旧路径迁移读、保留不删）；`/api/tasks` 只读聚合。
+
+## I12 卖出侧证据闭环（信号驱动卖出与持仓复评，2026-09-05）
+
+动机与代码事实：信号引擎三档（强烈买入/买入/观望）+ 后处理只降不升 → 信号侧永不产出卖出 action，
+持仓退出此前完全依赖价格防线且**从未被回测评估**。I12 打通「测量 → 披露 →（待证据）采纳」链路。
+设计稿与运行记录：`docs/迭代_i12_卖出闭环/卖出侧证据闭环设计.md`。
+
+### 1. 卖出规则对照报告（评估侧，纯披露）
+
+```bash
+python -m backtest replay <snapshot_id>          # 生成日度台账（旧快照一次性重算属预期）
+python -m backtest stats <snapshot_id> --simulate # report.md 末尾新增「卖出规则对照」小节
+```
+
+- 五变体并列：baseline（现行止损/止盈+视界兜底）/ strict_final（最终动作跌出买入档→次日开盘卖）/
+  strict_raw（原始分判，隔离环境门）/ confirm2（连续 2 日确认）/ time_stop（持有 N 日未达 +1R）；
+- 同日优先级预承诺：止损>止盈>信号卖出>时间止损；stop/target/视界兜底对全部变体生效（提前离场，不是替代）；
+- 明细落 `results/<id>/sell_eval.csv`，`results.csv` 增 `sim_exit_rule` 列；
+- 台账缺失（存量快照）→ 报告披露「需重放」，不阻塞既有统计。
+
+### 2. 账户层信号卖出（模拟账户，默认关）
+
+- `SIM_SIGNAL_EXIT_MODE`：`off`（默认，零影响）| `strict_final` | `confirm2`；仅 close_nextday 生效；
+- 收盘定档对持仓做**全保真复评**（始终带资金流，不做两阶段初筛），判定卖出复用 sell_queue 次日执行链；
+- confirm2 连续计数存 `data/sim/state.json` `strategy_state.signal_exit_streak`（断档自动重置）；
+- 时间止损 `SIM_TIME_STOP_DAYS`（0=off）+ `SIM_TIME_STOP_MIN_R`：exit_check 第五规则，回测与账户同参；
+- 拍板留痕 `data/decisions/log.jsonl`（I12-Q1…Q4）；`/api/sim` 返回 `signal_exit` 披露键。
+
+### 3. 敏感性网格仪器（预承诺披露，非拟合器）
+
+```bash
+python tools/sell_exit_grid.py <snapshot_id> --out docs/迭代_i12_卖出闭环/<名称>.md
+```
+
+- 网格锁定于 `tools/sell_exit_grid.py#GRID`（先锁后跑，改网格=新一轮预承诺须留痕）；
+- 覆盖：账户四规则日线近似（peak_drawdown/ma20_break/volume_spike/limit_open）+ 信号卖出变体 + 组合；
+- 双口径输出：全样本 + 可执行子集（信号日最终动作=买入档，即账户真会持仓的口径）；
+- **纪律**：结果只披露不采纳；参数变更须走矫正器 param_change（两档各 ≥50 笔样本门槛）+ 多期预注册方向一致。
+
+### 4. 证据积累例行（池恢复后逐期执行）
+
+```bash
+python -m backtest snapshot                                  # ① 每交易日收盘后（或随滚动评估）
+python -m backtest replay <snapshot_id> --workers 8          # ②
+python -m backtest stats <snapshot_id> --simulate            # ③ 读「卖出规则对照」小节
+python tools/sell_exit_grid.py <snapshot_id> --out <存档.md>  # ④ 同网格逐期重跑，跨期对照
+```
+
+- 预注册预测制：上期方向一致的候选写入设计稿预测，下期裁决（再现→进采纳讨论；消失→撤回观察）；
+- 滚动评估（每交易日 15:45 自检）自动跑 ①–③ 的月度版，幂等键=月份。
 
 ```bash
 python run_all_tests.py            # 全量回归
