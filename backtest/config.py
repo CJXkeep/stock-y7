@@ -91,6 +91,22 @@ SIM_QUEUE_MODE = "off"          # off | volume；volume = 当日量 > 倍数×�
 SIM_QUEUE_VOL_BOOST = 1.5       # 队列充足判定倍数（当日累计量 / 前 N 日均量）
 SIM_QUEUE_VOL_PERIOD = 5        # 均量基准窗口（日，不含当日）
 
+# ---- I12 卖出侧证据闭环（2026-09，docs/迭代_i12_卖出闭环/卖出侧证据闭环设计.md；预承诺，默认全关零影响） ----
+# 卖出规则对照报告（replay/stats 侧；五变体并列纯披露，不设门——拍板 Q3）
+SELL_EVAL_VARIANTS = ("baseline", "strict_final", "strict_raw", "confirm2", "time_stop")
+SELL_EVAL_CONFIRM_DAYS = 2      # confirm2 变体：连续 N 个台账日出买入档才触发
+# 账户层信号卖出（QushiV5Adapter.signal_exit_verdict；close screen 持仓复评；默认 off 零影响——拍板 Q1）
+# off | strict_final（最终动作跌出 SIGNAL_BUY_TIERS 即卖）| confirm2（连续 SELL_EVAL_CONFIRM_DAYS 日）
+# 仅 close_nextday 生效（收盘确认纪律）；strict_raw 仅存在于报告侧（账户层始终应用完整后处理，
+# 配置 strict_raw 按设计稿 §4.3 视为 strict_final 口径，不做无资金流的原始分判定）
+SIM_SIGNAL_EXIT_MODE = "off"
+# 时间止损（078 参考；exit_check 第五规则，回测与账户共享同组参数；默认 0=off——拍板 Q2）
+SIM_TIME_STOP_DAYS = 0          # 最短持有交易日（按完成交易日计，0=off）
+SIM_TIME_STOP_MIN_R = 1.0       # R=(现价−entry)/(entry−stop) < 该值 → 卖（严格小于）
+
+# ---- I13 扫描历史归档（2026-09，docs/迭代_i13_扫描归档重构/；预承诺，改动须留痕） ----
+SCAN_HISTORY_MAX = 60           # data/scan/history.jsonl 按轮归档上限（超限删最旧）
+
 # ---- 历史信号统计（I7.4） ----
 SNAPSHOT_DIR = os.path.join(ROOT, "data", "snapshots")
 RESULTS_DIR = os.path.join(ROOT, "data", "results")

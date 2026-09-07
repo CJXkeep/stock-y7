@@ -28,7 +28,7 @@ import statistics
 from backtest import calendar as cal
 from backtest import config
 from backtest.dedupe import mark_window
-from backtest.replay import load_signals
+from backtest.replay import load_signals, load_daily_actions
 from backtest.snapshot import load_snapshot, snapshot_dir, verify_snapshot
 
 _log = logging.getLogger("backtest.stats")
@@ -37,6 +37,8 @@ HORIZONS = config.HORIZONS
 BENCH_KEY = "_idx_" + config.BENCHMARK_SYMBOL
 # 档位强度从高到低；单调性比较相邻档判据均值（强档 − 弱档 ≥ 0 视为不降）
 TIER_ORDER = ("强烈买入", "买入", "谨慎买入")
+# I12 卖出变体：台账触发口径的买入档集合（与 SIGNAL_BUY_TIERS 同源）
+_BUY_TIERS_SET = frozenset(config.SIGNAL_BUY_TIERS)
 
 
 # ---------------------------------------------------------------- forward returns
@@ -237,14 +239,59 @@ def _fees(buy_amount: float, sell_amount: float) -> float:
     return round(buy_comm + sell_comm + stamp, 2)
 
 
+def _sell_execute(bars: list, trigger_idx: int, exec_raw: float, limit_down) -> tuple:
+    """卖出执行（跌停顺延共用，I12 自 stop/target 分离复用）：返回 (exit_idx, exec_raw, forced)。
+
+    触发日收盘跌停 → 顺延至下一非跌停日开盘；连续 EXIT_POSTPONE_LIMIT 日
+    跌停（或数据尾）→ 末日收盘强平 forced=true。
+    """
+    total = len(bars)
+    idx = trigger_idx
+    k = 0
+    while idx < total and k <= config.EXIT_POSTPONE_LIMIT:
+        prev_close = bars[idx - 1][4]
+        if bars[idx][4] > limit_down(prev_close):
+            exit_idx = idx
+            if k > 0:
+                exec_raw = float(bars[idx][1])   # 顺延日按开盘成交
+            return exit_idx, exec_raw, False
+        k += 1
+        idx += 1
+    exit_idx = min(trigger_idx + config.EXIT_POSTPONE_LIMIT, total - 1)
+    return exit_idx, float(bars[exit_idx][4]), True
+
+
 def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
-                    capital: float = None) -> dict:
+                    capital: float = None, daily: dict = None,
+                    exit_mode: str = None, time_stop_days: int = 0,
+                    time_stop_min_r: float = 1.0, confirm_days: int = None,
+                    account_exits: dict = None) -> dict:
     """单信号独立模拟（I8.1 口径：滑点 + 涨跌停顺延 + truncated 区分）。
 
     bars 为该股完整快照序列；signal 含 t/stop/target。
     出场为盘中触价即时成交（保守口径，v5.1 已采纳为正式口径）；
     触发当日收盘跌停则顺延至下一非跌停日开盘卖出，
     连续 EXIT_POSTPONE_LIMIT 日跌停 → 第 N 日收盘强平 forced=true。
+
+    I12 卖出变体（docs/迭代_i12_卖出闭环/；默认全关=baseline 行为逐字不变）：
+    - ``daily``：该股日度台账 {date: row}（replay daily_actions.jsonl）；
+    - ``exit_mode``：
+      * strict_final / strict_raw —— 台账日 S 的 final/raw action 跌出 SIGNAL_BUY_TIERS
+        → 次日（S+1）开盘卖出（跌停顺延沿用）；触发日后无 bar 则不虚构出场（走视界兜底）；
+      * confirm2 —— final 口径连续 confirm_days（缺省 SELL_EVAL_CONFIRM_DAYS）个台账日
+        出买入档才触发；
+      * time_stop —— 持有 ≥ time_stop_days 个完成交易日且 R=(close−entry)/(entry−stop)
+        < time_stop_min_r（严格小于）→ 触发日收盘卖出；time_stop_days≤0 视为关闭；
+    - ``account_exits``（I12.1 扩展）：模拟账户四条动态退出规则的**日线近似**回测口径，
+      与 QushiV5Adapter.exit_check 同名同序（盘中现价 → 日线收盘近似，报告披露该差异）：
+      * ``{"limit_open": True}`` —— 昨收涨停（≥前收×阈值×0.995）且今日收盘未封住；
+      * ``{"ma20_break": True}`` —— 收盘 < 前 20 根完整日 K 收盘均线；
+      * ``{"peak_drawdown": 3.0}`` —— 买入以来最高 high 回撤 > 阈值%（收盘计）；
+      * ``{"volume_spike": 3.0, "vol_period": 10}`` —— 当日量 > 倍数×前 N 日均量且未涨停；
+      触发按**当日收盘**卖出（跌停顺延沿用）；None/空 dict = 全关（baseline）；
+    - 同日优先级（预承诺）：止损 > 止盈 > 账户四规则 > 信号卖出 > 时间止损——
+      盘中已触发的价格规则优先于收盘才知晓的规则；与账户巡检顺序一致；
+    - stop/target/视界兜底对全部变体不变（卖出变体是「提前离场」，不是替代）。
     """
     capital = capital if capital is not None else config.CAPITAL_DEFAULT
     from analysis.volume_price_module import _limit_up_threshold
@@ -291,39 +338,94 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
     shares = lots * config.LOT_SIZE
     buy_amount = entry_price * shares
 
+    # I12 卖出变体开关（默认 baseline：下列开关全 False，行为与 I8.1 逐字一致）
+    use_signal = (exit_mode in ("strict_final", "strict_raw", "confirm2")
+                  and isinstance(daily, dict) and bool(daily))
+    confirm_need = max(1, int(confirm_days or getattr(config, "SELL_EVAL_CONFIRM_DAYS", 2)))
+    streak = 0
+    use_time_stop = (exit_mode == "time_stop"
+                     and int(time_stop_days or 0) > 0
+                     and (entry_raw_base - stop) > 0)
+    # I12.1 账户四规则（日线近似）：与 QushiV5Adapter.exit_check 同名同序
+    ax = account_exits if isinstance(account_exits, dict) else None
+    ax_limit_open = bool(ax and ax.get("limit_open"))
+    ax_ma20 = bool(ax and ax.get("ma20_break"))
+    ax_peak_dd = float(ax.get("peak_drawdown") or 0) if ax else 0.0
+    ax_vol_ratio = float(ax.get("volume_spike") or 0) if ax else 0.0
+    ax_vol_period = int((ax or {}).get("vol_period")
+                        or getattr(config, "SIM_EXIT_VOL_PERIOD", 10))
+
     # 逐 bar 扫描触发（盘中触价；同日双触保守记止损）
+    # I12：扫描自入场日（entry_idx）起——入场日收盘的台账信号可于次日开盘执行（T+1 合规）；
+    # baseline（无变体）时循环体与 I8.1 完全一致（i=entry_idx 无任何检查）。
     trigger_idx = None
     trigger_kind = None
     end = min(total, entry_idx + 1 + config.SIM_HORIZON)
-    for i in range(entry_idx + 1, end):
-        _, _o, h, l, c, *_ = bars[i][:6]
-        if l <= stop:                       # 同日双触保守记止损
-            trigger_idx, trigger_kind = i, "stop"
-            break
-        if h >= target:
-            trigger_idx, trigger_kind = i, "target"
-            break
+    for i in range(entry_idx, end):
+        if i > entry_idx:
+            _, _o, h, l, c, *_ = bars[i][:6]
+            if l <= stop:                       # 同日双触保守记止损
+                trigger_idx, trigger_kind = i, "stop"
+                break
+            if h >= target:
+                trigger_idx, trigger_kind = i, "target"
+                break
+            # I12.1 账户四规则（收盘近似，与账户巡检同序：开板→MA20→回撤→放量）
+            if ax_limit_open and i >= entry_idx + 2:
+                if (bars[i - 1][4] >= limit_up(bars[i - 2][4])
+                        and c < limit_up(bars[i - 1][4])):
+                    trigger_idx, trigger_kind = i, "limit_open"
+                    break
+            if ax_ma20 and i >= 20:
+                ma20 = sum(float(b[4]) for b in bars[i - 20:i]) / 20.0
+                if ma20 > 0 and c < ma20:
+                    trigger_idx, trigger_kind = i, "ma20_break"
+                    break
+            if ax_peak_dd > 0:
+                peak = max(float(b[2]) for b in bars[entry_idx:i + 1])
+                if peak > 0 and (peak - c) / peak * 100.0 > ax_peak_dd:
+                    trigger_idx, trigger_kind = i, "peak_drawdown"
+                    break
+            if ax_vol_ratio > 0 and i >= ax_vol_period:
+                avg_v = sum(float(b[5]) for b in bars[i - ax_vol_period:i]) / ax_vol_period
+                if avg_v > 0 and float(bars[i][5]) > ax_vol_ratio * avg_v \
+                        and c < limit_up(bars[i - 1][4]):
+                    trigger_idx, trigger_kind = i, "volume_spike"
+                    break
+        if use_signal:
+            row = daily.get(str(bars[i][0]))
+            out = False
+            if row:
+                act = str(row.get("raw_action", "")) if exit_mode == "strict_raw" \
+                    else str(row.get("final_action", ""))
+                out = act not in _BUY_TIERS_SET
+            if exit_mode == "confirm2":
+                streak = streak + 1 if out else 0
+                out = streak >= confirm_need
+            if out and i + 1 < total:
+                trigger_idx, trigger_kind = i, exit_mode
+                break
+        if use_time_stop and (i - entry_idx) >= int(time_stop_days):
+            r_mult = (float(bars[i][4]) - entry_raw_base) / (entry_raw_base - stop)
+            if r_mult < float(time_stop_min_r):
+                trigger_idx, trigger_kind = i, "time_stop"
+                break
 
     forced = False
     if trigger_idx is not None:
-        # 触发价成交前先看出场可行性：当日收盘跌停 → 顺延至下一非跌停日开盘；
-        # 连续 EXIT_POSTPONE_LIMIT 日跌停（或数据尾）→ 收盘强平 forced=true
-        exec_raw = stop if trigger_kind == "stop" else target
-        idx = trigger_idx
-        k = 0
-        while idx < total and k <= config.EXIT_POSTPONE_LIMIT:
-            prev_close = bars[idx - 1][4]
-            if bars[idx][4] > limit_down(prev_close):
-                exit_date_idx = idx
-                if k > 0:
-                    exec_raw = float(bars[idx][1])   # 顺延日按开盘成交
-                break
-            k += 1
-            idx += 1
+        if trigger_kind in ("strict_final", "strict_raw", "confirm2"):
+            exec_raw = float(bars[trigger_idx + 1][1])   # 信号：触发次日开盘
+            idx0 = trigger_idx + 1
+        elif trigger_kind in ("limit_open", "ma20_break", "peak_drawdown",
+                              "volume_spike", "time_stop"):
+            exec_raw = float(bars[trigger_idx][4])       # 收盘规则：触发日收盘
+            idx0 = trigger_idx
         else:
-            exit_date_idx = min(trigger_idx + config.EXIT_POSTPONE_LIMIT, total - 1)
-            exec_raw = float(bars[exit_date_idx][4])
-            forced = True
+            exec_raw = stop if trigger_kind == "stop" else target
+            idx0 = trigger_idx
+        # 出场可行性：当日收盘跌停 → 顺延至下一非跌停日开盘；
+        # 连续 EXIT_POSTPONE_LIMIT 日跌停（或数据尾）→ 收盘强平 forced=true
+        exit_date_idx, exec_raw, forced = _sell_execute(bars, idx0, exec_raw, limit_down)
         exit_price = _slip(exec_raw, "sell")
         outcome = trigger_kind
     else:
@@ -369,7 +471,38 @@ def summarize_simulation(sim_rows: list) -> dict:
         "insufficient_capital": sum(1 for r in sim_rows if r.get("outcome") == "insufficient_capital"),
         "unfilled": sum(1 for r in sim_rows if r.get("outcome") == "unfilled"),
         "forced": sum(1 for r in sim_rows if r.get("forced")),
+        "insufficient_sample": len(trades) < config.SAMPLE_MIN,
     }
+
+
+def _outcome_dist(sim_rows: list) -> dict:
+    """出场原因分布（I12 对照披露用；outcome 即规则名，空缺不虚增）。"""
+    dist = {}
+    for r in sim_rows:
+        key = str(r.get("outcome") or "unknown")
+        dist[key] = dist.get(key, 0) + 1
+    return dict(sorted(dist.items()))
+
+
+def _sell_variant_kwargs() -> dict:
+    """I12 卖出变体 → simulate_signal 关键字（调用时读预承诺参数，便于测试注入）。"""
+    return {
+        "strict_final": {"exit_mode": "strict_final"},
+        "strict_raw": {"exit_mode": "strict_raw"},
+        "confirm2": {"exit_mode": "confirm2"},
+        "time_stop": {"exit_mode": "time_stop",
+                      "time_stop_days": int(config.SIM_TIME_STOP_DAYS or 0),
+                      "time_stop_min_r": float(config.SIM_TIME_STOP_MIN_R)},
+    }
+
+#: outcome → results.csv sim_exit_rule 列（价格规则/视界兜底归并展示）
+_EXIT_RULE_OF = {"stop": "stop", "target": "target", "timeout": "horizon",
+                 "truncated": "horizon", "unfilled": "unfilled",
+                 "insufficient_capital": "insufficient_capital"}
+
+
+def exit_rule_of(outcome) -> str:
+    return _EXIT_RULE_OF.get(str(outcome or ""), str(outcome or ""))
 
 
 # ---------------------------------------------------------------- 主流程
@@ -425,6 +558,14 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     bench_closes = [float(b[4]) for b in bench_bars]
     bench_dates = [str(b[0]) for b in bench_bars]
     has_bench = bool(bench_closes)
+    # I12 卖出规则对照：日度台账可用才启用（存量快照 → 报告披露「需重放」）
+    daily_rows_all = load_daily_actions(snapshot_id, root)
+    daily_by_symbol = {}
+    for d in daily_rows_all:
+        daily_by_symbol.setdefault(str(d.get("symbol", "")), {})[str(d.get("date", ""))] = d
+    sell_eval_on = bool(simulate) and bool(daily_rows_all)
+    variant_rows = {}
+    sell_eval_rows = []
     rows = []
     rows_all = []          # 去重前（全部落盘信号，含 deduped/warmup）
     insufficient_capital_count = 0
@@ -459,11 +600,23 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         if simulate:
             sim = simulate_signal(s["symbol"], names.get(s["symbol"], ""), bars, s, capital)
             row.update({("sim_" + k): v for k, v in sim.items()})
+            row["sim_exit_rule"] = exit_rule_of(sim.get("outcome"))
             simulated_rows.append(sim)
             if sim["outcome"] == "insufficient_capital":
                 insufficient_capital_count += 1
             elif sim["outcome"] == "unfilled":
                 unfilled_count += 1
+            if sell_eval_on:
+                sym_daily = daily_by_symbol.get(s["symbol"]) or {}
+                for variant, kwargs in _sell_variant_kwargs().items():
+                    if variant == "time_stop" and int(config.SIM_TIME_STOP_DAYS or 0) <= 0:
+                        continue           # 时间止损未启用：报告披露 off，不伪造对照行
+                    vsim = simulate_signal(s["symbol"], names.get(s["symbol"], ""),
+                                           bars, s, capital, daily=sym_daily,
+                                           **kwargs)
+                    variant_rows.setdefault(variant, []).append(vsim)
+                    sell_eval_rows.append({"symbol": s["symbol"], "signal_date": s["date"],
+                                           "variant": variant, **vsim})
         rows.append(row)
 
     summary = aggregate(rows)
@@ -483,6 +636,8 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         "dedupe_unit": "trading_day" if trading_dates else "natural_day_fallback",
         "include_warmup": include_warmup,
         "simulate": simulate,
+        "sell_eval": sell_eval_on,
+        "sell_eval_daily_rows": len(daily_rows_all),
         "capital": capital if capital is not None else config.CAPITAL_DEFAULT,
         "insufficient_capital": insufficient_capital_count,
         "unfilled_limit": unfilled_count,
@@ -505,12 +660,39 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     # ---- I10 双口径：最终动作（策略后处理后）并列统计与拦截披露 ----
     attach_dual_caliber(summary, rows, rows_all, excess=has_bench)
 
+    # ---- I12 卖出规则对照（纯披露不设门；台账缺失/未启用模拟时披露原因） ----
+    if simulate:
+        if sell_eval_on:
+            comparison = {
+                "available": True,
+                "variants": {"baseline": dict(summary.get("simulation") or {},
+                                              outcomes=_outcome_dist(simulated_rows))},
+                "time_stop_days": int(config.SIM_TIME_STOP_DAYS or 0),
+                "time_stop_min_r": float(config.SIM_TIME_STOP_MIN_R),
+                "confirm_days": int(config.SELL_EVAL_CONFIRM_DAYS),
+            }
+            for variant, vsim_rows in variant_rows.items():
+                comparison["variants"][variant] = dict(
+                    summarize_simulation(vsim_rows),
+                    outcomes=_outcome_dist(vsim_rows))
+            summary["sell_comparison"] = comparison
+        else:
+            summary["sell_comparison"] = {
+                "available": False,
+                "reason": ("无 I12 日度台账（存量快照需重新 replay）" if not daily_rows_all
+                           else "")}
+
     out_dir = os.path.join(results_root or config.RESULTS_DIR, str(snapshot_id))
     os.makedirs(out_dir, exist_ok=True)
     write_results_csv(rows, os.path.join(out_dir, "results.csv"))
+    if sell_eval_on:
+        from backtest.report import write_sell_eval_csv
+        write_sell_eval_csv(sell_eval_rows, os.path.join(out_dir, "sell_eval.csv"))
     report_md = render_report(summary, manifest)
     with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as fh:
         fh.write(report_md)
     summary["outputs"] = {"results_csv": os.path.join(out_dir, "results.csv"),
                           "report_md": os.path.join(out_dir, "report.md")}
+    if sell_eval_on:
+        summary["outputs"]["sell_eval_csv"] = os.path.join(out_dir, "sell_eval.csv")
     return summary

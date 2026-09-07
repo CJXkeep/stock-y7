@@ -33,6 +33,7 @@ from backtest.sim_account import (
     contribution_summary,
     today_str, market_now, limit_down_price,
     REASON_SIGNAL, REASON_STOP, REASON_TARGET, REASON_MAX_HOLD, REASON_MANUAL,
+    REASON_SIGNAL_EXIT,
 )
 from server.sim_strategy import (
     get_universe, get_adapter, build_context, SourceThrottledError, list_strategies,
@@ -216,11 +217,23 @@ def _close_screen(state: dict, cfg: dict, now: datetime.datetime, adapter) -> No
     buy_decisions.sort(key=lambda d: (d.score, d.confidence), reverse=True)
     state["buy_queue"] = [d.to_dict() for d in buy_decisions]
     sell_queue = []
+    # I12 信号卖出（docs/迭代_i12_卖出闭环/ §4.3）：SIM_SIGNAL_EXIT_MODE≠off 时，
+    # 持仓经 evaluate_position 全保真复评（始终带资金流），adapter.signal_exit_verdict
+    # 判定卖出；confirm2 连续计数持久化于 strategy_state.signal_exit_streak
+    # （连续性锚定上一收盘定档日 last_screen_date，断档自动重置）。
+    signal_exit_on = str(journal_config.SIM_SIGNAL_EXIT_MODE or "off").strip().lower() != "off"
+    prev_screen_date = str(state.get("last_screen_date", "") or "")
+    streaks = dict(((state.get("strategy_state") or {}).get("signal_exit_streak") or {}))
+    new_streaks = {}
     if cfg.get("auto_sell"):
         for symbol, pos in list(state.get("positions", {}).items()):
             try:
-                deci = adapter.evaluate(
-                    {"symbol": symbol, "name": pos.get("name", "")}, ctx, close_mode=True)
+                if signal_exit_on:
+                    deci = adapter.evaluate_position(
+                        {"symbol": symbol, "name": pos.get("name", "")}, ctx)
+                else:
+                    deci = adapter.evaluate(
+                        {"symbol": symbol, "name": pos.get("name", "")}, ctx, close_mode=True)
             except Exception:
                 deci = None
             if deci and deci.side == "sell":
@@ -229,7 +242,33 @@ def _close_screen(state: dict, cfg: dict, now: datetime.datetime, adapter) -> No
                     "name": pos.get("name") or deci.name,
                     "signal_date": today_str(now),
                     "strategy": deci.strategy,
+                    "reason": REASON_SIGNAL,
                 })
+                continue
+            if signal_exit_on:
+                prev_entry = streaks.get(symbol) or {}
+                prev_streak = int(prev_entry.get("streak", 0) or 0) \
+                    if prev_screen_date and str(prev_entry.get("date") or "") == prev_screen_date else 0
+                try:
+                    reason, streak = adapter.signal_exit_verdict(deci, prev_streak)
+                except Exception:
+                    reason, streak = None, 0
+                if reason:
+                    sell_queue.append({
+                        "symbol": symbol,
+                        "name": pos.get("name") or (deci.name if deci else ""),
+                        "signal_date": today_str(now),
+                        "strategy": getattr(deci, "strategy", "") or "",
+                        "reason": reason,
+                    })
+                if streak:
+                    new_streaks[symbol] = {"date": today_str(now), "streak": streak}
+    # streak 只保留当前持仓（卖出/清仓后条目自然消失）
+    live_symbols = set(state.get("positions", {}).keys())
+    strategy_state = dict(state.get("strategy_state") or {})
+    strategy_state["signal_exit_streak"] = {
+        k: v for k, v in new_streaks.items() if k in live_symbols}
+    state["strategy_state"] = strategy_state
     state["sell_queue"] = sell_queue
     state["last_screen_date"] = today_str(now)
     state["last_screening_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -449,9 +488,12 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
                 reason = None
         if not reason and cfg.get("auto_sell"):
             if signal_mode == "close_nextday":
-                in_queue = any(isinstance(e, dict) and e.get("symbol") == symbol
-                               for e in (state.get("sell_queue") or []))
-                reason = REASON_SIGNAL if in_queue else None
+                # 收盘定档卖出清单：条目自带原因（I12 信号卖出=signal_exit；
+                # 旧条目/策略卖出侧 Decision=signal，口径不变）
+                entry = next((e for e in (state.get("sell_queue") or [])
+                              if isinstance(e, dict) and e.get("symbol") == symbol), None)
+                if entry is not None:
+                    reason = str(entry.get("reason") or "") or REASON_SIGNAL
             else:
                 deci = adapter.evaluate({"symbol": symbol, "name": pos.get("name", "")}, ctx)
                 if deci.side == "sell":
@@ -780,6 +822,12 @@ def handle_sim_get(params: dict) -> dict:
         "ok": True,
         "config": cfg,
         "signal_mode": _effective_signal_mode(cfg, adapter),
+        # I12 信号卖出披露：模式与是否生效（仅 close_nextday 生效；intraday 下不生效）
+        "signal_exit": {
+            "mode": str(journal_config.SIM_SIGNAL_EXIT_MODE or "off").strip().lower(),
+            "active": (str(journal_config.SIM_SIGNAL_EXIT_MODE or "off").strip().lower() != "off"
+                       and _effective_signal_mode(cfg, adapter) == "close_nextday"),
+        },
         "strategy_schema": adapter.params_schema(),
         "strategy_params": cfg["strategy_params"],
         "strategy_options": list_strategies(),

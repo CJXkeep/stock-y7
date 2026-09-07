@@ -383,6 +383,21 @@ function _renderConfig(data) {
     const first = smSel.querySelector('option[value="auto"]');
     if (first) first.textContent = '跟随策略（当前：' + (eff === 'intraday' ? '盘中实时' : '收盘定档·次日执行') + '）';
   }
+  // I12 信号卖出披露：模式与是否生效（仅收盘定档生效；intraday 下不生效）
+  const seNote = document.getElementById('sim-signal-exit-note');
+  if (seNote) {
+    const se = data.signal_exit || {};
+    const mode = se.mode || 'off';
+    if (mode === 'off') {
+      seNote.hidden = true;
+      seNote.textContent = '';
+    } else {
+      seNote.hidden = false;
+      seNote.textContent = '信号卖出（I12）：' + mode + (se.active
+        ? ' · 已生效（收盘定档持仓复评）'
+        : ' · 未生效（仅收盘定档·次日执行模式下生效）');
+    }
+  }
   _renderStrategyOptions(data);
   ['auto_sell', 'stop_loss_enabled', 'take_profit_enabled'].forEach((k) => {
     const el = document.getElementById('sim-' + k);

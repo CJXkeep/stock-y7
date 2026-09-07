@@ -19,9 +19,24 @@ RESULT_FIELDS = [
     "r5", "r10", "r20", "r60",
     "r5_excess", "r10_excess", "r20_excess", "r60_excess",
     "missing_horizons",
-    "sim_outcome", "sim_entry_date", "sim_entry_price", "sim_exit_date",
-    "sim_exit_price", "sim_pnl", "sim_pnl_pct", "sim_shares",
+    "sim_outcome", "sim_exit_rule", "sim_entry_date", "sim_entry_price",
+    "sim_exit_date", "sim_exit_price", "sim_pnl", "sim_pnl_pct", "sim_shares",
 ]
+
+# I12 卖出规则对照逐笔明细（sell_eval.csv；一行 = 信号 × 变体）
+SELL_EVAL_FIELDS = [
+    "symbol", "signal_date", "variant",
+    "outcome", "entry_date", "entry_price", "exit_date", "exit_price",
+    "pnl", "pnl_pct", "shares", "hold_days", "forced",
+]
+
+
+def write_sell_eval_csv(rows: list, path: str) -> None:
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=SELL_EVAL_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
 
 
 def write_results_csv(rows: list, path: str) -> None:
@@ -223,4 +238,51 @@ def render_report(summary: dict, manifest: dict) -> str:
     by_symbol = {k: v for k, v in (summary.get("by_symbol") or {}).items()}
     if len(by_symbol) <= 60:
         table(by_symbol, "按股票拆分")
+
+    # ---- I12 卖出规则对照（纯披露不设门；拍板 Q3：五变体全列） ----
+    sc = summary.get("sell_comparison")
+    if sc:
+        lines.append("## 卖出规则对照（I12；纯披露不设门）")
+        lines.append("")
+        if not sc.get("available"):
+            lines.append("> %s——卖出规则对照需要 I12 日度台账，请对该快照重新执行 "
+                         "`python -m backtest replay` 后再跑 `stats --simulate`。" % sc.get("reason", ""))
+            lines.append("")
+        else:
+            variants = sc.get("variants") or {}
+            labels = {
+                "baseline": "baseline（现行：止损/止盈+视界兜底）",
+                "strict_final": "strict_final（最终动作跌出买入档→次日开盘卖）",
+                "strict_raw": "strict_raw（原始动作观望→次日开盘卖，隔离环境门）",
+                "confirm2": "confirm2（连续 %d 个台账日出买入档）" % sc.get("confirm_days", 2),
+                "time_stop": "time_stop（持有≥%d 个完成交易日且 R<%.1f）" % (
+                    sc.get("time_stop_days", 0), sc.get("time_stop_min_r", 1.0)),
+            }
+            lines.append("| 变体 | n | 胜率% | 平均净收益% | 中位% | 盈亏比 | 持有交易日(中位) | forced | unfilled |")
+            lines.append("|---|---|---|---|---|---|---|---|---|")
+            for v in config.SELL_EVAL_VARIANTS:
+                block = variants.get(v)
+                if block is None:
+                    note = "off（SIM_TIME_STOP_DAYS=0）" if v == "time_stop" else "--"
+                    lines.append("| %s | %s | -- | -- | -- | -- | -- | -- | -- |" % (labels.get(v, v), note))
+                    continue
+                def _c(val, warn=False):
+                    return "%s%s" % (_fmt(val), " ⚠样本不足" if warn else "")
+                lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                    labels.get(v, v), _fmt(block.get("n")),
+                    _c(block.get("win_rate"), block.get("insufficient_sample")),
+                    _fmt(block.get("avg_pnl_pct")), _fmt(block.get("median_pnl_pct")),
+                    _fmt(block.get("profit_factor")), _fmt(block.get("hold_median")),
+                    _fmt(block.get("forced")), _fmt(block.get("unfilled"))))
+            lines.append("")
+            lines.append("> 口径：全部变体与 baseline 用同一批信号样本（去重/预热排除后）、"
+                         "同一入场与费率口径；信号卖出=台账日 S 收盘判定→S+1 开盘执行（T+1/跌停顺延沿用）；"
+                         "同日优先级 止损>止盈>信号卖出>时间止损（预承诺）；stop/target/视界兜底对全部变体生效"
+                         "（信号卖出是提前离场，不是替代）。出场原因分布：%s。"
+                         % "；".join("%s{%s}" % (v, ",".join("%s=%d" % kv for kv in (variants.get(v, {}).get("outcomes") or {}).items()))
+                                     for v in config.SELL_EVAL_VARIANTS if v in variants))
+            lines.append("> strict_final 与 strict_raw 的差值 ≈ 环境门（趋势/宽度）参与的退出成分；"
+                         "两变体均不构成任何默认开启建议，是否启用账户层信号卖出（SIM_SIGNAL_EXIT_MODE）"
+                         "须待滚动评估证据。n<%d 标「⚠样本不足」，不做显著性结论；非投资建议。" % config.SAMPLE_MIN)
+            lines.append("")
     return "\n".join(lines)

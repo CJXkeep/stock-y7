@@ -158,9 +158,11 @@ def test_close_screen_builds_queues():
         assert state["buy_queue"][0]["symbol"] == "600000"
         assert state["buy_queue"][0]["stop"] == 9.5
         assert state["last_screen_date"] == "2026-09-02"
+        # I12：卖出清单条目新增 reason 字段（策略卖出侧 Decision → signal）
         assert state["sell_queue"] == [{
             "symbol": "600001", "name": "甲",
-            "signal_date": "2026-09-02", "strategy": "qushi_v5"}]
+            "signal_date": "2026-09-02", "strategy": "qushi_v5",
+            "reason": "signal"}]
         assert adapter.calls[0] == ("screen", True)         # 收盘口径
         assert ("evaluate", "600001", True) in adapter.calls
     finally:

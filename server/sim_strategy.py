@@ -42,7 +42,8 @@ from backtest import watchlist_store
 from backtest import pool as stock_pool
 from backtest.sim_account import (Decision, _LEVEL_ALIASES, limit_up_price,
                              REASON_LIMIT_OPEN, REASON_MA20_BREAK,
-                             REASON_VOLUME_SPIKE, REASON_PEAK_DRAWDOWN)
+                             REASON_VOLUME_SPIKE, REASON_PEAK_DRAWDOWN,
+                             REASON_SIGNAL_EXIT, REASON_TIME_STOP)
 
 log = logging.getLogger("trend_app")
 
@@ -255,6 +256,22 @@ class StrategyAdapter:
         返回 "queue_pending" = 队列不足，调用方走顺延（见 sim_service._track_pending）。
         """
         return None
+
+    def evaluate_position(self, item: dict, ctx: dict = None) -> Decision:
+        """持仓复评（I12 信号卖出；默认退化为普通评估）。
+
+        服务层收盘定档对持仓调用（close 口径）；默认实现直接转调
+        :meth:`evaluate`——兼容未声明新方法的测试桩/假适配器。
+        """
+        return self.evaluate(item, ctx)
+
+    def signal_exit_verdict(self, deci, prev_streak: int = 0) -> tuple:
+        """持仓复评卖出判定（I12；默认不启用 → 恒维持）。
+
+        返回 (reason, streak)：reason 为卖出原因字符串或 None（维持）；
+        streak 为「连续出买入档」天数（confirm2 状态，由调用方持久化）。
+        """
+        return None, 0
 
 
 class QushiV5Adapter(StrategyAdapter):
@@ -562,6 +579,57 @@ class QushiV5Adapter(StrategyAdapter):
                 verified.append(deci)
         return verified
 
+    def evaluate_position(self, item: dict, ctx: dict = None) -> Decision:
+        """持仓全保真复评（I12 信号卖出；close 口径）。
+
+        与 :meth:`evaluate` 的差异：不做两阶段初筛——初筛（无资金流）偏乐观，
+        资金流修正可能把观望救回买入档；卖出侧宁可信其有，持仓复评一律带资金流
+        全保真重跑（持仓每日 ≤5 只，成本可忽略）。失败返回 hold 决策，不计数
+        ``_consec_source_fails``（那是 screen 初筛限流语义，持仓复评不应触发提前终止）。
+        """
+        symbol = item.get("symbol", "")
+        name = item.get("name", "")
+        ctx = ctx or {}
+        try:
+            klines, quote = self._klines_for(item, ctx, "day", close_mode=True)
+            if len(klines) < 30 or not quote:
+                return Decision(symbol=symbol, name=name, side="hold", strategy=self.id)
+            index_klines = ctx.get("index_klines") or []
+            breadth = ctx.get("breadth")
+            try:
+                flows = fetch_fund_flow(symbol, days=30)
+            except Exception:
+                flows = []
+            return self._run(symbol, name, klines, quote, flows,
+                             index_klines, breadth, "day")
+        except Exception as exc:
+            log.debug("模拟账户持仓复评 %s 失败: %s", symbol, exc)
+            return Decision(symbol=symbol, name=name, side="hold", strategy=self.id)
+
+    def signal_exit_verdict(self, deci, prev_streak: int = 0) -> tuple:
+        """持仓复评卖出判定（I12；docs/迭代_i12_卖出闭环/ §4.3；拍板 I12-Q1）。
+
+        口径：以**最终动作**判定（deci.reason 即后处理最终 action，与
+        `SIGNAL_BUY_TIERS` 同源）；``SIM_SIGNAL_EXIT_MODE``：
+        - off → 恒 (None, 0)（默认，零影响）；
+        - strict_final → 任一收盘定档日最终动作跌出买入档 → REASON_SIGNAL_EXIT；
+        - confirm2 → 连续 SELL_EVAL_CONFIRM_DAYS 日出买入档才触发（streak 由
+          调用方持久化于 state.strategy_state.signal_exit_streak，跨收盘定档连续）。
+        """
+        mode = str(journal_config.SIM_SIGNAL_EXIT_MODE or "off").strip().lower()
+        if mode == "off" or deci is None:
+            return None, 0
+        action = str(getattr(deci, "reason", "") or "")
+        out = action not in frozenset(journal_config.SIGNAL_BUY_TIERS)
+        if mode == "confirm2":
+            streak = prev_streak + 1 if out else 0
+            if streak >= max(1, int(journal_config.SELL_EVAL_CONFIRM_DAYS or 2)):
+                return REASON_SIGNAL_EXIT, streak
+            return None, streak
+        if out:
+            return REASON_SIGNAL_EXIT, 1
+        return None, 0
+
     def exit_check(self, pos: dict, quote, ctx: dict = None) -> str:
         """外源参考动态退出规则（15/107/022/078 参数集；docs/策略融合-外源参考-2026-09.md）。
 
@@ -569,7 +637,10 @@ class QushiV5Adapter(StrategyAdapter):
         1. 涨停开板：昨收 K 线收盘 ≥ 昨日涨停价（前收×1.0995 口径）且今日现价 < 今日涨停价；
         2. 均线跌破：现价 < 最近 20 根完整日 K 收盘均线（排除当日盘中半成品 bar）；
         3. 高点回撤：买入日起最高价（含现价）回撤 > SIM_EXIT_PEAK_DRAWDOWN(%）；
-        4. 尾盘放量：盘口累计量 > SIM_EXIT_VOL_RATIO × 前 SIM_EXIT_VOL_PERIOD 日均量 且未涨停。
+        4. 尾盘放量：盘口累计量 > SIM_EXIT_VOL_RATIO × 前 SIM_EXIT_VOL_PERIOD 日均量 且未涨停；
+        5. 时间止损（I12）：持有 ≥ SIM_TIME_STOP_DAYS 个完成交易日（不含买入当日、
+           不含当日未完成 bar）且 R=(现价−entry)/(entry−pos.stop) < SIM_TIME_STOP_MIN_R
+           （严格小于）→ 卖；SIM_TIME_STOP_DAYS=0 关闭。
 
         任何数据/网络异常均返回 None（静默放行，不阻塞持仓巡检）。
         """
@@ -626,6 +697,21 @@ class QushiV5Adapter(StrategyAdapter):
                     today_up = limit_up_price(float(quote.pre_close or 0), symbol, name)
                     if today_up <= 0 or quote.price < today_up:
                         return REASON_VOLUME_SPIKE
+
+            # 5) 时间止损（I12；078 参考：持有 ≥N 个完成交易日且未达 +1R → 卖）
+            ts_days = int(journal_config.SIM_TIME_STOP_DAYS or 0)
+            if ts_days > 0:
+                buy_date = str(pos.get("buy_date", "") or "")[:10]
+                stop_loss = pos.get("stop")
+                entry = float(pos.get("buy_price", 0) or 0)
+                if (buy_date and entry > 0
+                        and isinstance(stop_loss, (int, float)) and float(stop_loss) > 0
+                        and entry > float(stop_loss)):
+                    days_held = len([k for k in hist if str(k.date)[:10] > buy_date])
+                    if days_held >= ts_days:
+                        r_mult = (float(quote.price) - entry) / (entry - float(stop_loss))
+                        if r_mult < float(journal_config.SIM_TIME_STOP_MIN_R or 1.0):
+                            return REASON_TIME_STOP
             return None
         except Exception as exc:
             log.debug("exit_check %s 静默放行: %s", pos.get("symbol", ""), exc)

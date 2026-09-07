@@ -64,6 +64,9 @@ REASON_LIMIT_OPEN = "limit_open"          # 昨收涨停 + 今日开板（115/10
 REASON_MA20_BREAK = "ma20_break"          # 现价跌破日线 MA20（107 参考）
 REASON_VOLUME_SPIKE = "volume_spike"      # 当日量 > 倍数 × 均量且未涨停（022 参考）
 REASON_PEAK_DRAWDOWN = "peak_drawdown"    # 买入以来最高高点回撤超阈值（078 参考）
+# I12 卖出侧证据闭环（docs/迭代_i12_卖出闭环/；由适配层产出，仅新增原因枚举，内核逻辑零改动）
+REASON_SIGNAL_EXIT = "signal_exit"        # 持仓复评最终动作跌出买入档（close screen，I12）
+REASON_TIME_STOP = "time_stop"            # 时间止损：持有 ≥N 交易日未达 +1R（078 参考，I12）
 
 _LOCK = threading.RLock()   # 状态读写锁（watcher 线程与 HTTP 线程共用）
 
@@ -528,6 +531,7 @@ def default_state(initial_capital: float = None) -> dict:
         "buy_queue": [],           # 收盘定档买入清单（close_nextday：次日执行）
         "sell_queue": [],          # 收盘定档信号卖出清单（close_nextday：次日执行）
         "last_screen_date": "",    # 最近一次收盘定档日期（幂等键）
+        "strategy_state": {},      # 策略层状态（I12：signal_exit_streak；账户内核不解释内容）
         "last_screening_at": "",
         "last_cycle_at": "",
         "rounds": 0,
@@ -558,6 +562,11 @@ def normalize_state(data: dict) -> dict:
         base["sell_queue"] = [v for v in data["sell_queue"] if isinstance(v, dict)]
     if isinstance(data.get("last_screen_date"), str):
         base["last_screen_date"] = data["last_screen_date"]
+    if isinstance(data.get("strategy_state"), dict):
+        ss = data["strategy_state"]
+        streaks = ss.get("signal_exit_streak") if isinstance(ss.get("signal_exit_streak"), dict) else {}
+        base["strategy_state"] = {"signal_exit_streak": {
+            k: v for k, v in streaks.items() if isinstance(v, dict)}}
     base["updated_at"] = _now_iso()
     return base
 
