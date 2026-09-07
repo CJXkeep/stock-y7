@@ -70,3 +70,5 @@
 {"ts": "2026-09-04T09:47:07Z", "symbol": "600000", "from": "watching", "to": "validated", "actor": "api:status", "version": 3, "schema": "v5.candidates-audit.v1"}
 {"ts": "2026-09-04T09:50:43Z", "symbol": "600036", "from": "promoted", "to": "watching", "actor": "revert-2026-09-04-test-pollution", "version": 43, "schema": "v5.candidates-audit.v1"}
 {"ts": "2026-09-04T09:51:10Z", "symbol": "600000", "from": "watching", "to": "validated", "actor": "api:status", "version": 3, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-05T04:07:22Z", "symbol": "600629", "from": "watching", "to": "validated", "actor": "screen", "version": 44, "schema": "v5.candidates-audit.v1"}
+{"ts": "2026-09-05T04:12:54Z", "symbol": "600629", "from": "validated", "to": "promoted", "actor": "correct:pool_add", "version": 45, "schema": "v5.candidates-audit.v1"}

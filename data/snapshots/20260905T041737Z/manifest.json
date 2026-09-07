@@ -1,0 +1,74 @@
+{
+  "schema": "v5.snapshot.v1",
+  "snapshot_id": "20260905T041737Z",
+  "created_at": "2026-09-05T04:17:39Z",
+  "pool_version": 2,
+  "source": "pool",
+  "config": {
+    "history_bars": 750,
+    "replay_window": 250,
+    "index_window": 60,
+    "horizons": [
+      5,
+      10,
+      20,
+      60
+    ]
+  },
+  "symbols": {
+    "601800": {
+      "name": "中国交建",
+      "bars": 645,
+      "start": "2024-01-08",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "000630": {
+      "name": "铜陵有色",
+      "bars": 645,
+      "start": "2024-01-08",
+      "end": "2026-09-04",
+      "source": "tencent",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    },
+    "600629": {
+      "name": "华建集团",
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04",
+      "source": "eastmoney",
+      "adjust": "qfq",
+      "insufficient": false,
+      "gaps": 0,
+      "ohlc_violations": 0,
+      "ohlc_invalid": false
+    }
+  },
+  "indexes": {
+    "_idx_000001": {
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04"
+    },
+    "_idx_000300": {
+      "bars": 750,
+      "start": "2023-08-03",
+      "end": "2026-09-04"
+    }
+  },
+  "usable_symbols": 3,
+  "total_symbols": 3,
+  "files": {
+    "bars_jsonl_sha256": "9734498dbeb0b211f1103be0dd12b37f07a33fae56ca12a81fdd647133b44a51"
+  },
+  "config_hash": "137e4e0e4a21cf11"
+}

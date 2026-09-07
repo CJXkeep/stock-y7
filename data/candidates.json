@@ -1,7 +1,7 @@
 {
   "schema": "v5.candidates.v1",
-  "version": 43,
-  "updated_at": "2026-09-04T09:50:43Z",
+  "version": 47,
+  "updated_at": "2026-09-05T14:48:41Z",
   "items": [
     {
       "symbol": "605577",
@@ -132,8 +132,8 @@
       "first_action": "强烈买入",
       "first_score": 77,
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
-      "status": "watching",
-      "last_status_change_at": "2026-09-04T09:22:28Z"
+      "status": "promoted",
+      "last_status_change_at": "2026-09-05T04:12:54Z"
     },
     {
       "symbol": "600657",
@@ -242,6 +242,126 @@
       "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
       "status": "watching",
       "last_status_change_at": "2026-09-04T09:22:28Z"
+    },
+    {
+      "symbol": "603976",
+      "name": "正川股份",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 81,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "603257",
+      "name": "中国瑞林",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 79,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "600295",
+      "name": "鄂尔多斯",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 79,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "603400",
+      "name": "华之杰",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "600975",
+      "name": "新五丰",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "300961",
+      "name": "深水海纳",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "603161",
+      "name": "科华控股",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "000905",
+      "name": "厦门港务",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "301091",
+      "name": "深城交",
+      "industry": "",
+      "added_at": "2026-09-05T13:46:23Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 78,
+      "note": "策略门拦截：策略门：市场环境偏空，不新增仓位",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T13:46:23Z"
+    },
+    {
+      "symbol": "600611",
+      "name": "大众交通",
+      "industry": "",
+      "added_at": "2026-09-05T14:48:40Z",
+      "source": "scan",
+      "first_action": "强烈买入",
+      "first_score": 76,
+      "note": "策略门拦截：策略门：OBV下降，量能走弱",
+      "status": "watching",
+      "last_status_change_at": "2026-09-05T14:48:40Z"
     }
   ]
 }
