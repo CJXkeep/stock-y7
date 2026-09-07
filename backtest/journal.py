@@ -364,27 +364,41 @@ def query_records(symbol: str = None, signal_type: str = None,
 
 
 def summarize(records: list) -> dict:
-    """汇总口径（设计稿 §5.6）：总数、类型分布、买侧 20 日上涨比例与平均收益。"""
+    """汇总口径（设计稿 §5.6）：总数、类型分布、买侧 20 日上涨比例与平均收益。
+
+    I13.2：买侧 20 日验证拆双口径并列——engine_buy_20d（引擎：买入/强烈买入/谨慎买入）
+    与 chanlun_buy_20d（缠论：一买/二买）；原扁平键 buy_20d_* 保持=引擎口径（兼容）。
+    """
     by_type = {}
     for record in records:
         stype = str(record.get("signal_type", ""))
         by_type[stype] = by_type.get(stype, 0) + 1
-    win = avg = None
-    sample = []
-    for record in records:
-        if str(record.get("signal_type", "")) not in config.BUY_SIDE_TYPES:
-            continue
-        for f in record.get("followups", []):
-            if int(f.get("horizon", 0)) == 20 and isinstance(f.get("return_pct"), (int, float)):
-                sample.append(f["return_pct"])
-                break
-    if sample:
-        win = round(sum(1 for x in sample if x > 0) / len(sample) * 100, 2)
-        avg = round(sum(sample) / len(sample), 4)
+
+    def _twenty_d(stypes) -> dict:
+        sample = []
+        for record in records:
+            if str(record.get("signal_type", "")) not in stypes:
+                continue
+            for f in record.get("followups", []):
+                if int(f.get("horizon", 0)) == 20 and isinstance(f.get("return_pct"), (int, float)):
+                    sample.append(f["return_pct"])
+                    break
+        if not sample:
+            return {"count": 0, "win_rate_pct": None, "avg_return_pct": None}
+        return {
+            "count": len(sample),
+            "win_rate_pct": round(sum(1 for x in sample if x > 0) / len(sample) * 100, 2),
+            "avg_return_pct": round(sum(sample) / len(sample), 4),
+        }
+
+    engine = _twenty_d(config.BUY_SIDE_TYPES)
+    chanlun = _twenty_d(("chanlun_buy1", "chanlun_buy2"))
     return {
         "total": len(records),
         "by_type": by_type,
-        "buy_20d_count": len(sample),
-        "buy_20d_win_rate_pct": win,
-        "buy_20d_avg_return_pct": avg,
+        "buy_20d_count": engine["count"],
+        "buy_20d_win_rate_pct": engine["win_rate_pct"],
+        "buy_20d_avg_return_pct": engine["avg_return_pct"],
+        "engine_buy_20d": engine,
+        "chanlun_buy_20d": chanlun,
     }

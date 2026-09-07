@@ -107,7 +107,9 @@ window._journalLastQuery = null;
 
 // 筛选控件入口（ESM 化后内联 onchange 访问不到模块变量与未挂 window 的函数，
 // 统一改走 data-chgact 委托：在模块内改状态再重载，避免只写出一个同名全局变量）。
+let _journalSort = 'date_desc';   // date_desc | date_asc | ret20_desc | ret20_asc | symbol_group
 export function journalSetType(v) { _journalTypeFilter = v || ''; loadJournal(); }
+export function journalSetSort(v) { _journalSort = v || 'date_desc'; loadJournal(); }
 export function journalSetSymbol(v) { _journalSymbolFilter = (v || '').trim(); loadJournal(); }
 export function journalToggleDupes(checked) { _journalShowDupes = !!checked; loadJournal(); }
 
@@ -115,6 +117,27 @@ export function _followupMap(rec) {
   const m = {};
   (rec.followups || []).forEach(f => { m[f.horizon] = f; });
   return m;
+}
+
+function _ret20(rec) {
+  const f = (rec.followups || []).find(x => parseInt(x.horizon, 10) === 20);
+  return (f && typeof f.return_pct === 'number') ? f.return_pct : null;
+}
+
+// I13.2：信号档案排序（用户可选；默认信号日倒序=最新在前）
+function _sortJournalRecords(records, mode) {
+  const arr = records.slice();
+  const byDate = (a, b) => String(a.trigger_date || '').localeCompare(String(b.trigger_date || ''))
+    || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  const nullLast = (v) => v == null ? 1 : 0;
+  if (mode === 'date_asc') arr.sort(byDate);
+  else if (mode === 'ret20_desc') arr.sort((a, b) => nullLast(_ret20(a)) - nullLast(_ret20(b))
+    || (_ret20(b) || 0) - (_ret20(a) || 0));
+  else if (mode === 'ret20_asc') arr.sort((a, b) => nullLast(_ret20(b)) - nullLast(_ret20(a))
+    || (_ret20(a) == null ? 9e9 : _ret20(a)) - (_ret20(b) == null ? 9e9 : _ret20(b)));
+  else if (mode === 'symbol_group') { /* 保持服务器原序（按股票分组） */ }
+  else arr.sort((a, b) => byDate(b, a));   // date_desc（默认）
+  return arr;
 }
 
 export async function loadJournal() {
@@ -138,7 +161,8 @@ export async function loadJournal() {
     el.innerHTML = `<div class="wp-error" style="padding:16px;color:#e57373;font-size:12px">${escHtml(data.error)}</div>`;
     return;
   }
-  const records = data.records || [];
+  let records = data.records || [];
+  records = _sortJournalRecords(records, _journalSort);
   window._journalLastRecords = records;
   window._journalLastQuery = {
     type: _journalTypeFilter,
@@ -155,9 +179,6 @@ export async function loadJournal() {
     Object.keys(_journalTypeNames).map(k =>
       `<option value="${k}" ${_journalTypeFilter === k ? 'selected' : ''}>${_journalTypeNames[k]}</option>`)
   ).join('');
-
-  const winStr = s.buy_20d_win_rate_pct == null ? '--' : s.buy_20d_win_rate_pct.toFixed(1) + '%';
-  const avgStr = s.buy_20d_avg_return_pct == null ? '--' : (s.buy_20d_avg_return_pct > 0 ? '+' : '') + s.buy_20d_avg_return_pct.toFixed(2) + '%';
 
   const rows = records.map(rec => {
     const f = _followupMap(rec);
@@ -180,11 +201,25 @@ export async function loadJournal() {
   el.innerHTML = `
     <div style="display:flex;gap:14px;padding:8px 12px;border-bottom:1px solid #222;font-size:11px;color:#aaa;flex-wrap:wrap;align-items:center">
       <span>总信号 <b style="color:#eee">${s.total || 0}</b></span>
-      <span>买侧20日样本 <b style="color:#eee">${s.buy_20d_count || 0}</b></span>
-      <span>20日上涨比例 <b style="color:${(s.buy_20d_win_rate_pct||0) >= 50 ? C.up : C.down}">${winStr}</b></span>
-      <span>20日平均收益 <b style="color:${(s.buy_20d_avg_return_pct||0) >= 0 ? C.up : C.down}">${avgStr}</b></span>
+      <span title="引擎信号（买入/强烈买入/谨慎买入）且有 20 日验证">引擎买侧20日样本 <b style="color:#eee">${(s.engine_buy_20d || {}).count || 0}</b>
+        <span style="color:${((s.engine_buy_20d || {}).win_rate_pct || 0) >= 50 ? C.up : C.down}">${(s.engine_buy_20d || {}).win_rate_pct == null ? '--' : (s.engine_buy_20d.win_rate_pct.toFixed(1) + '%')}</span>
+        <span style="color:${((s.engine_buy_20d || {}).avg_return_pct || 0) >= 0 ? C.up : C.down}">${(s.engine_buy_20d || {}).avg_return_pct == null ? '--' : ((s.engine_buy_20d.avg_return_pct > 0 ? '+' : '') + s.engine_buy_20d.avg_return_pct.toFixed(2) + '%')}</span>
+      </span>
+      <span title="缠论买点（一买/二买）且有 20 日验证">缠论买侧20日样本 <b style="color:#eee">${(s.chanlun_buy_20d || {}).count || 0}</b>
+        <span style="color:${((s.chanlun_buy_20d || {}).win_rate_pct || 0) >= 50 ? C.up : C.down}">${(s.chanlun_buy_20d || {}).win_rate_pct == null ? '--' : (s.chanlun_buy_20d.win_rate_pct.toFixed(1) + '%')}</span>
+        <span style="color:${((s.chanlun_buy_20d || {}).avg_return_pct || 0) >= 0 ? C.up : C.down}">${(s.chanlun_buy_20d || {}).avg_return_pct == null ? '--' : ((s.chanlun_buy_20d.avg_return_pct > 0 ? '+' : '') + s.chanlun_buy_20d.avg_return_pct.toFixed(2) + '%')}</span>
+      </span>
       <label>类型
         <select data-chgact="journalSetType" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">${typeOpts}</select>
+      </label>
+      <label>排序
+        <select data-chgact="journalSetSort" style="background:#111;color:#ccc;border:1px solid #333;font-size:11px">
+          <option value="date_desc" ${_journalSort === 'date_desc' ? 'selected' : ''}>信号日 新→旧</option>
+          <option value="date_asc" ${_journalSort === 'date_asc' ? 'selected' : ''}>信号日 旧→新</option>
+          <option value="ret20_desc" ${_journalSort === 'ret20_desc' ? 'selected' : ''}>20日收益 高→低</option>
+          <option value="ret20_asc" ${_journalSort === 'ret20_asc' ? 'selected' : ''}>20日收益 低→高</option>
+          <option value="symbol_group" ${_journalSort === 'symbol_group' ? 'selected' : ''}>按股票分组</option>
+        </select>
       </label>
       <label>代码
         <input value="${escHtml(_journalSymbolFilter)}" placeholder="如 600519" size="7"

@@ -349,6 +349,14 @@ def test_summarize_formula_hand_calc():
     assert s["buy_20d_count"] == 3
     assert s["buy_20d_win_rate_pct"] == 66.67
     assert s["buy_20d_avg_return_pct"] == 4.0
+    # I13.2：买侧 20 日统计拆双口径（引擎 / 缠论），扁平键保持=引擎口径
+    assert s["engine_buy_20d"]["count"] == 3
+    assert s["chanlun_buy_20d"] is not None
+    assert s["chanlun_buy_20d"]["count"] == sum(
+        1 for r in records
+        if r.get("signal_type") in ("chanlun_buy1", "chanlun_buy2")
+        and any(int(f.get("horizon", 0)) == 20 and isinstance(f.get("return_pct"), (int, float))
+                for f in r.get("followups", [])))
 
 
 def test_mark_window_invalid_date_treated_independent():
