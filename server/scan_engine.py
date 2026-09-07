@@ -49,6 +49,7 @@ _scan_state = {
     "found": 0,
     "results": [],
     "blocked": [],            # 被「第一性原则策略门」拦截的候选（达买入档但环境门降为观望）
+    "run_id": "",             # I13：本轮归档 run_id（完成时写入，前端跳转全量归档用）
     "error": "",
     "start_time": 0,
     "elapsed": 0,
@@ -143,6 +144,157 @@ def _ensure_scan_state_loaded() -> None:
     _scan_state_loaded = True  # 缺失/损坏也只尝试一次
     with _scan_lock:
         task_store.ensure_loaded(_SCAN_KIND, _SCAN_STATE_SCHEMA, _scan_state, force=True)
+
+
+# ---- I13 扫描历史归档（服务器唯一事实源；docs/迭代_i13_扫描归档重构/） ----
+# 每轮扫描完成 append 一行到 data/scan/history.jsonl：results/blocked 存**全量**
+# （展示层再截断），含入池结果与失败明细；超限删最旧（SCAN_HISTORY_MAX，预承诺）。
+_HISTORY_SCHEMA = "v6.scan.history.v1"
+
+
+def _history_path() -> str:
+    return os.path.join(journal_config.ROOT, "data", "scan", "history.jsonl")
+
+
+def _load_history_raw() -> list:
+    path = _history_path()
+    if not os.path.exists(path):
+        return []
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                text = line.strip()
+                if text:
+                    try:
+                        rows.append(json.loads(text))
+                    except ValueError:
+                        continue
+    except OSError as exc:
+        log.warning("扫描历史读取失败: %s", exc)
+    return rows
+
+
+def _trim_history() -> int:
+    """超限删最旧；返回删除行数。读-改-写全程持锁（文件小，量级可控）。"""
+    limit = max(1, int(getattr(journal_config, "SCAN_HISTORY_MAX", 60)))
+    rows = _load_history_raw()
+    if len(rows) <= limit:
+        return 0
+    dropped = len(rows) - limit
+    kept = rows[-limit:]
+    tmp = _history_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for row in kept:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(tmp, _history_path())
+    return dropped
+
+
+def _append_history(row: dict) -> bool:
+    """按轮追加归档；任何失败只记日志，绝不影响扫描主流程。"""
+    try:
+        os.makedirs(os.path.dirname(_history_path()), exist_ok=True)
+        with open(_history_path(), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        dropped = _trim_history()
+        if dropped:
+            log.info("扫描历史超限清理 %d 行（上限 %d）",
+                     dropped, int(getattr(journal_config, "SCAN_HISTORY_MAX", 60)))
+        return True
+    except Exception as exc:
+        log.warning("扫描归档写入失败（不影响扫描）: %s", exc)
+        return False
+
+
+def _history_summary(row: dict) -> dict:
+    return {
+        "run_id": row.get("run_id", ""),
+        "finished_at": row.get("finished_at", ""),
+        "elapsed": row.get("elapsed", 0),
+        "max_stocks": row.get("max_stocks", 0),
+        "scanned_total": row.get("scanned_total", 0),
+        "dual_buy_total": row.get("dual_buy_total", 0),
+        "blocked_total": row.get("blocked_total", 0),
+        "failed_total": row.get("failed_total", 0),
+        "auto_candidates": row.get("auto_candidates") or {},
+        "source": row.get("source", "scan"),
+    }
+
+
+def _candidate_status_map() -> dict:
+    """symbol → {status, note}（候选池联动；读取失败回退空表）。"""
+    try:
+        from backtest import candidates as cands_mod
+        cands = cands_mod.load()
+        out = {}
+        for item in cands.get("items", []):
+            sym = str(item.get("symbol", ""))
+            if sym:
+                out[sym] = {"status": str(item.get("status", "")),
+                            "note": str(item.get("note", ""))[:120]}
+        return out
+    except Exception as exc:
+        log.debug("候选池状态联合失败: %s", exc)
+        return {}
+
+
+def handle_scan_history(params: dict) -> dict:
+    """GET /api/scan/history：列表（摘要，新→旧）或单轮详情（含候选状态联合）。"""
+    _ensure_scan_state_loaded()
+    run_id = params.get("run_id", [None])[0] if params.get("run_id") else None
+    rows = _load_history_raw()
+    if run_id:
+        row = next((r for r in rows if r.get("run_id") == run_id), None)
+        if row is None:
+            return {"ok": False, "error": "归档不存在: %s" % run_id}
+        detail = dict(row)
+        detail["candidate_status"] = _candidate_status_map()
+        return {"ok": True, "run": detail}
+    return {"ok": True, "runs": [_history_summary(r) for r in reversed(rows)],
+            "max_rows": int(getattr(journal_config, "SCAN_HISTORY_MAX", 60))}
+
+
+def handle_scan_history_post(body: dict) -> dict:
+    """POST /api/scan/history：migrate（localStorage 旧归档导入）/ delete（删单轮）。
+
+    - migrate：逐条 append，run_id 冲突（同 run_id 已存在）跳过 → 幂等；行标 source=migrated；
+    - delete：按 run_id 删除单行（重写文件）。
+    """
+    action = str(body.get("action", "")).strip()
+    if action == "migrate":
+        runs = body.get("runs")
+        if not isinstance(runs, list):
+            return {"ok": False, "error": "runs 必须是数组"}
+        existing = {r.get("run_id") for r in _load_history_raw()}
+        imported = skipped = 0
+        for raw in runs:
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            row.setdefault("run_id", "m" + str(int(time.time() * 1000)) + str(imported))
+            row.setdefault("schema", _HISTORY_SCHEMA)
+            row["source"] = "migrated"
+            if row["run_id"] in existing:
+                skipped += 1
+                continue
+            existing.add(row["run_id"])
+            if _append_history(row):
+                imported += 1
+            else:
+                skipped += 1
+        return {"ok": True, "imported": imported, "skipped": skipped}
+    if action == "delete":
+        run_id = str(body.get("run_id", "")).strip()
+        rows = [r for r in _load_history_raw() if r.get("run_id") != run_id]
+        tmp = _history_path() + ".tmp"
+        os.makedirs(os.path.dirname(_history_path()), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        os.replace(tmp, _history_path())
+        return {"ok": True, "deleted": run_id, "remaining": len(rows)}
+    return {"ok": False, "error": "未知 action: %s" % action}
 
 
 def _run_signal(symbol: str, klines, quote, flows, index_klines, breadth, period: str) -> dict:
@@ -455,6 +607,36 @@ def _run_scan(max_stocks: int = 1000):
                 "elapsed": elapsed,
             })
         _scan_persist_state()
+        # I13：按轮归档到 history.jsonl——results/blocked 存**全量**（展示层再截断），
+        # 含截断披露（dual_buy_total/blocked_total）、入池结果与失败明细；失败只记日志。
+        try:
+            _run_id = "s" + str(int(time.time() * 1000))
+            with _scan_lock:
+                _scan_state["run_id"] = _run_id
+            _append_history({
+                "schema": _HISTORY_SCHEMA,
+                "run_id": _run_id,
+                "started_at": datetime.datetime.fromtimestamp(
+                    float(_scan_state.get("start_time") or time.time())
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+                "finished_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "max_stocks": max_stocks,
+                "market_total": _scan_state.get("total", 0),
+                "scanned_total": _scan_state.get("daily_total", 0),
+                "daily_total": _scan_state.get("daily_total", 0),
+                "elapsed": elapsed,
+                "dual_buy_total": len(dual_buy),
+                "blocked_total": len(blocked_daily),
+                "failed_total": _scan_state.get("failed_total", 0),
+                "failed_symbols": (_scan_state.get("failed_symbols") or [])[:50],
+                "results_all": dual_buy,
+                "blocked_all": blocked_daily,
+                "auto_candidates": {"added": auto_candidates_added,
+                                    "skipped": auto_candidates_skipped},
+                "source": "scan",
+            })
+        except Exception as exc:
+            log.warning("扫描归档组装失败（不影响扫描）: %s", exc)
         log.info(f"扫描完成: {total_stage1}→{len(daily_buy)}→{len(dual_buy)}→TOP{len(results)}, 耗时{elapsed}s")
 
     except Exception as e:
@@ -485,7 +667,7 @@ def handle_scan(params: dict) -> dict:
             _scan_state.update({
                 "status": "idle", "stage": "", "progress": 0,
                 "total": 0, "scanned": 0, "found": 0,
-                "results": [], "blocked": [], "error": "",
+                "results": [], "blocked": [], "error": "", "run_id": "",
                 "failed_total": 0, "failed_symbols": [],
                 "daily_total": 0,
                 "elapsed": 0,
@@ -514,6 +696,7 @@ def handle_scan(params: dict) -> dict:
         "daily_total": state.get("daily_total", 0),
         "results": state["results"],
         "blocked": state.get("blocked", []),
+        "run_id": state.get("run_id", ""),
         "error": state.get("error", ""),
         "failed_total": failed_total,
         "failed_symbols": failed_symbols,

@@ -55,12 +55,15 @@ def test_chanlun_bridge_and_glossary():
 
 
 def test_scan_archive_daily_total():
-    """扫描归档的「扫描 X 只」必须是日K真实扫描数，而非周K阶段被重置的计数。"""
+    """扫描归档的「扫描 X 只」必须是日K真实扫描数，而非周K阶段被重置的计数。
+
+    I13 起归档在服务端组装（history 行），scanned_total 直接取 daily_total 状态。
+    """
     backend = _read(os.path.join("server", "scan_engine.py"))
     assert '"daily_total"' in backend, "后端缺少 daily_total 字段"
     assert '_scan_state["daily_total"] = total_stage1' in backend, "日K扫描数未落状态"
-    frontend = read_frontend_source()
-    assert "data.daily_total || data.scanned" in frontend, "归档未优先取 daily_total"
+    assert '"scanned_total": _scan_state.get("daily_total", 0)' in backend, \
+        "归档行未优先取 daily_total（I13 history 行）"
 
 
 def test_wide_sidebar_capped():

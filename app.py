@@ -59,7 +59,7 @@ from server.signal_pipeline import (
     _rebuild_plain_summary, _sync_risk_level, _sync_signal_strength,
     _apply_signal_optimization, _localize_signal_text,
 )
-from server.scan_engine import handle_scan, _SCAN_STATE_SCHEMA
+from server.scan_engine import handle_scan, handle_scan_history, handle_scan_history_post, _SCAN_STATE_SCHEMA
 from server.digest_service import handle_digest
 from server.notify_service import (handle_notify_get, handle_notify_post, start_watcher,
                                    NOTIFY_STATE_SCHEMA)
@@ -583,6 +583,7 @@ _GET_ROUTES = {
     "/api/watchlist": lambda _params: watchlist_store.load(),
     "/api/snapshot-info": handle_snapshot_info,
     "/api/scan": handle_scan,
+    "/api/scan/history": handle_scan_history,
     "/api/digest": handle_digest,
     "/api/notify": handle_notify_get,
     "/api/kline-store": handle_kline_store_get,
@@ -824,7 +825,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/api/candidates/validate", "/api/notify",
                         "/api/kline-store", "/api/evaluation/refresh",
                         "/api/evaluation/sensitivity", "/api/correct/validate",
-                        "/api/correct/execute", "/api/sim"):
+                        "/api/correct/execute", "/api/sim", "/api/scan/history"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -859,6 +860,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handle_candidates_validate_post(body))
             elif path == "/api/sim":
                 self._json(handle_sim_post(body))
+            elif path == "/api/scan/history":
+                self._json(handle_scan_history_post(body))
             else:
                 self._json(handle_pool_post(body))
         except Exception as e:

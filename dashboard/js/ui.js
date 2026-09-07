@@ -3,10 +3,10 @@
 import { C, S, escHtml, showToastMsg } from './shared.js';
 import { API, fetchWithTimeout } from './api.js';
 import { analyze, setMode, toggleSettings, doLogout, fxEnabled, simBuyCurrent } from './main.js';
-import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu } from './watchlist.js';
-import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry } from './scan.js';
+import { toggleStar, openSbSection, toggleWatchOverview, sbToggleCollapse, renameGroupInline, renameGroupInlineById, deleteGroup, moveStock, pinStock, removeFromWatchlist, hideCtxMenu, addToGroup } from './watchlist.js';
+import { openScan, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanPollRetry, scanArchPage, scanArchBack, scanArchOpen } from './scan.js';
 import { poolNote, poolMove, poolRemove, poolAddCurrent,
-  journalSetType, journalSetSymbol, journalToggleDupes, poolSetIndustry, digestSetDays } from './journal.js';
+  journalSetType, journalSetSymbol, journalSetSort, journalToggleDupes, poolSetIndustry, digestSetDays } from './journal.js';
 import { openDoc, pickSnapshot, evalRefresh, evalSensitivity,
          correctToggle, correctPayload, correctValidate, correctExecute } from './evaluation.js';
 import { candAdd, candRemove, candStatus, candNote,
@@ -304,6 +304,10 @@ export const DELEGATED_ACTIONS = {
   exportScanCsv: el => exportScanCsv(el.dataset.runId),
   deleteScanRun: el => deleteScanRun(el.dataset.runId),
   scanRetry: () => scanPollRetry(),
+  scanWatchAdd: el => { addToGroup(el.dataset.code, el.dataset.name); showToastMsg('已加入自选'); },
+  scanArchPage: el => scanArchPage(el),
+  scanArchBack: () => scanArchBack(),
+  scanArchOpen: el => scanArchOpen(el),
   sbToggleCollapse: el => sbToggleCollapse(el.dataset.gid),
   renameGroupInline: el => renameGroupInline(el, el.dataset.gid),
   moveStock: el => moveStock(el.dataset.code, el.dataset.gid),
@@ -315,6 +319,7 @@ export const DELEGATED_ACTIONS = {
   poolNote: el => poolNote(el.dataset.code, el.value),
   // 信号档案 / 核心池 / 速递的筛选控件（ESM 化遗留的内联 handler 已改委托）
   journalSetType: el => journalSetType(el.value),
+  journalSetSort: el => journalSetSort(el.value),
   journalSetSymbol: el => journalSetSymbol(el.value),
   journalToggleDupes: el => journalToggleDupes(el.checked),
   poolSetIndustry: el => poolSetIndustry(el.value),

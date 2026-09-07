@@ -6,7 +6,7 @@ import { escHtml, glossarize, _applyTermChips, explainRisks, riskBannerHtml, why
 import { getGroups, getStockMap, getWatchlist, saveWatchlist, getHistory, saveHistory, addHistory, migrateWatchlist, toggleStar, updateStarButton, updateBadges, openSbSection, toggleSbSection, toggleWatchOverview, toggleSidebar, sidebarLoadState, loadSbSection, renderSbSection, applySidebar, renderSidebar, renderWatchlist, exportWatchlist, importWatchlist, sbRefreshQuotes, sbSchedulePolling, removeFromWatchlist, registerResizeHook, clearCurrentTab, addGroupInline } from './watchlist.js';
 import { initCharts, switchView, calcMA, renderKline, findEntryIndex, applyRange, dispatchKlineZoom, bindChartTooltip, updateZoomInfo, renderChanlun, renderChanlunDaily, applyChanlunDailyOverlay, renderMinute, loadMinute, refreshMinuteLight, renderFlow, switchFlowMode, loadRealtimeFlow, refreshKlineLastCandle, resizeAllChartsSafe, switchIndicator, _lastMA } from './chart.js';
 import { loadOverview, loadJournal, exportJournalCsv, exportJournalJson, loadPool, poolAdd, poolAddCurrent, poolRemove, poolNote, poolMove, togglePoolImport, poolImportSubmit, poolFillIndustry, recordSignal, renderSignalAccuracy, checkSignalChange, clearWatchChangeBadge, loadDigest, refreshDigest, renderPoolPanel } from './journal.js';
-import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, clearScanArchive, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan } from './scan.js';
+import { openScan, closeScan, renderScanIdle, startScan, stopScanPolling, renderScanArchiveList, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan, scanArchPage, scanArchBack, scanArchOpen } from './scan.js';
 import { loadNotifySettings, saveNotifySettings, testNotify, runNotifyOnce, refreshNotifyStatus } from './notify.js';
 import { loadSimPanel, saveSimConfig, runSimOnce, resetSimAccount, simBuy, simSell, simBuyPrompt, onSimResize } from './sim.js';
 /* 趋势分析看板主逻辑 —— 自 index.html 拆分（frontend-ux-v42 P0） */
@@ -982,7 +982,7 @@ Object.assign(window, {
   analyze, setMode, toggleSettings, closeSettings, setFx, doLogout,
   toggleStar, toggleSbSection, toggleWatchOverview, toggleSidebar, addGroupInline, clearCurrentTab,
   switchIndicator, switchFlowMode, toggleCard, exportWatchlist, importWatchlist,
-  closeScan, openScan, startScan, renderScanIdle, clearScanArchive,
+  closeScan, openScan, startScan, renderScanIdle,
   renderScanArchiveList, renderArchivedRun, exportScanCsv, deleteScanRun, analyzeFromScan,
   toggleWhy, exportJournalCsv, exportJournalJson, poolAdd, poolImportSubmit, poolFillIndustry,
   applyRange, updateQuote, renderPoolPanel, refreshDigest, stopScanPolling,

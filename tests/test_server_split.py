@@ -30,7 +30,7 @@ EXPECTED_GET_ROUTES = {
     "/api/analyze", "/api/quote", "/api/quotes", "/api/search",
     "/api/kline", "/api/minute", "/api/chanlun_minute", "/api/chanlun_daily",
     "/api/realtime_flow", "/api/journal", "/api/pool", "/api/watchlist",
-    "/api/snapshot-info", "/api/scan", "/api/digest", "/api/notify",
+    "/api/snapshot-info", "/api/scan", "/api/scan/history", "/api/digest", "/api/notify",
     "/api/kline-store", "/api/tasks", "/api/candidates",
     "/api/candidates/validate", "/api/candidates/doc", "/api/advice",
     "/api/evaluation", "/api/evaluation/summary", "/api/evaluation/doc",

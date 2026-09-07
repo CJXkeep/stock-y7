@@ -1005,6 +1005,20 @@ body.fx-off .wc-change-badge { animation: none !important; }
 
 /* ===== 移动端适配（第一轮） ===== */
 .scan-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* I13.1：侧栏归档详情紧凑表与分页条（不再强制 780px 横拖） */
+.scan-table.compact { min-width: 0; font-size: 12px; }
+.scan-table.compact th, .scan-table.compact td { padding: 4px 6px; }
+.scan-pager { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; font-size: 12px; color: #999; }
+.scan-pager .scan-analyze-btn { padding: 2px 8px; font-size: 11px; }
+.scan-pager button:disabled { opacity: 0.35; cursor: default; }
+/* I13.1：操作列固定右侧——横滚时按钮始终可见可点（遮底不透，左缘阴影提示可滚） */
+.scan-table th:last-child, .scan-table td:last-child {
+  position: sticky; right: 0; z-index: 1;
+  background: #141414;
+  box-shadow: -8px 0 8px -6px rgba(0, 0, 0, 0.9);
+}
+.scan-table tr:hover td:last-child { background: #222; }
+.scan-table.compact th:last-child, .scan-table.compact td:last-child { background: #0f0f0f; }
 .scan-table-wrap .scan-table { min-width: 780px; }
 
 @media (max-width: 768px) {

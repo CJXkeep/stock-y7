@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""扫描结果本地归档（qs_scan_archive）回归测试：静态断言前端实现标记。"""
+"""扫描结果归档回归测试（I13 重写）：归档事实源 = 服务器 history.jsonl。
+
+I13 前：前端 localStorage 存 results（无拦截组），本文件守护其幂等/裁剪。
+I13 后：归档按轮写服务器（data/scan/history.jsonl，含拦截组全量），
+本文件改为守护前端的服务器同源读取、一次性迁移与本地写路径移除；
+后端裁剪（SCAN_HISTORY_MAX）由 tests/test_scan_history.py 覆盖。
+"""
 import os
 import sys
 
@@ -10,15 +16,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _frontend_source import read_frontend_source
 
 
-def test_scan_archive_dedupe_and_cap_logic():
+def test_scan_archive_server_source():
     src = read_frontend_source()
-    # 幂等：同签名 10 分钟内不重复归档
-    assert "10 * 60 * 1000" in src.replace(" ", "") or "10*60*1000" in src.replace(" ", ""), \
-        "归档去重时间窗缺失"
-    # 上限裁剪
-    assert "while (list.length > MAX_SCAN_ARCHIVE) list.pop()" in src, "归档上限裁剪缺失"
-    # 存储失败提示而非静默
-    assert "存储空间不足" in src
+    # 事实源 = 服务器归档 API（列表/详情/迁移/删除）
+    assert "/api/scan/history" in src, "扫描归档未走服务器事实源"
+    assert "action: 'migrate'" in src, "旧 localStorage 归档迁移缺失"
+    assert "qs_scan_archive_migrated" in src, "迁移一次性标记缺失"
+    # 本地写入路径已删除（拦截组归档缺失的根因就是它）
+    assert "function archiveScanRun" not in src, "旧本地归档写入路径应已移除"
+    assert "function saveScanArchive" not in src, "旧本地归档写函数应已移除"
 
 
 def test_scan_scope_read_before_dom_replace():
@@ -38,7 +44,7 @@ def test_scan_scope_read_before_dom_replace():
 
 
 def test_run():
-    test_scan_archive_dedupe_and_cap_logic()
+    test_scan_archive_server_source()
     test_scan_scope_read_before_dom_replace()
     print("PASS scan-archive tests (2)")
 
