@@ -59,6 +59,13 @@ def load_params_override(path: str = None) -> dict:
 
 load_params_override()
 
+# signal-score-correction：多头止损/卖出在突破模块的子分。
+# 缺陷：止损/卖出与「持仓」同拿 60、高于中性（无信号 50）——刚止损的股票被反向加分。
+# 修复：该分支改用受控常量 BREAKOUT_STOP_SCORE，最终选定值 = 50（中性：与无信号
+# 同分、< 持仓 60，2026-09-07 全量重放对照后由用户定夺）；对照期间以环境变量
+# SSC_BREAKOUT_STOP_SCORE 在独立进程中切换候选（仅用于复现对照，默认即最终值）。
+BREAKOUT_STOP_SCORE = int(_os.environ.get("SSC_BREAKOUT_STOP_SCORE", "50"))
+
 
 def action_from_score(score, th_strong=None, th_buy=None):
     """综合分 → 动作三档（I8.3 单源：run_analysis 与 backtest.sensitivity 共用）。
@@ -124,18 +131,31 @@ def _volume_price_to_score(vp: VolumePriceResult) -> int:
 
 
 def _breakout_to_score(breakouts: List[BreakoutResult]) -> int:
-    """突破模块评分。有突破信号 60 起，存在空头平仓（偏多）加 3 至 63（加密反推）。"""
+    """突破模块评分。
+
+    signal-score-correction：把「多头止损/卖出」从与「持仓」相同的 60 分中剥离，
+    降至 BREAKOUT_STOP_SCORE（≤ 无信号 50、< 持仓 60）。规则（确定性优先级）：
+    - 无任何相关信号 → 50（无信号中性，维持现状）；
+    - 存在多头止损/卖出 → BREAKOUT_STOP_SCORE（含与持仓并存时——刚触发止损的
+      股票突破子分不高于从未突破的股票，不再被持仓分支救回 60）；
+    - 仅持仓/持仓空头 → 60（中性持有表达，非缺陷，维持现状）；
+    - 空头平仓 → 60 并保留 +3 偏多加分（加密反推，维持现状）；
+    仅止损/卖出分支改变，其余分值只减不增。
+    """
     score = 50
-    has_signal = False
+    has_hold = False
+    has_stop = False
     has_short_cover = False
     for b in breakouts:
-        if b.signal in ("持仓", "持仓空头", "多头止损", "卖出"):
-            has_signal = True
+        if b.signal in ("持仓", "持仓空头"):
+            has_hold = True
+        elif b.signal in ("多头止损", "卖出"):
+            has_stop = True
         if b.signal == "空头平仓":
             has_short_cover = True
-    if has_signal:
-        score = 60
-    elif has_short_cover:
+    if has_stop:
+        score = BREAKOUT_STOP_SCORE
+    elif has_hold or has_short_cover:
         score = 60
     if has_short_cover:
         score += 3

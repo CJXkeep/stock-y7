@@ -2,7 +2,7 @@
 
 能力名：`breakout-buy-point`。归档后描述系统一（20 日唐奇安通道）与系统二（55 日唐奇安通道）的入场选择、仓位与止损、退出判定、置信度展示的完整行为。
 
-> 版本注记：v2（2026-09-05 文字对齐，行为不变；验收原文 v1 见 `docs/comet/archive/2026-09-05-breakout-buy-point-close-confirm/`，Verifier 附注项）。差异仅两处表述：§4 空头平仓分支一明确为「盘中触及、非收盘确认」；§5 置信度注明实际钳制区间 [5,95]。
+> 版本注记：v2（2026-09-05 文字对齐，行为不变；验收原文 v1 见 `docs/comet/archive/2026-09-05-breakout-buy-point-close-confirm/`，Verifier 附注项）。差异仅两处表述：§4 空头平仓分支一明确为「盘中触及、非收盘确认」；§5 置信度注明实际钳制区间 [5,95]。v3（2026-09-07，`signal-score-correction`：§6 聚合评分中止损/卖出分支由 60 改为 50，其余行为不变）。
 
 ## 1. 通道与波动
 
@@ -47,4 +47,4 @@
 ## 6. 聚合输出
 
 - 系统一/系统二各输出一个 `BreakoutResult`：system/signal/breakout_price/current_n/stop_loss/entry_price/position_units/exit_price/channel_high/channel_low/next_add_price/signals/description + 买点质量字段（direction/entry_date/holding_days/confidence/confidence_level/confidence_factors）。
-- 五模块评分 `_breakout_to_score` 不变：有持仓/卖出类信号 60 起，空头平仓 +3；置信度不影响评分。
+- 五模块评分 `_breakout_to_score`（signal-score-correction 起）：止损/卖出类信号 = `BREAKOUT_STOP_SCORE`（50，与无信号中性同分、< 持仓 60，不再反向加分）；持仓/持仓空头 60；空头平仓 60 并 +3（=63）；无信号 50；置信度不影响评分。

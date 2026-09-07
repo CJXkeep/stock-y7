@@ -1,0 +1,234 @@
+schema: comet.native.v4
+name: signal-score-correction
+language: en
+phase: archive
+status: done
+state_version: 7
+brief: brief.md
+spec_changes: []
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1（止损不再反向加分）：在既有止损/卖出计分样例中，突破子分从 60 降至**最终选定值**（40 或 50），满足「≤ 无信号 50 分」且「<
+      持仓 60 分」；`tests/test_p0_fixes.py` 中冻结「止损卖出
+      ≥60」旧语义的断言已反转，`test_non_defect_breakout_holding_score_unchanged` 类持仓=60
+      断言保持通过。
+    result: passed
+    reason:
+      text: test_p0_fixes.test_breakout_sell_enters_sell_signals 通过：止损/卖出样例突破子分 ==
+        BREAKOUT_STOP_SCORE(=50)、≤50、<60、∈{40,50}；test_non_defect_breakout_holding_score_unchanged（持仓=60）保持通过；tests/test_signal_score_correction.py
+        7/7 覆盖止损≤50<60、持仓/持仓空头 60、无信号 50、组合样例止损占优且只减不增
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2（选值有证据、可复现）：最终选定值（40 或 50）基于**清缓存后**的全量重放对照产出；对照在 40/50
+      两个候选各跑一次，报告记录综合分分布、买入侧数量与分档位移，且明确注明已清理旧 `cache.json`（避免 policy_hash 只认
+      postprocess 导致引擎计分改动后旧缓存误用）。代码中以单一可控常量/分支承载最终值，两候选切换成本为零。
+    result: passed
+    reason:
+      text: 对照报告 docs/comet/changes/signal-score-correction/对照报告-全量重放-2026-09-07.md
+        记录快照 20260905T041737Z（池 v2 全 3 只）60/40/50 三组清 cache.json
+        后重放（cache_hits_symbols=0、daily_rows=2040），含综合分分布/买入侧数量（604/540/570、final_buy
+        92/85/88）/分档位移矩阵与清缓存声明；最终值 50 由用户依据对照定夺并写入单一常量
+        BREAKOUT_STOP_SCORE（SSC_BREAKOUT_STOP_SCORE 环境变量切换候选成本为零，仅对照复现用）
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3（阈值同源、默认冻结）：不写 `params_override.json` 时后处理分级行为与现状逐字节一致（75/65/60、conf
+      60/45、模块≥55、模块数≥4/≥3 语义不变）；写入 override（如
+      th_strong/th_buy）后，引擎分档与后处理分级读取同一生效阈值，不再出现「引擎阈值已变、后处理仍用旧常量」的静默不一致（测试覆盖）。
+    result: passed
+    reason:
+      text: 无 override 时 test_policy_replay golden（含 A1 golden 行为冻结）全通过，75/65/60、conf
+        60/45、模块≥55、模块数≥4/≥3 语义未变；tests/test_signal_score_correction.py 的
+        override 同源三例通过：STRONG_SCORE=85 时 score=80 引擎=买入且后处理不再抬回强烈买入、score=90
+        强烈买入同源放行、MEDIUM_SCORE=62 时 score=65 落谨慎档（中档=生效买入阈值+5）
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4（3% 敏感性对照引用）：change 报告引用既有 `卖出规则敏感性网格-*.md`（含 3.0/5.0/8.0/25.0、池 3 只与
+      screen 双口径）证据，说明 3% 档结论及其样本限制；不声称新网格证据。
+    result: passed
+    reason:
+      text: 对照报告 §5 引用既有 I12.1 网格（卖出规则敏感性网格-2026-09-05.md 汇总 + 040717Z screen 口径 +
+        041737Z 池口径，3.0/5.0/8.0/25.0 双口径），给出 3.0 档指标（n=73、胜率 43.8%、平均
+        -0.48%）并披露样本限制（3 只池、日线近似口径、未达统计显著、中等偏弱可信度），未声称新网格证据
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5（行为兼容）：非止损/卖出场景的突破子分不变（无信号 50、持仓
+      60、空头平仓偏多加分的既有样例断言通过）；置信度仅展示维度、不参与评分的不变式保持。
+    result: passed
+    reason:
+      text: test_hold_and_neutral_unchanged、test_short_cover_bonus_preserved（空头平仓
+        63、持仓+空头平仓 63）、test_confidence_does_not_change_breakout_score（12/12
+        test_breakout_confidence）全部通过：非止损/卖出场景子分不变，置信度仅展示维度的不变式保持
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6（全量回归）：`python run_all_tests.py` 全文件通过、0 失败；`tests/test_p0_fixes.py` 与
+      `tests/test_breakout_confidence.py` 全通过。
+    result: passed
+    reason:
+      text: Verifier 独立重跑：test_signal_score_correction 7/7、test_p0_fixes
+        11/11、test_breakout_confidence 12/12、test_policy_replay 全通过；python
+        run_all_tests.py 73/73 文件通过、0 失败
+      truncated: false
+builder_handoff:
+  candidate_id: 1c88a236-ae30-470b-83ba-0a5372f1d93a
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:e047773c-ae3a-488a-b426-54a747168927
+  iteration: 1
+  summary:
+    text: signal-score-correction Build 完成：1) signal_engine._breakout_to_score
+      把「多头止损/卖出」从与持仓共享的 60 分剥离为单一受控常量 BREAKOUT_STOP_SCORE=50（用户 2026-09-07
+      依据全量重放对照定夺；≤无信号50、<持仓60），持仓/持仓空头 60 与空头平仓 60+3 维持现状，仅止损/卖出分支改变，组合样例止损占优；2)
+      signal_postprocess 分级评定分数档与 params_override
+      同源（强=STRONG_SCORE、谨慎=MEDIUM_SCORE、中=MEDIUM_SCORE+5，默认 75/65/60
+      逐字节冻结，golden 未变），conf 60/45、模块≥55、模块数≥4/≥3 维持常量；3) 清缓存全量重放对照（快照
+      20260905T041737Z，池 v2 全 3 只，60/40/50 三组、0 缓存命中）落盘对照报告
+      docs/comet/changes/signal-score-correction/对照报告-全量重放-2026-09-07.md，最终值
+      50；4) 反转 test_p0_fixes 旧=60 断言并新增 tests/test_signal_score_correction.py 守护
+      A1/A3；5) 同步 breakout-buy-point spec §6 至 v3（止损/卖出=50）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+  checks:
+    - name:
+        text: python tests/test_signal_score_correction.py
+        truncated: false
+      result: passed
+      note:
+        text: 7/7 通过（A1/A3 守护：常量候选集、止损≤50<60、持仓60、空头平仓63、默认 75/65/60 冻结、override 同源三例）
+        truncated: false
+    - name:
+        text: python tests/test_p0_fixes.py
+        truncated: false
+      result: passed
+      note:
+        text: 11/11 通过；test_breakout_sell_enters_sell_signals 已反转为
+          ==BREAKOUT_STOP_SCORE(=50)、≤50、<60；test_non_defect_breakout_holding_score_unchanged
+          保持通过
+        truncated: false
+    - name:
+        text: python tests/test_breakout_confidence.py
+        truncated: false
+      result: passed
+      note:
+        text: 全通过（置信度不影响评分不变式，run_all_tests 覆盖）
+        truncated: false
+    - name:
+        text: python run_all_tests.py
+        truncated: false
+      result: passed
+      note:
+        text: 最终值 50 下全量回归 73/73 文件通过、0 失败（含 test_policy_replay
+          golden、test_correct、test_sensitivity）
+        truncated: false
+    - name:
+        text: 清缓存全量重放对照（快照 20260905T041737Z，池 v2 全 3 只）
+        truncated: false
+      result: passed
+      note:
+        text: 60/40/50 三组独立 --root 副本、每次删除 cache.json
+          后重放，cache_hits_symbols=0、daily_rows=2040；总信号 604/540/570，final_buy
+          92/85/88，受影响日度行 621，新增信号 0
+        truncated: false
+    - name:
+        text: 对照报告落盘 docs/comet/changes/signal-score-correction/对照报告-全量重放-2026-09-07.md
+        truncated: false
+      result: passed
+      note:
+        text: 三候选指标表、分档位移矩阵、40 vs 50 差异、复现命令、I12.1 3% 网格证据引用与样本限制披露（A4）
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 重放对照样本仅当前核心池 3 只（快照 20260905T041737Z，pool
+        v2，2023-08-03～2026-09-04），结论为方向性证据而非统计显著
+      truncated: false
+    - text: policy_hash 只反映 signal_postprocess.py，本计分改动不使其失效——所有对照均在删除 cache.json
+        后执行；日常重放旧缓存如命中将沿用旧分值，需用户知悉
+      truncated: false
+    - text: 后处理中档阈值推导规则取 MEDIUM_SCORE+5（默认 65，无 override 时逐字节冻结）；override 下 th_buy 与
+        th_strong 间距 <5 时中/谨慎档可能出现窄带或空带（边缘场景）
+      truncated: false
+    - text: 止损与持仓并存的组合样例按止损占优处理（确定性规则，实证样本中罕见）
+      truncated: false
+    - text: BREAKOUT_STOP_SCORE 保留 SSC_BREAKOUT_STOP_SCORE 环境变量仅用于对照复现，默认即最终值 50
+      truncated: false
+    - text: 3% 回撤敏感性仅引用既有 I12.1 网格证据（3 只池、n=73），未重跑
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-09-07T13:57:56.784Z
+blockers: []
+verification:
+  candidate_id: 1c88a236-ae30-470b-83ba-0a5372f1d93a
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:1192a000-d1c9-44eb-b101-3e2fb3affb61
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: signal-score-correction 候选独立复核通过：止损/卖出突破子分修复为
+      BREAKOUT_STOP_SCORE=50（单一受控常量，用户依据清缓存全量重放对照定夺），params_override
+      与后处理分级阈值同源且默认行为逐字节冻结（golden 未变），对照报告与 I12.1 3% 证据引用落盘，全量回归 73/73 绿。A1-A6
+      全部 passed，无阻塞项。
+    truncated: false
+  risks:
+    - text: 对照样本仅当前池 3 只（快照 20260905T041737Z，pool v2），重放结论为方向性证据
+      truncated: false
+    - text: policy_hash 只反映 signal_postprocess.py：日常重放若命中旧 cache.json
+        将沿用旧分值（对照均已清缓存执行）
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-09-07T13:59:40.734Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: signal-score-correction 候选独立复核通过：止损/卖出突破子分修复为
+        BREAKOUT_STOP_SCORE=50（单一受控常量，用户依据清缓存全量重放对照定夺），params_override
+        与后处理分级阈值同源且默认行为逐字节冻结（golden 未变），对照报告与 I12.1 3% 证据引用落盘，全量回归 73/73 绿。A1-A6
+        全部 passed，无阻塞项。
+      truncated: false
+    completed_at: 2026-09-07T13:59:40.734Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-09-07T12:41:22.931Z

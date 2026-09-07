@@ -28,6 +28,7 @@ _kf_module.DATA_CACHE_DIR = tempfile.mkdtemp(prefix="p0test_kline_cache_empty_")
 from data.kline_fetcher import Kline
 from analysis import breakout_module
 from analysis.breakout_module import BreakoutResult, _analyze_system
+from analysis import signal_engine
 from analysis.signal_engine import _breakout_to_score, run_analysis
 from analysis.chanlun_daily import (
     DailyFractal,
@@ -76,11 +77,16 @@ def _breakout_sell_klines() -> list:
 
 
 def test_breakout_sell_enters_sell_signals():
+    # signal-score-correction：止损/卖出样例的突破子分 = 最终选定值（BREAKOUT_STOP_SCORE），
+    # 满足「≤ 无信号 50」「< 持仓 60」，不再与「持仓」同分、不再高于中性。
     klines = _breakout_sell_klines()
     result = run_analysis(klines, quote=None, flows=None, index_klines=[])
     assert result.breakouts[0].signal == "卖出"
     assert any("卖出" in s for s in result.sell_signals)
-    assert result.module_scores["突破"] >= 60
+    assert result.module_scores["突破"] == signal_engine.BREAKOUT_STOP_SCORE
+    assert result.module_scores["突破"] <= 50      # ≤ 无信号档
+    assert result.module_scores["突破"] < 60       # < 持仓档
+    assert result.module_scores["突破"] in (40, 50)  # 最终值候选集
 
 
 def test_non_defect_breakout_holding_score_unchanged():

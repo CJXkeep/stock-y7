@@ -18,6 +18,7 @@ import hashlib
 import logging
 import os
 
+import analysis.signal_engine as signal_engine
 from analysis.signal_engine import SignalEngineResult
 from analysis.breakout_module import CONFIDENCE_DISPLAY_MIN
 from backtest import config
@@ -316,12 +317,17 @@ def apply_signal_policy(signal_data: dict) -> dict:
             action = "观望"
             veto_reason = f"硬否决：{hard_veto_reason}"
         else:
-            # 分级评定
-            if score >= 75 and confidence >= 60 and modules_above_55 >= 4:
+            # 分级评定（signal-score-correction：分数档与 params_override 同源——
+            # 强档/谨慎档边界 = 引擎生效阈值 STRONG_SCORE/MEDIUM_SCORE，中档 =
+            # 谨慎档 +5（默认 65）；conf 60/45、模块≥55、模块数≥4/≥3 维持常量。
+            # 不写 override 时 = 默认 75/65/60，与迁移前行为逐字节一致（golden 守护）。
+            if (score >= signal_engine.STRONG_SCORE and confidence >= 60
+                    and modules_above_55 >= 4):
                 new_action = "强烈买入"
-            elif score >= 65 and confidence >= 45 and modules_above_55 >= 3:
+            elif (score >= signal_engine.MEDIUM_SCORE + 5 and confidence >= 45
+                    and modules_above_55 >= 3):
                 new_action = "买入"
-            elif score >= 60:
+            elif score >= signal_engine.MEDIUM_SCORE:
                 new_action = "谨慎买入"
             else:
                 new_action = "观望"
