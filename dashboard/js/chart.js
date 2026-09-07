@@ -238,7 +238,12 @@ export function renderKline(klines, signal, symbol) {
     const isExit = (b.signal === '卖出' || b.signal === '空头平仓');
     const hasEntry = !!(b.entry_price && b.entry_price > 0) && b.signal !== '无信号' && b.signal !== '观望';
     if (!hasEntry && !isExit) continue;
-    const isWeak = !isExit && conf != null && conf < minConf;   // 低置信度/假突破 → 仅作参考
+    // 置信度门槛只管「买点」的展示口径（入场标记+水平线）；离场/风险事件不受门槛限制，
+    // 照常展示（见下方 isExit 分支）。旧口径 `!isExit && conf < minConf` 会在仓位已被
+    // 打止损出局（signal=卖出）时把整套低置信买点画成有效买点+入场/止损水平线——
+    // 恰恰是失败证据最该按「参考」弱化展示的时刻
+    // （000931 2026-08-24 案例：52% 买点 09-01 收盘触及止损出局，图上却仍是红色有效买点）。
+    const isWeak = conf != null && conf < minConf;   // 低置信度/假突破 → 买点仅作参考
     if (isWeak) weakBreakouts.push(b); else shownBreakouts.push(b);
 
     const sysName = b.system || '系统';
@@ -381,25 +386,30 @@ export function renderKline(klines, signal, symbol) {
     }
   }
 
-  // 形态目标价
+  // 形态目标价（方向感知 + 现价校验）：
+  // 看涨目标须在现价上方、看跌目标须在现价下方——形态目标已被现价超越时，
+  // 这条线不再有"涨/跌到这里就卖"的指导意义，画出来只会和别的水平线叠在一处
+  // 让用户读出"目标 4.94 / 止损 4.93"之类的矛盾信息（000931 2026-09-04 案例）。
+  const lastClose = klines.length ? klines[klines.length - 1].close : 0;
   if (signal.patterns) {
     for (const p of signal.patterns) {
-      if (p.target_price && p.target_price > 0) {
-        const targetLabel = isBearish
-          ? `目标 ${p.target_price.toFixed(2)}\n跌到这里就止盈`
-          : `目标 ${p.target_price.toFixed(2)}\n涨到这里就卖`;
-        markLines.push({ yAxis: p.target_price, lineStyle: { color: '#ff9800', type: 'dashed', width: 2 },
-          label: { formatter: targetLabel, color: '#fff', fontSize: 11, fontWeight: 'bold',
-            backgroundColor: '#ff9800', padding: [3,6], borderRadius: 3, position: 'insideStartTop' } });
-        S._signalLines.push({
-          value: p.target_price,
-          title: `${p.name} 目标价`,
-          formula: p.description || '',
-          desc: isBearish
-            ? `${p.name}是经典看跌形态。跌破颈线后，预计再跌一个头部高度的幅度。\n跌到目标价就止盈平仓。置信度${p.confidence || '?'}%。`
-            : `${p.name}是经典看涨形态。突破颈线后，预计再涨一个头部高度的幅度。\n涨到目标价就止盈卖出。置信度${p.confidence || '?'}%。`,
-        });
-      }
+      if (!p.target_price || p.target_price <= 0) continue;
+      const pBull = p.direction ? (p.direction === '看涨') : !isBearish;
+      if (lastClose > 0 && (pBull ? p.target_price <= lastClose : p.target_price >= lastClose)) continue;
+      const targetLabel = pBull
+        ? `目标 ${p.target_price.toFixed(2)}\n涨到这里就卖`
+        : `目标 ${p.target_price.toFixed(2)}\n跌到这里就止盈`;
+      markLines.push({ yAxis: p.target_price, lineStyle: { color: '#ff9800', type: 'dashed', width: 2 },
+        label: { formatter: targetLabel, color: '#fff', fontSize: 11, fontWeight: 'bold',
+          backgroundColor: '#ff9800', padding: [3,6], borderRadius: 3, position: 'insideStartTop' } });
+      S._signalLines.push({
+        value: p.target_price,
+        title: `${p.name} 目标价`,
+        formula: p.description || '',
+        desc: pBull
+          ? `${p.name}是经典看涨形态。突破颈线后，预计再涨一个头部高度的幅度。\n涨到目标价就止盈卖出。置信度${p.confidence || '?'}%。`
+          : `${p.name}是经典看跌形态。跌破颈线后，预计再跌一个头部高度的幅度。\n跌到目标价就止盈平仓。置信度${p.confidence || '?'}%。`,
+      });
     }
   }
 

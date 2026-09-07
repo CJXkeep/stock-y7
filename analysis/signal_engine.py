@@ -217,10 +217,15 @@ def _build_trade_plan(
     atr = _calc_atr(klines, 14)
     if atr > 0 and entry > 0:
         raw_stop = entry - 2 * atr
-        if raw_stop <= 0:
-            # 极端高波动：ATR 止损非正，按入场价 95% 兜底，不再钳到 0.01
+        # 舍入到 0.01 后与入场价无法区分的过窄止损（近乎死水/长期一字板）
+        # 不能给「止损=买价」的自相矛盾结果（风险 0 / 盈亏比 0 / 图上两条线叠一处）。
+        # 该分支依赖 round(raw_stop,2) >= entry 判断，ATR>0 时 raw_stop 本身必 < entry。
+        degenerate = raw_stop > 0 and round(raw_stop, 2) >= entry
+        if raw_stop <= 0 or degenerate:
+            # 极端高波动/过窄 ATR 止损兜底：按入场价 95% 落止损并标注下限；
+            # 旧逻辑会钳到 0.01（偏高波动）或让止损等同/贴近入场价（过窄波动）
             stop = round(entry * 0.95, 2)
-            stop_mode = "下限5%(ATR过宽)"
+            stop_mode = "下限5%(ATR过窄或过宽)"
         else:
             # ATR 止损：入场价 - 2 × ATR(14)，即使低于入场价 95% 也如实展示
             stop = round(raw_stop, 2)
@@ -242,9 +247,12 @@ def _build_trade_plan(
     if target is not None:
         target_source = "pattern_target"
     if target is None:
+        # 箱体上沿兜底同样必须高于入场价：价格已站上箱体时上沿在现价之下，
+        # 拿来当目标会产出「目标 < 买入价」的倒挂计划（盈亏比为负、图上两条线叠一处）。
         for p in patterns:
-            if "箱体上沿" in p.key_levels:
-                target = p.key_levels["箱体上沿"]
+            box_top = p.key_levels.get("箱体上沿") if p.key_levels else None
+            if box_top is not None and box_top > entry:
+                target = box_top
                 target_source = "box_resistance"
                 break
     if target is None:

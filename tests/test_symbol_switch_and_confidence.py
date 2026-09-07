@@ -70,12 +70,28 @@ def test_confidence_gate_exists_in_chart():
 def test_low_confidence_entry_becomes_weak_reference_but_risk_event_always_drawn():
     # 低置信度/假突破不再隐藏，而是以弱化"参考"标记显示（不掩盖失败证据）
     seg = CHART.split("const markPoints = [];")[1].split("// 2) 离场/风险事件")[0]
-    assert "const isWeak = !isExit && conf != null && conf < minConf" in seg, \
-        "chart.js 缺少低置信度判定（isWeak）"
+    # 置信度门槛只管买点展示，不被离场事件（signal=卖出/空头平仓）绕过——
+    # 旧口径 `!isExit && ...` 会把已打止损出局的低置信买点整套画成有效买点（000931 案例）
+    assert "const isWeak = conf != null && conf < minConf" in seg, \
+        "chart.js 缺少低置信度判定（isWeak），或仍被 isExit 绕过"
+    assert "!isExit &&" not in seg.split("const isWeak")[1].split("\n")[0], \
+        "isWeak 不得被离场事件绕过：已出局买点恰是最需按『参考』弱化的失败证据"
     assert "if (isWeak) weakBreakouts.push(b); else shownBreakouts.push(b);" in seg, \
         "低置信度突破未被登记为弱化参考点"
     assert "weakStyle" in seg, "低置信度参考点缺少弱化样式（弱Style）"
     assert "买点参考" in seg or "参考" in seg, "低置信度参考点标签未标注『参考』"
+    # 风险事件（离场标记）不受门槛限制：isExit 分支仍在且独立于 isWeak
+    exit_seg = CHART.split("// 2) 离场/风险事件")[1]
+    assert "if (isExit) {" in exit_seg, "离场/风险事件标记缺失（不应受置信度门槛限制）"
+
+
+def test_pattern_target_line_direction_and_price_sanity():
+    # 形态目标线：看涨目标须高于现价、看跌目标须低于现价，已被超越的目标不画
+    seg = CHART.split("// 形态目标价")[1].split("const total = dates.length;")[0]
+    assert "const pBull = p.direction ? (p.direction === '看涨') : !isBearish;" in seg, \
+        "目标线未按形态自身方向判断（看跌形态会被标成『涨到这里就卖』）"
+    assert "p.target_price <= lastClose" in seg and "p.target_price >= lastClose" in seg, \
+        "目标线缺少现价校验（被超越的目标线会与止损线叠出一处、读出矛盾信息）"
 
 
 def test_marker_label_shows_confidence():
