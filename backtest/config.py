@@ -63,7 +63,7 @@ SCREEN_GATE_EXCESS_WIN_RATE = 50.0  # r20/r60 双超额胜率门槛（%）
 SCREEN_ADVICE_MIN_N = 10         # 逐股出池建议的最低窗口信号数（T3 为组合级规则，逐股须另设样本门槛）
 
 # ---- 信号后处理策略（I10 口径收敛；规则变更须升版本并在决策日志留痕） ----
-SIGNAL_POLICY_VERSION = "policy.v1.gate"   # 当前=含策略门/软否决/盈亏比/M 降档的规则集
+SIGNAL_POLICY_VERSION = "policy.v2.risk-consistency"  # 零盈亏比否决、最终仓位与动作一致
 SIGNAL_BUY_TIERS = ("强烈买入", "买入", "谨慎买入")  # 最终动作买入侧档位（gate/advise 口径，I10 起）
 
 # ---- 外源参考机制融合（2026-09，docs/策略融合-外源参考-2026-09.md；预承诺，改动须留痕） ----

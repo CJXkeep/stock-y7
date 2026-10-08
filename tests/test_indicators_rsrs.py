@@ -71,7 +71,8 @@ def test_rsrs_score_positive_with_variation():
     low_first = [100.0 + i for i in range(25)]
     high_first = [102.0 + i for i in range(25)]
     low_last = [125.0 + 1.5 * i for i in range(5)]
-    high_last = [127.0 + 1.5 * i for i in range(5)]
+    # 高低点关系必须变化；两者同步加速仍是 high=low+2，斜率始终为 1。
+    high_last = [127.0 + 1.8 * i for i in range(5)]
     lows = low_first + low_last
     highs = high_first + high_last
     r = rsrs_score(highs, lows, n=n, m=m)

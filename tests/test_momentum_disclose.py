@@ -36,7 +36,8 @@ def _index_klines(n=620):
     out = []
     for i in range(n):
         c = 3000.0 + 200 * math.sin(i / 12.0) + i * 0.1
-        out.append(_k(f"2026-01-{i % 28 + 1:02d}", o=c, h=c + 8.0,
+        # 改变高低点价差，使滚动回归斜率有方差，RSRS 才有定义。
+        out.append(_k(f"2026-01-{i % 28 + 1:02d}", o=c, h=c + 8.0 + 2 * math.sin(i / 7.0),
                       l=c - 8.0, c=c))
     return out
 

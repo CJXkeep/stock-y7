@@ -50,7 +50,7 @@ def test_exit_limit_open_trigger():
     ]
     ss.fetch_kline = lambda *a_, **k_: klines
     try:
-        reason = a.exit_check(POS, _quote(price=11.8, pre_close=11.0), {})
+        reason = a.exit_check(POS, _quote(price=11.8, pre_close=11.0), {"market_date": "2026-09-03"})
         assert reason == sa.REASON_LIMIT_OPEN
     finally:
         pass
@@ -67,7 +67,7 @@ def test_exit_limit_open_not_trigger_when_still_limit():
     ss.fetch_kline = lambda *a_, **k_: klines
     # 需让后续规则均不触发：关闭其它规则不便——用 close 序列令 MA20>price、量比不满足
     # 此处直接断言第一规则返回值不是 limit_open（可能为 None）
-    reason = a.exit_check(POS, _quote(price=12.09, pre_close=11.0), {})
+    reason = a.exit_check(POS, _quote(price=12.09, pre_close=11.0), {"market_date": "2026-09-03"})
     assert reason != sa.REASON_LIMIT_OPEN
 
 
@@ -79,7 +79,7 @@ def test_exit_ma20_break_trigger():
     klines = [_k(f"2026-08-{14 + i:02d}", c=10.0, v=100) for i in range(20)]
     klines.append(_k("2026-09-03", o=10.0, h=10.1, l=9.8, c=9.9, v=100))
     ss.fetch_kline = lambda *a_, **k_: klines
-    reason = a.exit_check(POS, _quote(price=9.9, pre_close=10.0, volume=100), {})
+    reason = a.exit_check(POS, _quote(price=9.9, pre_close=10.0, volume=100), {"market_date": "2026-09-03"})
     assert reason == sa.REASON_MA20_BREAK
 
 
@@ -93,7 +93,7 @@ def test_exit_peak_drawdown_trigger():
               for i in range(20)]
     klines.append(_k("2026-09-03", o=10.0, h=10.1, l=9.95, c=10.0, v=100))
     ss.fetch_kline = lambda *a_, **k_: klines
-    reason = a.exit_check(POS, _quote(price=10.0, pre_close=10.0, volume=100), {})
+    reason = a.exit_check(POS, _quote(price=10.0, pre_close=10.0, volume=100), {"market_date": "2026-09-03"})
     assert reason == sa.REASON_PEAK_DRAWDOWN
 
 
@@ -102,11 +102,11 @@ def test_exit_peak_drawdown_trigger():
 def test_exit_volume_spike_trigger():
     """前 10 日均量 100，当日量 350 > 3×100，且未涨停 → 放量卖出。"""
     a = _adapter()
-    klines = [_k(f"2026-08-{14 + i:02d}", c=10.0, v=100) for i in range(10)]
+    klines = [_k(f"2026-08-{14 + i:02d}", h=10.0, c=10.0, v=100) for i in range(10)]
     klines.append(_k("2026-09-03", o=10.0, h=10.1, l=9.9, c=10.05, v=350))
     ss.fetch_kline = lambda *a_, **k_: klines
     # 现价 10.05：MA20=10.0 → 不触发均线；高点回撤=0；放量 350>300 → 触发
-    reason = a.exit_check(POS, _quote(price=10.05, pre_close=10.0, volume=350), {})
+    reason = a.exit_check(POS, _quote(price=10.05, pre_close=10.0, volume=350), {"market_date": "2026-09-03"})
     assert reason == sa.REASON_VOLUME_SPIKE
 
 
@@ -124,8 +124,8 @@ def test_exit_check_silent_when_no_data():
 def test_exit_check_no_trigger_normal_case():
     """收盘平稳 10.0、现价=10.0、量=均量、持仓无回撤 → None（维持）。"""
     a = _adapter()
-    klines = [_k(f"2026-08-{14 + i:02d}", c=10.0, v=100) for i in range(20)]
+    klines = [_k(f"2026-08-{14 + i:02d}", h=10.0, c=10.0, v=100) for i in range(20)]
     klines.append(_k("2026-09-03", o=10.0, h=10.0, l=10.0, c=10.0, v=100))
     ss.fetch_kline = lambda *a_, **k_: klines
-    reason = a.exit_check(POS, _quote(price=10.0, pre_close=10.0, volume=100), {})
+    reason = a.exit_check(POS, _quote(price=10.0, pre_close=10.0, volume=100), {"market_date": "2026-09-03"})
     assert reason is None

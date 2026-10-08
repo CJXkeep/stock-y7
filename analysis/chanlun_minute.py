@@ -233,7 +233,9 @@ def find_strokes(fractals: List[Fractal], merged: List[MergedKline]) -> List[Str
             if end is not None:
                 strokes.append(Stroke(
                     direction, start.price, end.price, start.time, end.time,
-                    start_pos, end_pos, confirmed_time=f.time))
+                    start_pos, end_pos,
+                    confirmed_time=(merged[f.index + 1].time_start
+                                    if f.index + 1 < len(merged) else None)))
                 start = end
                 start_pos = end_pos
                 direction = "up" if direction == "down" else "down"
@@ -318,6 +320,8 @@ def _signal_timing(stroke: Stroke, klines: List[MinuteKline]) -> tuple:
     times = [k.time for k in klines]
     observation = stroke.end_time
     confirmed = stroke.confirmed_time
+    if confirmed and len(times) >= MACD_MIN_BARS:
+        confirmed = max(confirmed, times[MACD_MIN_BARS - 1])
     executable = _next_time(times, confirmed)
     return observation, confirmed, executable
 

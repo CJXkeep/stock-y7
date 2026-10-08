@@ -12,8 +12,8 @@
 - 整手 ``LOT_SIZE``（A 股 100 股/手），可用资金买不起一手则不下单；
 - **T+1**：当日买入的持仓当日不可卖出；
 - **单标的单仓位**：已持有同标的不再加仓；卖出支持全部 / 部分；
-- **涨停不追 / 跌停卖不出**：触及涨跌停价不成交并顺延，顺延计数在调用方（服务层）
-  维护，超过 ``EXIT_POSTPONE_LIMIT`` 后由调用方决定 unfilled / forced；
+- **涨停不追 / 跌停卖不出**：触及涨跌停价不成交，顺延计数在调用方（服务层）
+  维护；卖出保留持仓与待执行意图，不因等待超时虚构成交；
 - **成本口径**：持仓 ``cost_basis`` 含买入费用；卖出盈亏 = 卖出净收入 − 按比例结转的成本。
 
 事实来源（``data/sim/``）：
@@ -608,12 +608,10 @@ def reset_account(capital: float = None, *, now: datetime.datetime = None,
                 continue
             avg_cost = float(pos.get("avg_cost", 0.0) or 0.0)
             price = max(avg_cost, 0.01)   # 重置清仓按成本价成交，避免凭空盈亏
-            trade, error = _execute_sell_locked(
+            _execute_sell_locked(
                 state, symbol, price, REASON_RESET, shares=shares,
                 strategy=pos.get("strategy", ""), now=now,
-                force=True, allow_t1=True)
-            if trade:
-                append_trade(trade, sim_dir_override)
+                force=True, allow_t1=True, sim_dir_override=sim_dir_override)
         fresh = default_state(capital)
         fresh["created_at"] = state.get("created_at", fresh["created_at"])
         fresh["rounds"] = int(state.get("rounds", 0) or 0)
@@ -762,7 +760,7 @@ def execute_sell(state: dict, symbol: str, price: float, reason: str = REASON_MA
     原因枚举：``"not_holding"`` / ``"t1_restriction"``（当日买入不可卖）/
     ``"limit_down_deferred"``（触及跌停不成交，由调用方决定顺延计数）/
     ``"bad_price"`` / ``"no_shares"``。
-    ``force=True`` 跳过跌停拦截（跌停顺延达上限的强制成交）；
+    ``force=True`` 仅在 ``reason=reset`` 时允许账户重置清账；普通交易不可绕过跌停；
     ``allow_t1=True`` 跳过 T+1 检查（账户重置清仓等账户级操作）。
     """
     with _LOCK:
@@ -790,7 +788,8 @@ def _execute_sell_locked(state: dict, symbol: str, price: float, reason: str,
     today = today_str(now)
     if not allow_t1 and str(pos.get("buy_date", "")) == today:
         return None, "t1_restriction"
-    if not force and _is_limit_down(price, symbol, pos.get("name", ""), pre_close, threshold):
+    reset_clear = force and reason == REASON_RESET
+    if not reset_clear and _is_limit_down(price, symbol, pos.get("name", ""), pre_close, threshold):
         return None, "limit_down_deferred"
 
     hold = int(pos.get("shares", 0) or 0)
@@ -857,7 +856,7 @@ def _execute_sell_locked(state: dict, symbol: str, price: float, reason: str,
         "trigger_date": pos.get("trigger_date", ""),
         "hold_days": hold_days,
         "cash_after": state["cash"],
-        "note": "forced" if force else "",
+        "note": "forced" if reset_clear else "",
     }
     append_trade(trade, sim_dir_override)
     return trade, ""

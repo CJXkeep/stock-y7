@@ -145,7 +145,7 @@ def test_track_pending_kind():
     pb = state["pending_buys"][deci.symbol]
     assert pb["kind"] == "queue" and pb["count"] == 1
     # 连续触发到超限
-    for _ in range(int(jc.EXIT_POSTPONE_LIMIT) + 1):
+    for _ in range(int(jc.EXIT_POSTPONE_LIMIT)):
         res = svc._track_pending(state, deci, kind="queue")
     assert res == "unfilled" and deci.symbol not in state["pending_buys"]
     # limit_up 路径 kind 保持 limit_up
@@ -243,7 +243,7 @@ def test_maybe_screen_queue_unfilled_after_limit():
         svc.get_universe = lambda cfg: FakeUniverse()
         svc.execute_buy = lambda *a_, **k_: (None, "never")
         stats = {"bought": 0, "unfilled": 0, "queue_unfilled": [], "trades": []}
-        for _ in range(int(jc.EXIT_POSTPONE_LIMIT) + 2):
+        for _ in range(int(jc.EXIT_POSTPONE_LIMIT) + 1):
             svc._maybe_screen(state, cfg, {}, now, PendingAdapter(), stats, force=True)
         assert stats["unfilled"] == 1, stats
         assert stats["queue_unfilled"] == ["600000"], stats
@@ -260,7 +260,9 @@ def test_execute_buy_queue_queue_deferred_then_note():
 
     import backtest.sim_account as sa_mod
     orig_append = sa_mod.append_trade
+    orig_quote = svc.fetch_quote
     sa_mod.append_trade = lambda trade, path=None: None
+    svc.fetch_quote = lambda symbol: _quote(price=10.0)
     queued = {"flag": False}
 
     class QAdapter:
@@ -302,3 +304,4 @@ def test_execute_buy_queue_queue_deferred_then_note():
         assert trades and trades[0].get("note") == "queue-deferred", trades
     finally:
         sa_mod.append_trade = orig_append
+        svc.fetch_quote = orig_quote

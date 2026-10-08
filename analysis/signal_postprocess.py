@@ -382,24 +382,27 @@ def apply_signal_policy(signal_data: dict) -> dict:
 
     risk_notes = []
     if entry and stop and target and entry > 0:
-        if not risk_reward:
-            risk_amt = entry - stop
-            reward_amt = target - entry
-            if risk_amt > 0:
-                risk_reward = round(reward_amt / risk_amt, 1)
-
-        if risk_reward:
-            if risk_reward < 1.0:
+        risk_amt = entry - stop
+        reward_amt = target - entry
+        if risk_amt > 0:
+            # 决策用未舍入的比值；0.0 是有效的低收益结果，不是缺失数据。
+            exact_risk_reward = reward_amt / risk_amt
+            risk_reward = round(exact_risk_reward, 1)
+            if exact_risk_reward < 1.0:
                 risk_notes.append(f"盈亏比{risk_reward}倒挂，不建议入场")
                 if action in ("买入", "强烈买入", "谨慎买入"):
                     action = "观望"
                     veto_reason = (veto_reason + "；" if veto_reason else "") + f"盈亏比{risk_reward}倒挂"
-            elif risk_reward < 1.5:
+            elif exact_risk_reward < 1.5:
                 risk_notes.append(f"盈亏比{risk_reward}偏低，谨慎操作")
-            elif risk_reward < 2.0:
+            elif exact_risk_reward < 2.0:
                 risk_notes.append(f"盈亏比{risk_reward}，勉强达标")
             else:
                 risk_notes.append(f"盈亏比{risk_reward}，风险收益比良好")
+
+    # 盈亏比检查可能在仓位计算之后否决买入，写回前按最终动作同步。
+    if action not in ("买入", "强烈买入", "谨慎买入"):
+        position_advice = "空仓等待"
 
     # ---- 7. 写回信号数据 ----
     signal_data["action"] = action

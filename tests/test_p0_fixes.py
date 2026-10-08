@@ -193,16 +193,18 @@ def test_qfq_eastmoney_fallback_has_meta():
          kf._fetch_kline_eastmoney, kf._enrich_from_eastmoney) = old
 
 
-def test_daily_stroke_confirmed_date_is_later_fractal_date():
+def test_daily_stroke_confirmation_waits_for_fractal_right_bar():
     fractals = [
         DailyFractal(index=0, type="top", price=10.0, date="2026-01-01"),
         DailyFractal(index=4, type="bottom", price=8.0, date="2026-01-05"),
         DailyFractal(index=8, type="top", price=11.0, date="2026-01-09"),
     ]
-    strokes = find_daily_strokes(fractals, [])
+    merged = [MergedDailyKline(f"2026-01-{i:02d}", f"2026-01-{i:02d}",
+                               10, 8, 1, 1) for i in range(1, 11)]
+    strokes = find_daily_strokes(fractals, merged)
     assert len(strokes) >= 1
     assert strokes[0].end_date == "2026-01-05"
-    assert strokes[0].confirmed_date == "2026-01-09"
+    assert strokes[0].confirmed_date == "2026-01-10"
 
 
 def test_daily_signal_timing_fields():
@@ -211,27 +213,31 @@ def test_daily_signal_timing_fields():
         DailyFractal(index=4, type="bottom", price=8.0, date="2026-01-05"),
         DailyFractal(index=8, type="top", price=11.0, date="2026-01-09"),
     ]
-    strokes = find_daily_strokes(fractals, [])
-    dates = ["2026-01-01", "2026-01-05", "2026-01-09", "2026-01-12"]
+    merged = [MergedDailyKline(f"2026-01-{i:02d}", f"2026-01-{i:02d}",
+                               10, 8, 1, 1) for i in range(1, 11)]
+    strokes = find_daily_strokes(fractals, merged)
+    dates = ["2026-01-01", "2026-01-05", "2026-01-09", "2026-01-10", "2026-01-12"]
     sig = _make_daily_signal(
         "buy1", strokes[0].end_price, strokes[0].end_date, 70,
         "test", strokes[0], dates,
     )
     assert sig.observation_date == "2026-01-05"
-    assert sig.confirmed_date == "2026-01-09"
+    assert sig.confirmed_date == "2026-01-10"
     assert sig.executable_date == "2026-01-12"
 
 
-def test_minute_stroke_confirmed_time_is_later_fractal_time():
+def test_minute_stroke_confirmation_waits_for_fractal_right_bar():
     fractals = [
         Fractal(index=0, type="top", price=10.0, time="10:00"),
         Fractal(index=4, type="bottom", price=8.0, time="10:20"),
         Fractal(index=8, type="top", price=11.0, time="10:40"),
     ]
-    strokes = find_strokes(fractals, [])
+    merged = [MergedKline(f"10:{i * 5:02d}", f"10:{i * 5:02d}", 10, 8, 1, 1)
+              for i in range(10)]
+    strokes = find_strokes(fractals, merged)
     assert len(strokes) >= 1
     assert strokes[0].end_time == "10:20"
-    assert strokes[0].confirmed_time == "10:40"
+    assert strokes[0].confirmed_time == "10:45"
 
 
 def test_minute_signal_timing_fields():
@@ -240,20 +246,23 @@ def test_minute_signal_timing_fields():
         Fractal(index=4, type="bottom", price=8.0, time="10:20"),
         Fractal(index=8, type="top", price=11.0, time="10:40"),
     ]
-    strokes = find_strokes(fractals, [])
+    merged = [MergedKline(f"10:{i * 5:02d}", f"10:{i * 5:02d}", 10, 8, 1, 1)
+              for i in range(10)]
+    strokes = find_strokes(fractals, merged)
     klines = [
         MinuteKline("10:00", 10, 10, 10, 10, 1),
         MinuteKline("10:20", 8, 8, 8, 8, 1),
         MinuteKline("10:40", 11, 11, 11, 11, 1),
         MinuteKline("10:45", 11, 11, 11, 11, 1),
+        MinuteKline("10:50", 11, 11, 11, 11, 1),
     ]
     sig = _make_signal(
         "buy1", strokes[0].end_price, strokes[0].end_time, "test", 70,
         strokes[0], klines,
     )
     assert sig.observation_time == "10:20"
-    assert sig.confirmed_time == "10:40"
-    assert sig.executable_time == "10:45"
+    assert sig.confirmed_time == "10:45"
+    assert sig.executable_time == "10:50"
 
 
 def test_optimization_syncs_action_plan_summary_risk_strength():
@@ -290,17 +299,10 @@ def test_optimization_syncs_action_plan_summary_risk_strength():
 
 def test_breakout_position_units_capped_at_4():
     klines = [_kline(i, 10.0, 10.0, 10.0, 9.5) for i in range(30)]
-    for i in range(1, 30):
-        klines[i].high = 10.0 + 10.0 ** (i + 1)
-
-    orig_find = breakout_module._find_last_entry
-    breakout_module._find_last_entry = lambda klines, period: ("多", 10.0, 0)
-    try:
-        b = _analyze_system(klines, 20, "系统一(20日)")
-        assert b.position_units == 4
-        assert b.next_add_price is None
-    finally:
-        breakout_module._find_last_entry = orig_find
+    klines += [_kline(31, 10, 11, 12, 10), _kline(32, 11, 10.5, 200, 10)]
+    b = _analyze_system(klines, 20, "系统一(20日)")
+    assert b.position_units == 4
+    assert b.next_add_price is None
 
 
 def _run_all():

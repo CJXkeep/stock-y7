@@ -372,22 +372,23 @@ def test_simulation_limit_up_postponed_entry():
     assert sim["entry_price"] == 101.1 and sim["entry_date"] == dates[14]  # 101×1.001
 
 
-def test_simulation_sell_limit_down_postpone_and_forced():
-    """A3：触发日收盘跌停顺延；连续 6 个跌停日 → 第 5 顺延日收盘强平 forced。"""
+def test_simulation_sell_limit_down_postpone_until_executable():
+    """持续跌停不制造强平成交，超过旧五日上限仍等待真实可成交日。"""
     from backtest.stats import simulate_signal
     bars, dates = _sim_bars()
     # 触发日 day14：low=91≤stop92 触发，但 close=90 ≤ 跌停线 90.05 → 不可卖
-    bars[14] = [dates[14], 95.0, 96.0, 91.0, 90.0, 1000.0]
+    bars[14] = [dates[14], 95.0, 96.0, 90.0, 90.0, 1000.0]
     # 连续跌停链：每日收盘 ≤ 昨收×0.9005
-    chain = [80.0, 71.0, 63.0, 56.0, 50.0]
+    chain = [81.0, 72.9, 65.61, 59.05, 53.15]
     for j, c in enumerate(chain):
         idx = 15 + j
-        bars[idx] = [dates[idx], c * 1.02, c * 1.02, c * 0.98, c, 1000.0]
+        bars[idx] = [dates[idx], c, c, c, c, 1000.0]
+    bars[20] = [dates[20], 53.15, 54.0, 53.0, 53.5, 1000.0]
     sim = simulate_signal("600519", "", bars,
                           {"t": 12, "stop": 92.0, "target": 130.0}, capital=20000.0)
-    assert sim["outcome"] == "stop" and sim["forced"] is True
-    assert sim["exit_date"] == dates[19]  # 触发日 +5 顺延日收盘强平
-    assert sim["exit_price"] == 50.0 * (1 - 0.001)
+    assert sim["outcome"] == "stop" and sim["forced"] is False
+    assert sim["exit_date"] == dates[20]
+    assert sim["exit_price"] == round(53.15 * (1 - 0.001), 2)
 
 
 def test_simulation_buy_limit_up_unfilled_cap():

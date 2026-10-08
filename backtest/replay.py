@@ -8,23 +8,25 @@
   analysis/signal_postprocess.apply_signal_policy 的最终动作，与实盘四调用点
   同源）+ veto_reason + policy_version/policy_hash；
 - warmup：t+1 < WARMUP_BARS 的信号标记 warmup=true；
-- 增量缓存 (symbol, tail_hash)；policy_hash 不匹配（含旧格式缓存）→ 该股重算；
+- 缓存绑定完整个股/指数数据、实现源码与生效参数；旧格式缓存自动重算；
   --workers 并行（Windows spawn 安全）；
 - I12 日度台账：每交易日一行 raw/final action 落 daily_actions.jsonl（与 signals.jsonl
   同批计算、缓存同批存取；"daily" 缺失的旧缓存条目失效重算），供卖出规则对照模拟。
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import logging
+import marshal
 import os
 
 from analysis.signal_engine import run_analysis as default_engine
 from analysis.signal_postprocess import (
     apply_signal_policy, policy_hash, policy_input_subset, policy_version)
 from backtest import config
-from backtest.snapshot import snapshot_dir, verify_snapshot
+from backtest.snapshot import _ohlc_violations, snapshot_dir, verify_snapshot
 from data.kline_fetcher import Kline
 
 _log = logging.getLogger("backtest.replay")
@@ -42,9 +44,42 @@ def make_klines(bars: list) -> list:
 
 
 def tail_hash(symbol: str, bars: list) -> str:
-    last = bars[-1] if bars else ["", 0]
-    payload = "{}|{}|{}|{}".format(symbol, len(bars), last[0], last[4])
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    """保留旧函数名；身份覆盖全部 OHLCV，不能只看末根日期/收盘。"""
+    payload = json.dumps([symbol, bars], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _replay_hash(idx_bars: list) -> str:
+    """指纹覆盖重放依赖源码、运行中生效常量和全部指数数据。"""
+    from analysis import (_indicators, breakout_module, momentum_module,
+                          pattern_module, signal_engine, signal_postprocess,
+                          trend_module, volume_price_module)
+    from backtest import snapshot
+    from data import kline_fetcher
+    modules = (signal_engine, signal_postprocess, trend_module, momentum_module,
+               breakout_module, volume_price_module, pattern_module, _indicators,
+               config, snapshot, kline_fetcher)
+    digest = hashlib.sha256()
+    with open(__file__, "rb") as fh:
+        digest.update(fh.read())
+    for module in modules:
+        digest.update(module.__name__.encode("utf-8"))
+        with open(module.__file__, "rb") as fh:
+            digest.update(fh.read())
+        # params_override 与环境变量在导入时生效，源码相同也必须区分实际值。
+        for key, value in sorted(vars(module).items()):
+            if not key.isupper():
+                continue
+            try:
+                encoded = json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                     allow_nan=False)
+            except (TypeError, ValueError):
+                continue   # 类/锁等非参数对象不参与；定义仍由源码指纹覆盖
+            digest.update((key + "=" + encoded).encode("utf-8"))
+    code = getattr(default_engine, "__code__", None)
+    digest.update(marshal.dumps(code) if code is not None else repr(default_engine).encode())
+    digest.update(tail_hash("index", idx_bars).encode("ascii"))
+    return digest.hexdigest()
 
 
 def _replay_symbol_impl(symbol: str, bars: list, idx_bars: list, engine,
@@ -59,11 +94,13 @@ def _replay_symbol_impl(symbol: str, bars: list, idx_bars: list, engine,
     signals = []
     daily = []
     total = len(bars)
+    idx_dates = [str(b[0]) for b in idx_bars]
     for t in range(total):
         lo = max(0, t + 1 - window)
-        ilo = max(0, t + 1 - idx_window)
+        iend = bisect.bisect_right(idx_dates, str(bars[t][0]))
+        ilo = max(0, iend - idx_window)
         klines = make_klines(bars[lo:t + 1])
-        idx_klines = make_klines(idx_bars[ilo:t + 1])
+        idx_klines = make_klines(idx_bars[ilo:iend])
         try:
             result = engine(klines, None, None, idx_klines, None, "day")
         except Exception as exc:
@@ -176,8 +213,12 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
     if _manifest_v.get("stale_used"):
         manifest["stale_used"] = True
     idx_bars = bars_by_symbol.get("_idx_" + config.INDEX_SYMBOLS[0], [])
+    if _ohlc_violations(idx_bars):
+        _log.warning("重放指数 OHLC 无效，本轮不使用指数数据")
+        idx_bars = []
     cache_path = os.path.join(out_dir, "cache.json")
     current_policy_hash = policy_hash()
+    current_replay_hash = _replay_hash(idx_bars)
     cache_raw = {}
     if os.path.exists(cache_path):
         with open(cache_path, "r", encoding="utf-8") as fh:
@@ -187,16 +228,21 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
     cache_stale = 0
     for key, entry in cache_raw.items():
         if (isinstance(entry, dict) and entry.get("policy_hash") == current_policy_hash
+                and entry.get("replay_hash") == current_replay_hash
                 and isinstance(entry.get("daily"), list)):
             cache[key] = entry
         else:
             cache_stale += 1
 
     targets = []
+    invalid_symbols = set()
     for symbol, meta in manifest.get("symbols", {}).items():
         if meta.get("insufficient"):
             continue
         if symbol not in bars_by_symbol:
+            continue
+        if meta.get("ohlc_invalid") or _ohlc_violations(bars_by_symbol[symbol]):
+            invalid_symbols.add(symbol)
             continue
         targets.append(symbol)
 
@@ -209,7 +255,7 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
         key = tail_hash(symbol, bars)
         if key in cache:
             signals = list(cache[key].get("signals") or [])
-            hits += len(signals)
+            hits += 1
             all_signals.extend(signals)
             all_daily.extend(cache[key].get("daily") or [])
             continue
@@ -223,6 +269,7 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
         with ProcessPoolExecutor(max_workers=workers) as pool:
             for result in pool.map(_replay_one, jobs):
                 cache[result["key"]] = {"policy_hash": current_policy_hash,
+                                        "replay_hash": current_replay_hash,
                                         "signals": result["signals"],
                                         "daily": result["daily"]}
                 all_signals.extend(result["signals"])
@@ -231,6 +278,7 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
         for job in jobs:
             result = _replay_one(job)
             cache[result["key"]] = {"policy_hash": current_policy_hash,
+                                    "replay_hash": current_replay_hash,
                                     "signals": result["signals"],
                                     "daily": result["daily"]}
             all_signals.extend(result["signals"])
@@ -256,7 +304,9 @@ def run_replay(snapshot_id: str, workers: int = 1, root: str = None,
         "computed_symbols": len(jobs),
         "policy_version": policy_version(),
         "policy_hash": current_policy_hash,
+        "replay_hash": current_replay_hash,
         "cache_stale_invalidated": cache_stale,
+        "skipped_ohlc_invalid": len(invalid_symbols),
         "skipped_insufficient": sum(1 for m in manifest.get("symbols", {}).values()
                                     if m.get("insufficient")),
     }

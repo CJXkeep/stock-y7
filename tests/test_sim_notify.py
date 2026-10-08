@@ -80,7 +80,7 @@ def test_norm_notify_partial_and_ops_filter():
 # ---------------------------------------------------------------- 消息组装
 
 def test_build_message_title_and_sides():
-    title, text = sn.build_sim_message([_buy_trade(), _sell_trade()])
+    title, text = sn.build_sim_message([_buy_trade(), _sell_trade(reason="signal")])
     assert title == "模拟成交2笔"
     assert "买入" in text and "卖出" in text
     assert "信号卖出" in text
@@ -127,10 +127,10 @@ def test_push_ops_filter():
 
 
 def test_save_sent_rolls_cap():
-    d = _tmp()
     ids = {f"id-{i:05d}" for i in range(sn.NOTIFY_SENT_MAX + 50)}
-    sn._save_sent(ids, d)
-    saved = sn._load_sent(d)
+    with tempfile.TemporaryDirectory() as d:
+        sn._save_sent(ids, d)
+        saved = sn._load_sent(d)
     assert len(saved) == sn.NOTIFY_SENT_MAX
     assert "id-00000" not in saved
     assert f"id-{sn.NOTIFY_SENT_MAX + 49:05d}" in saved

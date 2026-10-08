@@ -12,9 +12,9 @@
   只披露差值与 stderr、不做显著性结论；判据优先超额均值，无基准退化绝对均值；
 - 模拟：T+1 开盘入场（开盘涨停顺延，上限 EXIT_POSTPONE_LIMIT 日→unfilled）、
   滑点 SLIPPAGE_RATE 双边对称不利方向（0.01 元步进）、stop/target **盘中触价即时成交**（保守）、
-  卖出日收盘跌停顺延（连续 EXIT_POSTPONE_LIMIT 日第 N 日收盘强平标 forced）、
+  卖出日收盘跌停顺延至可成交日，数据尾仍不可成交则保留未平仓、
   费率集中 config、capital 可配、一手买不起记 insufficient_capital、
-  数据不足完整视界记 truncated 而非 timeout。
+  数据不足完整视界记 truncated 未平仓，不虚构数据尾成交。
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from backtest import calendar as cal
 from backtest import config
 from backtest.dedupe import mark_window
 from backtest.replay import load_signals, load_daily_actions
-from backtest.snapshot import load_snapshot, snapshot_dir, verify_snapshot
+from backtest.snapshot import _ohlc_violations, load_snapshot, snapshot_dir, verify_snapshot
 
 _log = logging.getLogger("backtest.stats")
 
@@ -90,13 +90,15 @@ def compute_forward_returns(closes: list, t: int, horizons=None,
     return out
 
 
-def _summary(rows: dict) -> dict:
-    n = len(rows)
-    rets = [r for r in rows if r is not None]
+def _summary(rows: list) -> dict:
+    rets = [r for r in rows if r is not None and math.isfinite(r)]
+    n = len(rets)
     std = round(statistics.stdev(rets), 4) if len(rets) >= 2 else None
     stderr = round(std / math.sqrt(len(rets)), 4) if std is not None else None
     return {
         "n": n,
+        "total": len(rows),
+        "missing": len(rows) - n,
         "win_rate": round(sum(1 for r in rets if r > 0) / len(rets) * 100.0, 2) if rets else None,
         "avg_return": round(sum(rets) / len(rets), 4) if rets else None,
         "median_return": round(statistics.median(rets), 4) if rets else None,
@@ -240,25 +242,22 @@ def _fees(buy_amount: float, sell_amount: float) -> float:
 
 
 def _sell_execute(bars: list, trigger_idx: int, exec_raw: float, limit_down) -> tuple:
-    """卖出执行（跌停顺延共用，I12 自 stop/target 分离复用）：返回 (exit_idx, exec_raw, forced)。
+    """返回 (exit_idx, exec_raw, forced)；未能卖出为 (None, None, False)。
 
-    触发日收盘跌停 → 顺延至下一非跌停日开盘；连续 EXIT_POSTPONE_LIMIT 日
-    跌停（或数据尾）→ 末日收盘强平 forced=true。
+    沿用收盘跌停顺延的保守日线近似；顺延日开盘也须可卖。
+    一直尝试至数据尾，不以等待天数制造成交；forced 留作旧消费者兼容。
     """
     total = len(bars)
     idx = trigger_idx
-    k = 0
-    while idx < total and k <= config.EXIT_POSTPONE_LIMIT:
+    while idx < total:
         prev_close = bars[idx - 1][4]
-        if bars[idx][4] > limit_down(prev_close):
-            exit_idx = idx
-            if k > 0:
-                exec_raw = float(bars[idx][1])   # 顺延日按开盘成交
-            return exit_idx, exec_raw, False
-        k += 1
+        price = exec_raw if idx == trigger_idx else float(bars[idx][1])
+        has_volume = len(bars[idx]) < 6 or bars[idx][5] > 0
+        if (has_volume and bars[idx][4] > limit_down(prev_close)
+                and price > limit_down(prev_close)):
+            return idx, price, False
         idx += 1
-    exit_idx = min(trigger_idx + config.EXIT_POSTPONE_LIMIT, total - 1)
-    return exit_idx, float(bars[exit_idx][4]), True
+    return None, None, False
 
 
 def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
@@ -271,13 +270,13 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
     bars 为该股完整快照序列；signal 含 t/stop/target。
     出场为盘中触价即时成交（保守口径，v5.1 已采纳为正式口径）；
     触发当日收盘跌停则顺延至下一非跌停日开盘卖出，
-    连续 EXIT_POSTPONE_LIMIT 日跌停 → 第 N 日收盘强平 forced=true。
+    连续跌停至数据尾则保留未平仓，不制造强平成交。
 
     I12 卖出变体（docs/迭代_i12_卖出闭环/；默认全关=baseline 行为逐字不变）：
     - ``daily``：该股日度台账 {date: row}（replay daily_actions.jsonl）；
     - ``exit_mode``：
       * strict_final / strict_raw —— 台账日 S 的 final/raw action 跌出 SIGNAL_BUY_TIERS
-        → 次日（S+1）开盘卖出（跌停顺延沿用）；触发日后无 bar 则不虚构出场（走视界兜底）；
+        → 次日（S+1）开盘卖出（跌停顺延沿用）；触发日后无 bar 则保留未平仓；
       * confirm2 —— final 口径连续 confirm_days（缺省 SELL_EVAL_CONFIRM_DAYS）个台账日
         出买入档才触发；
       * time_stop —— 持有 ≥ time_stop_days 个完成交易日且 R=(close−entry)/(entry−stop)
@@ -337,6 +336,22 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
                 "pnl": None, "pnl_pct": None, "hold_days": None, "forced": False}
     shares = lots * config.LOT_SIZE
     buy_amount = entry_price * shares
+
+    def open_result(outcome, pending_exit=""):
+        mark_price = float(bars[-1][4])
+        market_value = round(mark_price * shares, 2)
+        buy_commission = max(config.COMMISSION_RATE * buy_amount, config.MIN_COMMISSION)
+        return {
+            "outcome": outcome, "entry_date": bars[entry_idx][0],
+            "entry_price": entry_price, "exit_date": None, "exit_price": None,
+            "pnl": None, "pnl_pct": None, "shares": shares,
+            "hold_days": total - 1 - entry_idx, "forced": False,
+            "position_open": True, "pending_exit": pending_exit,
+            "mark_date": bars[-1][0], "mark_price": mark_price,
+            "market_value": market_value,
+            # 浮动盈亏只扣已发生的买入佣金；不假装发生卖出费用。
+            "unrealized_pnl": round(market_value - buy_amount - buy_commission, 2),
+        }
 
     # I12 卖出变体开关（默认 baseline：下列开关全 False，行为与 I8.1 逐字一致）
     use_signal = (exit_mode in ("strict_final", "strict_raw", "confirm2")
@@ -402,7 +417,7 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
             if exit_mode == "confirm2":
                 streak = streak + 1 if out else 0
                 out = streak >= confirm_need
-            if out and i + 1 < total:
+            if out:
                 trigger_idx, trigger_kind = i, exit_mode
                 break
         if use_time_stop and (i - entry_idx) >= int(time_stop_days):
@@ -414,6 +429,8 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
     forced = False
     if trigger_idx is not None:
         if trigger_kind in ("strict_final", "strict_raw", "confirm2"):
+            if trigger_idx + 1 >= total:
+                return open_result("open", trigger_kind)
             exec_raw = float(bars[trigger_idx + 1][1])   # 信号：触发次日开盘
             idx0 = trigger_idx + 1
         elif trigger_kind in ("limit_open", "ma20_break", "peak_drawdown",
@@ -421,18 +438,27 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
             exec_raw = float(bars[trigger_idx][4])       # 收盘规则：触发日收盘
             idx0 = trigger_idx
         else:
-            exec_raw = stop if trigger_kind == "stop" else target
+            opening = float(bars[trigger_idx][1])
+            exec_raw = min(stop, opening) if trigger_kind == "stop" else max(target, opening)
             idx0 = trigger_idx
         # 出场可行性：当日收盘跌停 → 顺延至下一非跌停日开盘；
-        # 连续 EXIT_POSTPONE_LIMIT 日跌停（或数据尾）→ 收盘强平 forced=true
+        # 数据尾仍不可成交则保留持仓，不将计划价计入已实现收益。
         exit_date_idx, exec_raw, forced = _sell_execute(bars, idx0, exec_raw, limit_down)
+        if exit_date_idx is None:
+            return open_result("open", trigger_kind)
         exit_price = _slip(exec_raw, "sell")
         outcome = trigger_kind
     else:
         exit_date_idx = end - 1
         horizon_covered = total >= entry_idx + 1 + config.SIM_HORIZON
-        outcome = "timeout" if horizon_covered else "truncated"
-        exit_price = _slip(float(bars[exit_date_idx][4]), "sell")
+        if not horizon_covered:
+            return open_result("truncated")
+        outcome = "timeout"
+        exit_date_idx, exec_raw, forced = _sell_execute(
+            bars, exit_date_idx, float(bars[exit_date_idx][4]), limit_down)
+        if exit_date_idx is None:
+            return open_result("open", "timeout")
+        exit_price = _slip(exec_raw, "sell")
 
     sell_amount = exit_price * shares
     pnl = round(sell_amount - buy_amount - _fees(buy_amount, sell_amount), 2)
@@ -447,6 +473,7 @@ def simulate_signal(symbol: str, name: str, bars: list, signal: dict,
         "shares": shares,
         "hold_days": exit_date_idx - entry_idx,
         "forced": forced,
+        "position_open": False,
     }
 
 
@@ -471,6 +498,11 @@ def summarize_simulation(sim_rows: list) -> dict:
         "insufficient_capital": sum(1 for r in sim_rows if r.get("outcome") == "insufficient_capital"),
         "unfilled": sum(1 for r in sim_rows if r.get("outcome") == "unfilled"),
         "forced": sum(1 for r in sim_rows if r.get("forced")),
+        "open": sum(1 for r in sim_rows if r.get("position_open")),
+        "open_market_value": round(sum(r.get("market_value", 0) for r in sim_rows
+                                      if r.get("position_open")), 2),
+        "unrealized_pnl": round(sum(r.get("unrealized_pnl", 0) for r in sim_rows
+                                   if r.get("position_open")), 2),
         "insufficient_sample": len(trades) < config.SAMPLE_MIN,
     }
 
@@ -523,6 +555,10 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     dedupe_window = dedupe_window or config.DEDUPE_WINDOW_DAYS
     bars_by_symbol, _manifest = load_snapshot(snapshot_id, root)
     signals = load_signals(snapshot_id, root)
+    invalid_symbols = {
+        symbol for symbol, meta in manifest.get("symbols", {}).items()
+        if meta.get("ohlc_invalid") or _ohlc_violations(bars_by_symbol.get(symbol) or [])
+    }
 
     # 交易日历：全部 bar 日期并集（含指数；bar 即事实源）
     trading_dates = sorted({str(b[0]) for bars in bars_by_symbol.values()
@@ -555,6 +591,8 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     names = {sym: meta.get("name", "") for sym, meta in manifest.get("symbols", {}).items()}
     # I8.2 超额基准：快照内指数 bars；缺失/为空 → 退化绝对口径（报告头披露）
     bench_bars = [b for b in (bars_by_symbol.get(BENCH_KEY) or []) if b]
+    if _ohlc_violations(bench_bars):
+        bench_bars = []
     bench_closes = [float(b[4]) for b in bench_bars]
     bench_dates = [str(b[0]) for b in bench_bars]
     has_bench = bool(bench_closes)
@@ -573,7 +611,7 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
     simulated_rows = []
     for s in signals:
         bars = bars_by_symbol.get(s["symbol"])
-        if not bars or s["t"] >= len(bars):
+        if s["symbol"] in invalid_symbols or not bars or s["t"] >= len(bars):
             continue
         closes = [b[4] for b in bars]
         if has_bench:
@@ -642,12 +680,14 @@ def run_stats(snapshot_id: str, root: str = None, results_root: str = None,
         "insufficient_capital": insufficient_capital_count,
         "unfilled_limit": unfilled_count,
         "forced_exits": sum(1 for r in simulated_rows if r.get("forced")),
+        "open_positions": sum(1 for r in simulated_rows if r.get("position_open")),
+        "skipped_ohlc_invalid": len(invalid_symbols),
         "pool_version": manifest.get("pool_version"),
         "snapshot_id": manifest.get("snapshot_id"),
         "benchmark_symbol": config.BENCHMARK_SYMBOL if has_bench else None,
         "benchmark_name": config.BENCHMARK_NAME if has_bench else None,
-        "usable_symbols": sum(1 for m in manifest.get("symbols", {}).values()
-                              if not m.get("insufficient") and not m.get("ohlc_invalid")),
+        "usable_symbols": sum(1 for sym, m in manifest.get("symbols", {}).items()
+                              if not m.get("insufficient") and sym not in invalid_symbols),
         "total_symbols": manifest.get("total_symbols"),
         "stale_used": bool(manifest.get("stale_used")),
         "exit_rule": "盘中触价即时成交（保守）",

@@ -159,7 +159,7 @@ def test_limit_up_deferred():
     assert "600001" not in state["positions"]
 
 
-def test_limit_down_deferred_and_force():
+def test_limit_down_deferred_cannot_be_forced():
     state, _deci, _trade = _buy_deci()
     # 构造跌停场景：pre_close=120 → 跌停 120*0.9005=108.06，卖价 108 ≤ 跌停
     trade, err = sa.execute_sell(state, "600000", 108.0, sa.REASON_STOP,
@@ -167,12 +167,13 @@ def test_limit_down_deferred_and_force():
                                  sim_dir_override=_shared_dir())
     assert err == "limit_down_deferred"
     assert trade is None
-    # force=True 跳过跌停拦截
+    # 普通卖出即便显式传 force=True 也不能虚构跌停成交
     trade, err = sa.execute_sell(state, "600000", 108.0, sa.REASON_STOP,
                                  pre_close=120.0, now=NOW2, force=True,
                                  sim_dir_override=_shared_dir())
-    assert err == "", err
-    assert trade["note"] == "forced"
+    assert err == "limit_down_deferred", err
+    assert trade is None
+    assert "600000" in state["positions"]
 
 
 # ---------------------------------------------------------------- A8 绩效指标手算复核

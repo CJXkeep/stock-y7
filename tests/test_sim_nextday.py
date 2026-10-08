@@ -202,7 +202,13 @@ def test_close_screen_throttle_keeps_queue():
 def test_execute_buy_queue_real():
     """清单执行：正常成交；资金不足条目保留；已持有条目作废；涨停顺延计数。"""
     orig_append = sa.append_trade
+    orig_quote = svc.fetch_quote
+    quotes = {
+        "600000": SimpleNamespace(price=10.0, pre_close=9.9),
+        "600001": SimpleNamespace(price=1e9, pre_close=1e9),
+    }
     sa.append_trade = lambda trade, path=None: None
+    svc.fetch_quote = lambda symbol: quotes[symbol]
     try:
         state = sa.default_state()
         state["buy_queue"] = [
@@ -231,6 +237,7 @@ def test_execute_buy_queue_real():
         assert state["buy_queue"] == []
 
         # 涨停（10.0 → 11.0 涨停价）：顺延计数，条目作废
+        quotes["600001"] = SimpleNamespace(price=11.0, pre_close=10.0)
         state2 = sa.default_state()
         state2["buy_queue"] = [
             Decision(symbol="600001", name="涨停股", side="buy", level="normal",
@@ -258,6 +265,7 @@ def test_execute_buy_queue_real():
         assert "600000" not in state3["positions"]
     finally:
         sa.append_trade = orig_append
+        svc.fetch_quote = orig_quote
 
 
 def test_execute_buy_queue_stale_dropped():

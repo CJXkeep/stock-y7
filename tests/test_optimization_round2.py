@@ -277,7 +277,7 @@ def test_analyze_singleflight_dedup_then_serial():
             return app_mod.handle_analyze({"symbol": ["600001"], "period": ["day"]})
 
         with ThreadPoolExecutor(2) as ex:
-            [f.result() for f in [ex.submit(call_b), ex.submit(call_b)]]
+            [f.result() for f in [ex.submit(call_a), ex.submit(call_b)]]
         assert counter["n"] == 4
 
         # 不同 period 视为不同 key

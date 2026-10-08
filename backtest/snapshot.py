@@ -15,6 +15,7 @@ import datetime
 import hashlib
 import json
 import logging
+import math
 import os
 
 from backtest import config
@@ -55,13 +56,16 @@ def config_hash(extra: dict = None) -> str:
 
 
 def _ohlc_violations(bars: list) -> int:
-    """OHLC 一致性违例数：high<max(o,c) / low>min(o,c) / high<low。"""
+    """缺字段、非有限正价格及 OHLC 大小关系违例均视为无效 bar。"""
     bad = 0
     for b in bars or []:
-        if len(b) < 5:
+        if not isinstance(b, (list, tuple)) or len(b) < 5:
+            bad += 1
             continue
         _, o, h, l, c = b[:5]
-        if not all(isinstance(v, (int, float)) for v in (o, h, l, c)):
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) and v > 0 for v in (o, h, l, c)):
+            bad += 1
             continue
         if h < max(o, c) - 1e-9 or l > min(o, c) + 1e-9 or h < l:
             bad += 1

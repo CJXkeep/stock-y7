@@ -486,8 +486,19 @@ def _store_upsert_klines(symbol: str, adjust: str, klines: List[Kline]) -> int:
     if not klines:
         return 0
     try:
-        return _kstore.upsert_bars(symbol, adjust or "none",
-                                   [_kline_to_dict(k) for k in klines])
+        written = _kstore.upsert_bars(symbol, adjust or "none",
+                                      [_kline_to_dict(k) for k in klines])
+        final = _market_probe.get("final", "")
+        if final:
+            marker = f"provisional:{symbol}:{adjust or 'none'}"
+            latest = klines[-1].date[:10]
+            if latest > final:
+                _kstore.set_meta(marker, latest)
+            else:
+                provisional = _kstore.get_meta(marker)
+                if provisional and latest >= provisional:
+                    _kstore.set_meta(marker, "")
+        return written
     except Exception as exc:
         log.warning(f"K线写入本地存储失败 {symbol}: {exc}")
         return 0
@@ -758,17 +769,33 @@ def _get_day_klines(symbol: str, count: int, adjust: str,
     stored = _store_load_klines(symbol, adjust_key, needed)
     stored_last = stored[-1].date[:10] if stored else ""
     final, prev_final = _market_dates()
+    provisional = _kstore.get_meta(f"provisional:{symbol}:{adjust_key}")
+    needs_close_refresh = bool(provisional and provisional <= final and stored_last >= provisional)
     exhausted = _exhausted_satisfied(symbol, adjust_key, needed)
 
     def live_ok(bar: Optional[Kline]) -> bool:
-        return bar is not None and (not stored_last or bar.date[:10] > stored_last)
+        return bar is not None and (not stored_last or bar.date[:10] > stored_last
+                                   or (bar.date[:10] == stored_last and stored_last > final))
 
     live = live_bar if live_ok(live_bar) else None
 
+    # final 在盘中仍是昨日；覆盖 final 只代表历史完整，不能跳过今日行情。
+    today = shanghai_now().strftime("%Y-%m-%d")
+    if (live is None and bridge and adjust_key in ("", "none", "qfq")
+            and final < today and _market_probe.get("latest") == today):
+        cand = synthesize_bar_from_quote(fetch_quote(symbol), market_date=today)
+        if live_ok(cand):
+            live = cand
+    if live is not None and stored and live.date[:10] == stored_last and stored_last > final:
+        # 网络初建可能曾落入盘中半成品；最新快照应替代同日旧 bar。
+        stored = stored[:-1]
+        stored_last = stored[-1].date[:10] if stored else ""
+
     if stored and final:
         effective_last = live.date[:10] if live else stored_last
-        if effective_last >= final:
-            if len(stored) >= needed or exhausted:
+        if (not needs_close_refresh and effective_last >= final
+                and (stored_last >= final or stored_last >= prev_final)):
+            if len(stored) + int(live is not None) >= needed or exhausted:
                 return _append_live(stored, live)
             # 新鲜但深度不足：全量补抓到目标深度（一次性）
             fetched = _fetch_kline_network(symbol, full_depth, "day", adjust, use_disk=False, cache_result=False)
@@ -780,7 +807,7 @@ def _get_day_klines(symbol: str, count: int, adjust: str,
                 return _append_live(merged, live)
             return _append_live(stored, live)
         # 分层2：只缺"今天"——桥接当日bar，避免逐股拉K线
-        if prev_final and stored_last >= prev_final:
+        if not needs_close_refresh and prev_final and stored_last >= prev_final:
             if live is None and bridge and adjust_key in ("", "none", "qfq"):
                 q = fetch_quote(symbol)
                 cand = synthesize_bar_from_quote(q)
@@ -807,6 +834,9 @@ def _get_day_klines(symbol: str, count: int, adjust: str,
     if fetched:
         merged, added = _merge_into_store(symbol, adjust_key, stored, fetched, needed)
         if merged is not None:
+            if needs_close_refresh and not any(k.date[:10] == provisional for k in fetched):
+                # 非空网络响应也可能只到昨日，不能借此确认本地今日半成品。
+                merged = [k for k in merged if k.date[:10] != provisional]
             if added == 0:
                 _kstore.set_meta(f"empty:{symbol}:{adjust_key}", str(time.time()))
             return _append_live(merged, live_bar)
@@ -823,6 +853,8 @@ def _get_day_klines(symbol: str, count: int, adjust: str,
         # 网络失败：标记空尾验证时间，时间窗内分层2不再重复补尾
         _kstore.set_meta(f"empty:{symbol}:{adjust_key}", str(time.time()))
     merged = _store_load_klines(symbol, adjust_key, needed)
+    if needs_close_refresh:
+        merged = [k for k in merged if k.date[:10] != provisional]
     if merged:
         log.warning(f"K线补尾失败，回退本地存量 {symbol}: last={stored_last}")
         return _append_live(merged, live_bar)

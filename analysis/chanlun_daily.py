@@ -205,7 +205,10 @@ def find_daily_strokes(fractals: List[DailyFractal],
             if end is not None:
                 strokes.append(DailyStroke(
                     direction, start.price, end.price, start.date, end.date,
-                    start_pos, end_pos, confirmed_date=f.date))
+                    start_pos, end_pos,
+                    # 分型中心本身不可知，右侧第一根原始 K 出现后才能确认。
+                    confirmed_date=(merged[f.index + 1].date_start
+                                    if f.index + 1 < len(merged) else None)))
                 start = end
                 start_pos = end_pos
                 direction = "up" if direction == "down" else "down"
@@ -328,6 +331,9 @@ def _signal_timing(stroke: DailyStroke, dates: List[str]) -> tuple:
     """由笔对象生成 (observation_date, confirmed_date, executable_date)。"""
     observation = stroke.end_date
     confirmed = stroke.confirmed_date
+    if confirmed and len(dates) >= MACD_MIN_BARS:
+        # MACD 预热完成前尚不能发布依赖背驰的信号。
+        confirmed = max(confirmed, dates[MACD_MIN_BARS - 1])
     executable = _next_date(dates, confirmed)
     return observation, confirmed, executable
 

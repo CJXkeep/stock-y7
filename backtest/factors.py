@@ -118,7 +118,10 @@ def fetch_fundamentals(symbols, *, fetch=None, now=None):
         fetched_at = ""
     seen = set()
     for symbol in (symbols or []):
-        s = str(symbol or "").strip().zfill(6)
+        s = str(symbol or "").strip()
+        if not s:
+            continue
+        s = s.zfill(6)
         if len(s) != 6 or not s.isdigit() or s in seen:
             continue
         seen.add(s)

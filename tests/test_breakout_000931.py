@@ -36,8 +36,8 @@ def _klines() -> list:
 
 
 def test_000931_buy_point_is_close_confirmed_entry():
-    """系统一/系统二买点均为 08-24@5.09（收盘确认），止损/离场 4.93，
-    09-01 触及加仓后 2N 止损出局 → 卖出；置信度低于展示门槛（<60）。
+    """系统一/系统二买点均为 08-24@5.09（收盘确认），止损/离场 4.94，
+    08-31 触及当日加仓后 2N 止损出局 → 卖出；置信度低于展示门槛（<60）。
     固定反回归：买点不得是 08-27 那根冲高回落假突破。"""
     kl = _klines()
     for fn in (analyze_breakout_system1, analyze_breakout_system2):
@@ -46,13 +46,14 @@ def test_000931_buy_point_is_close_confirmed_entry():
         assert r.entry_date == "2026-08-24", (fn.__name__, r.entry_date)
         assert abs(r.entry_price - 5.09) < 0.005, (fn.__name__, r.entry_price)
         assert r.position_units == 4, (fn.__name__, r.position_units)
-        assert abs(r.stop_loss - 4.93) < 0.005, (fn.__name__, r.stop_loss)
+        # 用首次出局日的 N 锁定退出，不能用 09-04 的 N 回改至 4.93。
+        assert abs(r.stop_loss - 4.94) < 0.005, (fn.__name__, r.stop_loss)
         assert r.signal == "卖出", (fn.__name__, r.signal)
-        assert r.exit_price is not None and abs(r.exit_price - 4.93) < 0.005, \
+        assert r.exit_price is not None and abs(r.exit_price - 4.94) < 0.005, \
             (fn.__name__, r.exit_price)
         assert r.confidence < 60, (fn.__name__, r.confidence)
         assert r.confidence_level == "低", (fn.__name__, r.confidence_level)
-        assert any("2026-09-01" in f and "2N 止损" in f for f in r.confidence_factors), \
+        assert any("2026-08-31" in f and "2N 止损" in f for f in r.confidence_factors), \
             (fn.__name__, r.confidence_factors)
 
 

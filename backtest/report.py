@@ -21,6 +21,8 @@ RESULT_FIELDS = [
     "missing_horizons",
     "sim_outcome", "sim_exit_rule", "sim_entry_date", "sim_entry_price",
     "sim_exit_date", "sim_exit_price", "sim_pnl", "sim_pnl_pct", "sim_shares",
+    "sim_position_open", "sim_pending_exit", "sim_mark_date", "sim_mark_price",
+    "sim_market_value", "sim_unrealized_pnl",
 ]
 
 # I12 卖出规则对照逐笔明细（sell_eval.csv；一行 = 信号 × 变体）
@@ -28,6 +30,7 @@ SELL_EVAL_FIELDS = [
     "symbol", "signal_date", "variant",
     "outcome", "entry_date", "entry_price", "exit_date", "exit_price",
     "pnl", "pnl_pct", "shares", "hold_days", "forced",
+    "position_open", "pending_exit", "mark_date", "mark_price", "market_value", "unrealized_pnl",
 ]
 
 
@@ -104,18 +107,22 @@ def render_report(summary: dict, manifest: dict) -> str:
             meta.get("pool_version"), manifest.get("current_pool_version")))
     lines.append("- 参与统计笔数：**%d**" % meta.get("stats_count", 0))
     if meta.get("simulate"):
-        lines.append("- 单信号独立模拟：capital=%.0f 元、T+1 开盘入场（含 %.1f%% 滑点）、出场口径=**%s**、同日双触保守记止损、卖出跌停顺延（连续 %d 日强平标 forced）、费率佣金双边 max(0.025%%×金额,5元)+印花税卖出 0.05%%；insufficient_capital=%d 笔、unfilled=%d 笔、forced=%d 笔" % (
+        lines.append("- 单信号独立模拟：capital=%.0f 元、T+1 开盘入场（含 %.1f%% 滑点）、出场口径=**%s**、同日双触保守记止损、跳空按开盘处理、卖出跌停持续顺延；数据尾仍不可成交或不足持有视界记未平仓，不虚构成交。费率佣金双边 max(0.025%%×金额,5元)+印花税卖出 0.05%%；insufficient_capital=%d 笔、unfilled=%d 笔、未平仓=%d 笔" % (
             meta.get("capital", 0), config.SLIPPAGE_RATE * 100, meta.get("exit_rule", ""),
-            config.EXIT_POSTPONE_LIMIT, meta.get("insufficient_capital", 0),
-            meta.get("unfilled_limit", 0), meta.get("forced_exits", 0)))
+            meta.get("insufficient_capital", 0),
+            meta.get("unfilled_limit", 0), meta.get("open_positions", 0)))
         sim = summary.get("simulation") or {}
         lines.append("- 模拟汇总：笔数 %s | 胜率 %s%% | 平均净收益率 %s%% | 中位 %s%% | 盈亏比 %s | 持有天数 %s~%s（中位 %s）" % (
             _fmt(sim.get("n")), _fmt(sim.get("win_rate")), _fmt(sim.get("avg_pnl_pct")),
             _fmt(sim.get("median_pnl_pct")), _fmt(sim.get("profit_factor")),
             _fmt(sim.get("hold_min")), _fmt(sim.get("hold_max")), _fmt(sim.get("hold_median"))))
+        lines.append("- 上述胜率与净收益仅统计已平仓交易；未平仓 %s 笔，持仓估值合计 %s 元，浮动盈亏合计 %s 元"
+                     "（仅扣已发生买入费用；各信号独立模拟，合计不代表组合净值）。" % (
+                         _fmt(sim.get("open", 0)), _fmt(sim.get("open_market_value", 0)),
+                         _fmt(sim.get("unrealized_pnl", 0))))
     else:
         lines.append("- 资金假设：capital=%.0f 元（仅模拟模式生效，本次未启用模拟）" % meta.get("capital", 0))
-    lines.append("- 分组 n<%d 标注「⚠样本不足」，不下结论；统计为信号与市场环境的复合结果，非因果；自用参考，**非投资建议**" % config.SAMPLE_MIN)
+    lines.append("- 各视界 n 只计有效收益，缺失不计入样本门槛；分组 n<%d 标注「⚠样本不足」，不下结论；统计为信号与市场环境的复合结果，非因果；自用参考，**非投资建议**" % config.SAMPLE_MIN)
     lines.append("")
 
     def cell(block, h, key="r%d"):
@@ -258,7 +265,7 @@ def render_report(summary: dict, manifest: dict) -> str:
                 "time_stop": "time_stop（持有≥%d 个完成交易日且 R<%.1f）" % (
                     sc.get("time_stop_days", 0), sc.get("time_stop_min_r", 1.0)),
             }
-            lines.append("| 变体 | n | 胜率% | 平均净收益% | 中位% | 盈亏比 | 持有交易日(中位) | forced | unfilled |")
+            lines.append("| 变体 | 已平仓 n | 胜率% | 平均净收益% | 中位% | 盈亏比 | 持有交易日(中位) | 未平仓 | unfilled |")
             lines.append("|---|---|---|---|---|---|---|---|---|")
             for v in config.SELL_EVAL_VARIANTS:
                 block = variants.get(v)
@@ -273,7 +280,7 @@ def render_report(summary: dict, manifest: dict) -> str:
                     _c(block.get("win_rate"), block.get("insufficient_sample")),
                     _fmt(block.get("avg_pnl_pct")), _fmt(block.get("median_pnl_pct")),
                     _fmt(block.get("profit_factor")), _fmt(block.get("hold_median")),
-                    _fmt(block.get("forced")), _fmt(block.get("unfilled"))))
+                    _fmt(block.get("open", 0)), _fmt(block.get("unfilled"))))
             lines.append("")
             lines.append("> 口径：全部变体与 baseline 用同一批信号样本（去重/预热排除后）、"
                          "同一入场与费率口径；信号卖出=台账日 S 收盘判定→S+1 开盘执行（T+1/跌停顺延沿用）；"

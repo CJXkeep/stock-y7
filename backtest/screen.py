@@ -56,7 +56,8 @@ def evaluate_gate(rows: list, sample_min: int = None,
     r60 = _block(rows, "r60")
     e20 = _block(rows, "r20_excess")
     e60 = _block(rows, "r60_excess")
-    n = int(r20.get("n") or 0)
+    # 两个超额判据都必须具有足够的有效观测，不能用短视界数量为长视界背书。
+    n = min(int(block.get("n") or 0) for block in (r20, r60, e20, e60))
     checks = [
         ("n>=SAMPLE_MIN", n >= sample_min, "n=%d（须>=%d）" % (n, sample_min)),
         ("r20_excess>0", bool(e20.get("avg_return") is not None

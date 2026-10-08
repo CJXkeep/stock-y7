@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -317,6 +318,19 @@ def _execute_buy_queue(state: dict, cfg: dict, adapter, stats: dict,
             deci = Decision(**entry)
         except (TypeError, ValueError):
             continue
+        # 清单保存信号与防守价；成交价和涨停基准必须取执行日行情。
+        try:
+            quote = fetch_quote(symbol)
+            price = float(getattr(quote, "price", 0) or 0)
+            pre_close = float(getattr(quote, "pre_close", 0) or 0)
+        except Exception:
+            price = pre_close = 0.0
+        if not (math.isfinite(price) and price > 0
+                and math.isfinite(pre_close) and pre_close > 0):
+            kept.append(entry)            # 行情缺失不沿用昨日价，等待下轮重试
+            continue
+        deci.price = price
+        deci.pre_close = pre_close
         summary = portfolio_summary(state, {}, now)
         budget = summary["equity"] * per_trade_pct / 100.0 * adapter.position_scale(deci.level)
         # 外源参考：撮合排队 volume 代理（119；默认 off 零影响）——队列不足走顺延
@@ -464,22 +478,23 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
         if not quote or not quote.price or quote.price <= 0:
             continue                       # 停牌 / 无报价，本轮跳过
 
-        # 跌停顺延计数：价格已脱离跌停（> 跌停价）则清零，避免「非连续跌停」过早强平
+        # 连续跌停天数：价格脱离跌停后清零；待执行卖出意图仍保留。
         if int(pos.get("exit_postpone", 0) or 0) > 0:
             ld = limit_down_price(quote.pre_close or 0, symbol, pos.get("name", ""))
             if ld > 0 and quote.price > ld:
                 pos["exit_postpone"] = 0
+                pos["exit_postpone_date"] = ""
 
         hold_days = _trading_days_since(str(pos.get("buy_date", "")), symbol)
-        reason = None
+        reason = pos.get("pending_exit_reason") or None
         mhd = int(cfg.get("max_hold_days", 0) or 0)
-        if mhd > 0 and hold_days is not None and hold_days >= mhd:
+        if not reason and mhd > 0 and hold_days is not None and hold_days >= mhd:
             reason = REASON_MAX_HOLD
-        elif cfg.get("stop_loss_enabled") and pos.get("stop") and quote.price <= float(pos["stop"]):
+        elif not reason and cfg.get("stop_loss_enabled") and pos.get("stop") and quote.price <= float(pos["stop"]):
             reason = REASON_STOP
-        elif cfg.get("take_profit_enabled") and pos.get("target") and quote.price >= float(pos["target"]):
+        elif not reason and cfg.get("take_profit_enabled") and pos.get("target") and quote.price >= float(pos["target"]):
             reason = REASON_TARGET
-        elif adapter is not None and getattr(adapter, "exit_check", None):
+        elif not reason and adapter is not None and getattr(adapter, "exit_check", None):
             # 外源参考动态退出规则（涨停开板/MA20 跌破/高点回撤/放量；策略适配层产出）
             try:
                 reason = adapter.exit_check(pos, quote, ctx)
@@ -503,22 +518,16 @@ def _check_positions(state: dict, cfg: dict, ctx: dict, now: datetime.datetime,
 
         trade, err = execute_sell(state, symbol, quote.price, reason,
                                   pre_close=quote.pre_close, now=now)
+        if err in ("t1_restriction", "limit_down_deferred"):
+            pos["pending_exit_reason"] = reason
         if err == "t1_restriction":
             continue
         if err == "limit_down_deferred":
-            postpone = int(pos.get("exit_postpone", 0) or 0) + 1
-            if postpone >= int(journal_config.EXIT_POSTPONE_LIMIT):
-                trade, err2 = execute_sell(state, symbol, quote.price, reason,
-                                           pre_close=quote.pre_close, now=now, force=True)
-                if err2 == "" and trade:
-                    stats["sold"] += 1
-                    stats.setdefault("trades", []).append(trade)
-                    _pop_sell_queue(state, symbol)
-                    pos = None                # 已平仓
-                else:
-                    pos["exit_postpone"] = postpone
-            else:
-                pos["exit_postpone"] = postpone
+            # 同一交易日多次巡检只计一次；无法成交就保留持仓与卖出意图。
+            day = today_str(now)
+            if pos.get("exit_postpone_date") != day:
+                pos["exit_postpone"] = int(pos.get("exit_postpone", 0) or 0) + 1
+                pos["exit_postpone_date"] = day
             continue
         if err == "" and trade:
             stats["sold"] += 1

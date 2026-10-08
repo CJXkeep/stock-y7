@@ -144,7 +144,8 @@ def _stop_breached_after_entry(klines: List[Kline], entry_idx: int,
 
 def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
                         entry: float, n_val: float, period: int,
-                        stop: float = None) -> Tuple[int, List[str]]:
+                        stop: float = None,
+                        stop_breach_idx: Optional[int] = None) -> Tuple[int, List[str]]:
     """突破买点置信度（0-100）与加减分明细。
 
     评估维度（全部只用突破日及之后的已收盘数据，无未来函数）：
@@ -264,7 +265,9 @@ def evaluate_confidence(klines: List[Kline], entry_idx: int, direction: str,
         factors.append(f"入场后逆行 {abs(move):.1f}N，逼近/跌破止损 (-16)")
 
     # 6) 出局校验：入场后曾收盘触及实际止损（与信号止损同源，含加仓上移）
-    breach_idx = _stop_breached_after_entry(klines, entry_idx, direction, entry, n_val, stop)
+    # 系统分析已按每日止损回放时复用其结果，不能把最终加仓止损倒套到早期 K 线。
+    breach_idx = (stop_breach_idx if stop_breach_idx is not None else
+                  _stop_breached_after_entry(klines, entry_idx, direction, entry, n_val, stop))
     if breach_idx >= 0:
         score -= 30
         factors.append(f"入场后 {klines[breach_idx].date} 已收盘触及 2N 止损，该仓位应已出局 (-30)")
@@ -309,50 +312,51 @@ def _analyze_system(klines: List[Kline], period: int, system_name: str) -> Break
     direction, entry, entry_idx = last_entry
     holding_days = len(klines) - 1 - entry_idx
 
-    if direction == "多":
-        # 入场后最高价决定加仓单位数
-        high_since = max(k.high for k in klines[entry_idx + 1:]) if len(klines) > entry_idx + 1 else entry
-        extra = 0
-        if high_since > entry + 0.5 * n_val:
-            extra = int((high_since - entry) // (0.5 * n_val))
-        units = min(1 + extra, 4)  # 海龟单位上限：单市场最多 4 单位
-        # 加仓后止损上移至最后加仓价：stop = (entry+(units-1)*0.5N) - 2N
-        last_add_price = entry + (units - 1) * 0.5 * n_val
-        stop = last_add_price - 2 * n_val
-        next_add = entry + units * 0.5 * n_val if (units < 4 and system_name != "系统二(55日)") else None
-        # 多头退出：仅看最后一日收盘是否跌破止损
-        if klines[-1].close <= stop:
-            signal = "卖出"
-            exit_price = stop
+    # 按当时可见的 N、加仓高点与退出通道回放；首次出局是该入场的终态。
+    # 不能拿今天的止损倒扫过去，也不能在反弹后把已止损的旧入场恢复成持仓。
+    high_since = entry
+    stop_breach_idx = -1
+    for day_idx in range(entry_idx, len(klines)):
+        history = klines[:day_idx + 1]
+        day_n = calc_n(history, 20)
+        last = history[-1]
+        signal, exit_price = "持仓", None
+        if direction == "多":
+            if day_idx > entry_idx:
+                high_since = max(high_since, last.high)
+            extra = 0
+            if day_n > 0 and high_since > entry + 0.5 * day_n:
+                extra = int((high_since - entry) // (0.5 * day_n))
+            units = min(1 + extra, 4)
+            last_add_price = entry + (units - 1) * 0.5 * day_n
+            stop = last_add_price - 2 * day_n
+            next_add = entry + units * 0.5 * day_n if (
+                units < 4 and system_name != "系统二(55日)") else None
+            if last.close <= stop:
+                signal, exit_price, next_add = "卖出", stop, None
+                stop_breach_idx = day_idx
+            sig_text = (f"触及2N止损{stop:.2f}，卖出" if signal == "卖出"
+                        else f"持有多头{holding_days}日，止损{stop:.2f}")
         else:
-            signal = "持仓"
-            exit_price = None
-        sig_text = (f"触及2N止损{stop:.2f}，卖出" if signal == "卖出"
-                    else f"持有多头{holding_days}日，止损{stop:.2f}")
-    else:
-        stop = entry + 2 * n_val
-        units = 1
-        next_add = None
-        # 空头平仓：仅看最后一日。系统一用10日高点，系统二用20日高点。
-        # 20日(10日)高点突破优先，其次 2N 止损；两者均只看当日。
-        exit_window = 10 if "系统一" in system_name else 20
-        high_exit_level = calc_donchian_channel(klines, exit_window)[0]
-        last = klines[-1]
-        if last.high >= high_exit_level:
-            signal = "空头平仓"
-            exit_price = high_exit_level
-            sig_text = f"突破{exit_window}日高点{high_exit_level:.2f}，空头平仓"
-        elif last.close >= stop:
-            signal = "空头平仓"
-            exit_price = stop
-            sig_text = f"触及2N止损{stop:.2f}，空头平仓"
-        else:
-            signal = "持仓"
-            exit_price = None
-            sig_text = f"持有空头{holding_days}日，止损{stop:.2f}"
+            stop = entry + 2 * day_n
+            units, next_add = 1, None
+            exit_window = 10 if "系统一" in system_name else 20
+            high_exit_level = calc_donchian_channel(history, exit_window)[0]
+            if last.high >= high_exit_level:
+                signal, exit_price = "空头平仓", high_exit_level
+                sig_text = f"突破{exit_window}日高点{high_exit_level:.2f}，空头平仓"
+            elif last.close >= stop:
+                signal, exit_price = "空头平仓", stop
+                stop_breach_idx = day_idx
+                sig_text = f"触及2N止损{stop:.2f}，空头平仓"
+            else:
+                sig_text = f"持有空头{holding_days}日，止损{stop:.2f}"
+        if exit_price is not None:
+            break
 
     conf, conf_factors = evaluate_confidence(
-        klines, entry_idx, direction, entry, n_val, period, stop=stop)
+        klines, entry_idx, direction, entry, n_val, period, stop=stop,
+        stop_breach_idx=stop_breach_idx)
 
     return BreakoutResult(
         system=system_name,

@@ -101,7 +101,7 @@ def test_a2_delegate_equals_pure():
 
 
 def test_policy_version_and_hash_shape():
-    assert policy_version() == "policy.v1.gate"
+    assert policy_version() == "policy.v2.risk-consistency"
     h = policy_hash()
     assert isinstance(h, str) and len(h) == 12
 

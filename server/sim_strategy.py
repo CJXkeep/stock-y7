@@ -372,8 +372,12 @@ class QushiV5Adapter(StrategyAdapter):
                 elif rtype == "enum":
                     allowed = set(rule.get("options") or [])
                     items = value if isinstance(value, (list, tuple, set)) else [value]
-                    out[key] = [v for v in dict.fromkeys(
-                        _alias_level(v) for v in items) if v in allowed] or rule["default"]
+                    values = [v for v in dict.fromkeys(
+                        _alias_level(v) for v in items) if v in allowed]
+                    if isinstance(rule["default"], list):
+                        out[key] = values or rule["default"]
+                    else:
+                        out[key] = values[0] if values else rule["default"]
                 else:                       # 未知类型：原样保留
                     out[key] = value
             except (TypeError, ValueError):
@@ -620,6 +624,8 @@ class QushiV5Adapter(StrategyAdapter):
         if mode == "off" or deci is None:
             return None, 0
         action = str(getattr(deci, "reason", "") or "")
+        if not action:
+            return None, 0               # 行情异常/历史不足并非有效出档，断开连续计数
         out = action not in frozenset(journal_config.SIGNAL_BUY_TIERS)
         if mode == "confirm2":
             streak = prev_streak + 1 if out else 0
@@ -657,9 +663,9 @@ class QushiV5Adapter(StrategyAdapter):
             hist = klines[:-1] if is_today_bar else klines
 
             # 1) 涨停开板（115/104：持仓昨日涨停、今日开板即卖）
-            if int(journal_config.SIM_EXIT_LIMIT_OPEN) and len(klines) >= 3:
-                prev_close = klines[-2].close
-                prev_prev_close = klines[-3].close
+            if int(journal_config.SIM_EXIT_LIMIT_OPEN) and len(hist) >= 2:
+                prev_close = hist[-1].close
+                prev_prev_close = hist[-2].close
                 if prev_prev_close > 0 and prev_close >= limit_up_price(prev_prev_close, symbol, name):
                     today_up = limit_up_price(float(quote.pre_close or 0), symbol, name)
                     if today_up > 0 and quote.price < today_up:
@@ -683,6 +689,9 @@ class QushiV5Adapter(StrategyAdapter):
                             peak = max(peak, float(k.high or 0))
                 peak = max(peak, float(pos.get("buy_price", 0) or 0))
                 peak = max(peak, float(quote.price or 0))
+                peak = max(peak, float(getattr(quote, "high", 0) or 0))
+                if is_today_bar:
+                    peak = max(peak, float(klines[-1].high or 0))
                 if peak > 0 and quote.price < peak:
                     dd = (peak - quote.price) / peak * 100.0
                     if dd > peak_dd:

@@ -189,10 +189,11 @@ def _ledger(overrides=None):
 
 
 def test_variant_baseline_truncated():
-    """baseline（无台账）：视界兜底 → truncated，末日收盘卖（I8.1 行为不变）。"""
+    """baseline（无台账）：视界不足记 truncated 未平仓，不制造末日成交。"""
     r = simulate_signal("600519", "贵州茅台", _sim_bars(), SIG)
     assert r["outcome"] == "truncated"
-    assert r["exit_date"] == "2026-01-10"
+    assert r["exit_date"] is None and r["position_open"] is True
+    assert r["pnl_pct"] is None and r["mark_date"] == "2026-01-10"
 
 
 def test_variant_strict_final():
@@ -260,8 +261,8 @@ def test_variant_time_stop_boundary():
 def test_variant_price_rules_win_same_day():
     """同日优先级（预承诺）：止损/止盈 > 信号卖出 > 时间止损。"""
     lo = [b[:] for b in _sim_bars()]
-    lo[3] = ["2026-01-04", 10.8, 11.0, 9.0, 9.7, 1000]   # t=3 盘中触止损（收盘不跌停）
-    r = simulate_signal("600519", "贵州茅台", lo, SIG,
+    lo[3] = ["2026-01-04", 10.8, 11.0, 9.7, 9.8, 1000]   # t=3 盘中触止损（可成交价高于跌停）
+    r = simulate_signal("600519", "贵州茅台", lo, dict(SIG, stop=10.0),
                         daily=_ledger({"2026-01-04": "观望"}), exit_mode="strict_final")
     assert r["outcome"] == "stop" and r["exit_date"] == "2026-01-04"
     # 目标优先于时间止损：bar4 high 11.2 ≥ target 11.05
@@ -272,10 +273,11 @@ def test_variant_price_rules_win_same_day():
 
 
 def test_variant_signal_on_last_bar_not_fabricated():
-    """信号触发在最后一根 bar（无次日开盘）→ 不虚构出场，走视界兜底。"""
+    """末根触发但无次日开盘：保留持仓与待卖意图，不虚构出场。"""
     r = simulate_signal("600519", "贵州茅台", _sim_bars(), SIG,
                         daily=_ledger({"2026-01-10": "观望"}), exit_mode="strict_final")
-    assert r["outcome"] == "truncated"
+    assert r["outcome"] == "open" and r["pending_exit"] == "strict_final"
+    assert r["exit_date"] is None and r["pnl_pct"] is None
 
 
 # ---------------------------------------------------------------- 对照报告
