@@ -1,0 +1,10 @@
+.trend-intro { color: #aaa; font-size: 13px; margin: 0; line-height: 1.7; }
+.trend-note { color: #aaa; font-size: 12px; margin: 8px 0 0; line-height: 1.8; }
+.trend-note a { color: #4fc3f7; }
+.trend-error { color: #ff8a80; border-left: 3px solid #ff8a80; padding: 10px 14px; margin: 0; background: #221717; }
+.trend-scroll { overflow-x: auto; }
+.trend-scroll .sim-table { width: 100%; white-space: nowrap; }
+.trend-scroll .sim-table td:last-child { white-space: normal; min-width: 90px; }
+.sp-actions button:disabled { cursor: default; opacity: .45; }
+.sp-actions button:focus-visible, .sp-back:focus-visible { outline: 2px solid #4fc3f7; outline-offset: 3px; }
+@media (max-width: 650px) { .sp-actions { flex-wrap: wrap; } .sp-wrap { padding: 14px 12px 30px; } }

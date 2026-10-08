@@ -81,6 +81,9 @@ from server.correct_service import handle_correct_validate, handle_correct_execu
 from server.sim_service import (
     handle_sim_get, handle_sim_post, start_watcher as start_sim_watcher,
 )
+from server.trend_service import (
+    handle_trend_get, handle_trend_post, start_watcher as start_trend_watcher,
+)
 from server.http_utils import _parse_count, MAX_KLINE_COUNT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -596,6 +599,7 @@ _GET_ROUTES = {
     "/api/evaluation/summary": handle_evaluation_summary,
     "/api/evaluation/doc": handle_evaluation_doc,
     "/api/sim": handle_sim_get,
+    "/api/trend": handle_trend_get,
 }
 
 class Handler(BaseHTTPRequestHandler):
@@ -825,7 +829,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/api/candidates/validate", "/api/notify",
                         "/api/kline-store", "/api/evaluation/refresh",
                         "/api/evaluation/sensitivity", "/api/correct/validate",
-                        "/api/correct/execute", "/api/sim", "/api/scan/history"):
+                        "/api/correct/execute", "/api/sim", "/api/trend", "/api/scan/history"):
             self._json({"ok": False, "error": "未知POST路径"}, 404)
             return
         try:
@@ -860,6 +864,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handle_candidates_validate_post(body))
             elif path == "/api/sim":
                 self._json(handle_sim_post(body))
+            elif path == "/api/trend":
+                self._json(handle_trend_post(body))
             elif path == "/api/scan/history":
                 self._json(handle_scan_history_post(body))
             else:
@@ -884,6 +890,8 @@ def main():
     start_rolling_service()
     # 启动模拟账户巡检 watcher（v6 sim-account：交易时段内按配置间隔自动选股与买卖）
     start_sim_watcher()
+    # 独立趋势组合：没有创建并启用运行时仅待机，不迁移旧账户。
+    start_trend_watcher()
     # ThreadingHTTPServer: 多线程处理，浏览器并发请求不会卡死
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

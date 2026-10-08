@@ -27,6 +27,7 @@ EXPECTED_SERVER_MODULES = (
 )
 
 EXPECTED_GET_ROUTES = {
+    "/api/trend",
     "/api/analyze", "/api/quote", "/api/quotes", "/api/search",
     "/api/kline", "/api/minute", "/api/chanlun_minute", "/api/chanlun_daily",
     "/api/realtime_flow", "/api/journal", "/api/pool", "/api/watchlist",

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>中期趋势组合</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="trend.css">
+  <script src="vendor/echarts.min.js"></script>
+</head>
+<body class="sim-page">
+  <header class="sp-topbar">
+    <div class="sp-header">
+      <a class="sp-back" href="/">← 看板</a>
+      <h1>中期趋势组合</h1>
+      <span id="trend-status" class="sp-state" role="status" aria-live="polite">正在读取账户…</span>
+      <div class="sp-actions">
+        <button class="settings-btn" id="trend-create" disabled>新建模拟运行</button>
+        <button class="settings-btn" id="trend-enable" disabled>启用自动模拟</button>
+        <button class="settings-btn" id="trend-pause" disabled>暂停模拟</button>
+        <button class="settings-btn" id="trend-run" disabled>执行一轮</button>
+        <button class="settings-btn" id="trend-refresh">刷新</button>
+      </div>
+    </div>
+  </header>
+  <main class="sp-wrap">
+    <p class="trend-intro">独立虚拟资金账户 · 沪深主板 · 收盘形成计划，次日执行 · 中期趋势，回撤优先</p>
+    <p id="trend-error" class="trend-error" role="alert" hidden></p>
+    <section class="sp-card">
+      <h2 class="sp-card-title">账户与风险</h2>
+      <div id="trend-overview"></div>
+      <p id="trend-risk-note" class="trend-note"></p>
+    </section>
+    <section class="sp-card">
+      <h2 class="sp-card-title">净值记录</h2>
+      <div id="trend-chart" class="sp-chart" role="img" aria-label="当前独立模拟运行的净值曲线"></div>
+      <p class="trend-note">曲线仅反映本次运行。无法可靠估值的时点保留缺口，未成交持仓仍计入风险。</p>
+    </section>
+    <section class="sp-card">
+      <h2 class="sp-card-title">当前持仓</h2>
+      <div class="trend-scroll" id="trend-positions"></div>
+    </section>
+    <div class="sp-cols">
+      <section class="sp-card">
+        <h2 class="sp-card-title">待执行计划</h2>
+        <div class="trend-scroll" id="trend-plans"></div>
+      </section>
+      <section class="sp-card">
+        <h2 class="sp-card-title">运行记录</h2>
+        <div class="trend-scroll" id="trend-events"></div>
+      </section>
+    </div>
+    <section class="sp-card">
+      <h2 class="sp-card-title">成交流水</h2>
+      <div class="trend-scroll" id="trend-trades"></div>
+    </section>
+    <section class="sp-card">
+      <h2 class="sp-card-title">本版规则</h2>
+      <p class="trend-note">最多持有 5 只股票，总仓位上限 60%，单股上限 15%，同行业上限 30%。单笔计划损失预算为净值的 0.5%。</p>
+      <p class="trend-note">回撤达到 8% 后降低仓位，12% 后清仓并暂停，15% 标记风险目标未达成。停牌、跌停或 T+1 限制会延迟卖出，风险目标不代表保证损失上限。</p>
+      <p class="trend-note">周线确认趋势，日线突破入场，波动止损和趋势退出。参数处于验证阶段，前向观察满 60 个交易日也不等于已经证明盈利能力。</p>
+      <p class="trend-note">新建运行会保留旧记录；仍有持仓时须先处理原运行。<a href="/sim.html">查看原模拟账户</a></p>
+      <div class="trend-scroll" id="trend-runs"></div>
+    </section>
+  </main>
+  <script type="module" src="js/trend.js"></script>
+</body>
+</html>
